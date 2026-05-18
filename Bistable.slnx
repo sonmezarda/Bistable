@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Bistable.App/Bistable.App.csproj" />
+    <Project Path="src/Bistable.Core/Bistable.Core.csproj" />
+    <Project Path="src/Bistable.Protocol/Bistable.Protocol.csproj" />
+    <Project Path="src/Bistable.Verilator/Bistable.Verilator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Bistable.Tests/Bistable.Tests.csproj" />
+  </Folder>
+</Solution>

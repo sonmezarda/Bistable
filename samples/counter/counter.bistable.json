@@ -1,0 +1,26 @@
+{
+  "topModule": "counter",
+  "sources": [
+    "counter.sv"
+  ],
+  "parameters": {
+    "W": "8"
+  },
+  "clocks": [
+    {
+      "name": "clk",
+      "defaultPeriodNs": 10
+    }
+  ],
+  "resets": [
+    {
+      "name": "rst_n",
+      "activeLevel": 0
+    }
+  ],
+  "trace": {
+    "enabled": true,
+    "format": "fst",
+    "depth": 1
+  }
+}

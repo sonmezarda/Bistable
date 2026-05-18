@@ -1,0 +1,18 @@
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.suo
+*.log
+
+# Local planning and scratch notes for Codex sessions.
+.codex-notes/
+
+# Generated simulation/build artifacts.
+.bistable/
+verilator-out/
+*.vcd
+*.fst
+
+.agents/
