@@ -18,9 +18,15 @@ public sealed class WaveformLaneViewModel : ViewModelBase
 
     public string Name => _signal.Name;
 
+    public string DisplayName => _signal.DisplayName;
+
+    public string ScopeLabel => string.IsNullOrWhiteSpace(_signal.ScopePath) ? "top-level" : _signal.ScopePath!;
+
     public int Width => _signal.Width;
 
     public bool IsBoolean => _signal.IsBoolean;
+
+    public string WidthLabel => Width == 1 ? "1 bit" : $"{Width} bits";
 
     public string LatestValue
     {

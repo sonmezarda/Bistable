@@ -55,10 +55,17 @@ public sealed class MainWindowViewModel : ViewModelBase
     private ulong _time;
     private string? _traceFilePath;
     private VcdTraceDocument _traceDocument = VcdTraceDocument.Empty;
+    private readonly int _liveEvaluationDelayMs;
+    private bool _liveModeEnabled = true;
+    private bool _suppressInputLiveUpdate;
+    private CancellationTokenSource? _liveEvaluationCts;
+    private bool _isLiveEvaluationInFlight;
+    private bool _liveEvaluationPending;
 
-    public MainWindowViewModel(BistableWorkspace workspace, bool loadPersistedLayout = true)
+    public MainWindowViewModel(BistableWorkspace workspace, bool loadPersistedLayout = true, int liveEvaluationDelayMs = 120)
     {
         _workspace = workspace;
+        _liveEvaluationDelayMs = Math.Max(0, liveEvaluationDelayMs);
         LoadProjectCommand = new AsyncCommand(LoadProjectAsync);
         BuildCommand = new AsyncCommand(BuildAsync);
         EvalCommand = new AsyncCommand(EvaluateAsync);
@@ -514,6 +521,25 @@ public sealed class MainWindowViewModel : ViewModelBase
         set => SetProperty(ref _runCyclesText, value);
     }
 
+    public bool LiveModeEnabled
+    {
+        get => _liveModeEnabled;
+        set
+        {
+            if (SetProperty(ref _liveModeEnabled, value))
+            {
+                if (value)
+                {
+                    ScheduleLiveEvaluation();
+                }
+                else
+                {
+                    CancelLiveEvaluation();
+                }
+            }
+        }
+    }
+
     public ulong WaveformCursorTime => SelectedWaveformLane?.GetTimeAtOrBefore(WaveformCursorOrder) ?? Time;
 
     public string WaveformCursorSummary
@@ -564,6 +590,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             TraceSignals.Clear();
             WaveformLanes.Clear();
             AvailableClocks.Clear();
+            UnsubscribeFromInputs();
             _waveformOrder = 0;
             WaveformOffset = 0;
             WaveformCursorOrder = 0;
@@ -593,18 +620,6 @@ public sealed class MainWindowViewModel : ViewModelBase
                 }
             }
 
-            foreach (string clockName in ResolveAvailableClocks(result.Project, Inputs))
-            {
-                AvailableClocks.Add(clockName);
-            }
-
-            SelectedClockName = AvailableClocks.FirstOrDefault();
-
-            SelectedWaveformLane = WaveformLanes.FirstOrDefault();
-            WaveformCursorOrder = _waveformOrder;
-            HierarchyRoot = new HierarchyNodeViewModel(result.Design.HierarchyRoot);
-            SelectedHierarchyNode = HierarchyRoot;
-
             ProjectName = Path.GetFileName(path);
             TopModule = result.Metadata.Name;
             VerilatorVersion = result.VerilatorVersion;
@@ -612,6 +627,20 @@ public sealed class MainWindowViewModel : ViewModelBase
             _currentProject = result.Project;
             _currentMetadata = result.Metadata;
             _currentProjectDirectory = result.ProjectDirectory;
+
+            foreach (string clockName in ResolveAvailableClocks(result.Project, Inputs))
+            {
+                AvailableClocks.Add(clockName);
+            }
+
+            SubscribeToInputs();
+
+            SelectedClockName = AvailableClocks.FirstOrDefault();
+
+            SelectedWaveformLane = WaveformLanes.FirstOrDefault();
+            WaveformCursorOrder = _waveformOrder;
+            HierarchyRoot = new HierarchyNodeViewModel(result.Design.HierarchyRoot);
+            SelectedHierarchyNode = HierarchyRoot;
             await DisposeWorkerAsync();
             Status = $"Loaded {result.Metadata.Ports.Count} top-level ports.";
         }
@@ -955,7 +984,15 @@ public sealed class MainWindowViewModel : ViewModelBase
         SignalViewModel? input = Inputs.FirstOrDefault(input => string.Equals(input.Name, name, StringComparison.OrdinalIgnoreCase));
         if (input is not null)
         {
-            input.Value = value;
+            _suppressInputLiveUpdate = true;
+            try
+            {
+                input.Value = value;
+            }
+            finally
+            {
+                _suppressInputLiveUpdate = false;
+            }
         }
     }
 
@@ -977,6 +1014,8 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     private async Task DisposeWorkerAsync()
     {
+        CancelLiveEvaluation();
+
         if (_worker is not null)
         {
             await _worker.DisposeAsync();
@@ -1057,6 +1096,176 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
 
         WaveformCursorOrder = _waveformOrder;
+    }
+
+    private void SubscribeToInputs()
+    {
+        foreach (SignalViewModel input in Inputs)
+        {
+            input.PropertyChanged += OnInputPropertyChanged;
+        }
+    }
+
+    private void UnsubscribeFromInputs()
+    {
+        foreach (SignalViewModel input in Inputs)
+        {
+            input.PropertyChanged -= OnInputPropertyChanged;
+        }
+    }
+
+    private void OnInputPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (_suppressInputLiveUpdate || sender is not SignalViewModel || e.PropertyName != nameof(SignalViewModel.Value))
+        {
+            return;
+        }
+
+        ScheduleLiveEvaluation();
+    }
+
+    private void ScheduleLiveEvaluation()
+    {
+        if (!LiveModeEnabled || TopModule == "-")
+        {
+            return;
+        }
+
+        if (_isLiveEvaluationInFlight)
+        {
+            _liveEvaluationPending = true;
+            return;
+        }
+
+        if (!AreInputsReadyForEvaluation(out string? invalidSignalName))
+        {
+            if (!string.IsNullOrWhiteSpace(invalidSignalName))
+            {
+                Status = $"Waiting for a valid value on {invalidSignalName}.";
+            }
+
+            return;
+        }
+
+        CancelLiveEvaluation();
+        CancellationTokenSource cts = new();
+        _liveEvaluationCts = cts;
+        _ = RunScheduledLiveEvaluationAsync(cts.Token);
+    }
+
+    private async Task RunScheduledLiveEvaluationAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (_liveEvaluationDelayMs > 0)
+            {
+                await Task.Delay(_liveEvaluationDelayMs, cancellationToken);
+            }
+
+            await ExecuteLiveEvaluationAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task ExecuteLiveEvaluationAsync(CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested || _isLiveEvaluationInFlight || !LiveModeEnabled)
+        {
+            return;
+        }
+
+        if (!AreInputsReadyForEvaluation(out _))
+        {
+            return;
+        }
+
+        _isLiveEvaluationInFlight = true;
+        try
+        {
+            await EvaluateAsync(cancellationToken);
+            Status = _worker is null
+                ? "Live preview updated."
+                : "Live native eval updated.";
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            _isLiveEvaluationInFlight = false;
+            if (_liveEvaluationPending)
+            {
+                _liveEvaluationPending = false;
+                ScheduleLiveEvaluation();
+            }
+        }
+    }
+
+    private void CancelLiveEvaluation()
+    {
+        if (_liveEvaluationCts is null)
+        {
+            return;
+        }
+
+        _liveEvaluationCts.Cancel();
+        _liveEvaluationCts.Dispose();
+        _liveEvaluationCts = null;
+        _liveEvaluationPending = false;
+    }
+
+    private bool AreInputsReadyForEvaluation(out string? invalidSignalName)
+    {
+        foreach (SignalViewModel input in Inputs)
+        {
+            if (!TryParseInputValue(input.Value, out _))
+            {
+                invalidSignalName = input.Name;
+                return false;
+            }
+        }
+
+        invalidSignalName = null;
+        return true;
+    }
+
+    private static bool TryParseInputValue(string text, out BigInteger value)
+    {
+        text = text.Trim().Replace("_", string.Empty, StringComparison.Ordinal);
+        if (text.Length == 0)
+        {
+            value = BigInteger.Zero;
+            return false;
+        }
+
+        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            return BigInteger.TryParse(text[2..], NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out value);
+        }
+
+        if (text.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
+        {
+            value = BigInteger.Zero;
+            foreach (char bit in text[2..])
+            {
+                if (bit is not ('0' or '1'))
+                {
+                    return false;
+                }
+
+                value <<= 1;
+                if (bit == '1')
+                {
+                    value += BigInteger.One;
+                }
+            }
+
+            return true;
+        }
+
+        return BigInteger.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
     }
 
     private void RefreshTraceState()

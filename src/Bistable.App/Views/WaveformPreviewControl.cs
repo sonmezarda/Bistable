@@ -121,10 +121,8 @@ public sealed class WaveformPreviewControl : Control
             return;
         }
 
-        double leftName = 12;
-        double valueColumnX = 122;
-        double plotLeft = 210;
-        double plotRight = Math.Max(plotLeft + 60, bounds.Width - 16);
+        double plotLeft = 10;
+        double plotRight = Math.Max(plotLeft + 60, bounds.Width - 10);
         double axisTop = 10;
         double laneTop = 34;
         double laneHeight = Math.Max(28, (bounds.Height - laneTop - 12) / Math.Max(1, lanes.Count));
@@ -134,14 +132,12 @@ public sealed class WaveformPreviewControl : Control
         long cursorOrder = Math.Clamp(CursorOrder <= 0 ? maxOrder : CursorOrder, windowStart, windowEnd);
 
         DrawAxis(context, lanes, plotLeft, plotRight, axisTop, windowStart, windowEnd);
-        context.DrawLine(GridPen, new Point(valueColumnX - 10, 4), new Point(valueColumnX - 10, bounds.Height - 8));
-        context.DrawLine(GridPen, new Point(plotLeft - 12, 4), new Point(plotLeft - 12, bounds.Height - 8));
+        context.DrawLine(GridPen, new Point(plotLeft, 4), new Point(plotLeft, bounds.Height - 8));
 
         for (int laneIndex = 0; laneIndex < lanes.Count; laneIndex++)
         {
             WaveformLaneViewModel lane = lanes[laneIndex];
             double laneY = laneTop + laneIndex * laneHeight;
-            double laneMid = laneY + laneHeight / 2;
             double bitHigh = laneY + 8;
             double bitLow = laneY + laneHeight - 8;
             bool isSelected = string.Equals(lane.Name, SelectedSignalName, StringComparison.OrdinalIgnoreCase);
@@ -152,8 +148,6 @@ public sealed class WaveformPreviewControl : Control
             }
 
             context.DrawLine(GridPen, new Point(plotLeft, laneY + laneHeight - 2), new Point(plotRight, laneY + laneHeight - 2));
-            DrawText(context, lane.Name, leftName, laneMid - 8, TextBrush, 12);
-            DrawText(context, lane.GetValueAtOrBefore(cursorOrder), valueColumnX, laneMid - 8, TextBrush, 12);
 
             if (lane.IsBoolean)
             {
@@ -226,7 +220,7 @@ public sealed class WaveformPreviewControl : Control
             return;
         }
 
-        const double plotLeft = 210;
+        const double plotLeft = 10;
         double plotRight = Math.Max(plotLeft + 60, Bounds.Width - 16);
         double laneTop = 34;
         double laneHeight = Math.Max(28, (Bounds.Height - laneTop - 12) / Math.Max(1, lanes.Count));
@@ -267,9 +261,6 @@ public sealed class WaveformPreviewControl : Control
         long windowStart,
         long windowEnd)
     {
-        DrawText(context, "Name", 12, axisTop, MutedBrush, 11);
-        DrawText(context, "Value", 122, axisTop, MutedBrush, 11);
-
         const int divisions = 6;
         for (int index = 0; index < divisions; index++)
         {

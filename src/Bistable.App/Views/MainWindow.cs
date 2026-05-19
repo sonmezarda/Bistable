@@ -217,6 +217,7 @@ public sealed class MainWindow : Window
                 ToolbarButton("Build", "BuildCommand"),
                 ToolbarButton("Eval", "EvalCommand"),
                 ToolbarButton("Tick", "TickCommand"),
+                ToolbarCheckBox("Live", "LiveModeEnabled"),
                 ToolbarLabel("Clock"),
                 ToolbarComboBox("AvailableClocks", "SelectedClockName", 110),
                 ToolbarLabel("Cycles"),
@@ -411,19 +412,98 @@ public sealed class MainWindow : Window
         Grid.SetRow(toolbar, 1);
         waveform.Children.Add(toolbar);
 
+        Grid content = new()
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(new GridLength(300)),
+                new ColumnDefinition(new GridLength(8)),
+                new ColumnDefinition(GridLength.Star)
+            },
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+
+        Border lanesBorder = PanelBorder();
+        lanesBorder.Child = BuildWaveformLaneList();
+        content.Children.Add(lanesBorder);
+
+        GridSplitter laneSplitter = new()
+        {
+            Width = 8,
+            Background = Brushes.Transparent,
+            ResizeDirection = GridResizeDirection.Columns,
+            [Grid.ColumnProperty] = 1
+        };
+        content.Children.Add(laneSplitter);
+
         WaveformPreviewControl preview = new()
         {
             ClipToBounds = true,
-            Margin = new Thickness(0, 10, 0, 0),
             [!WaveformPreviewControl.LanesProperty] = new Binding("WaveformLanes"),
             [!WaveformPreviewControl.ZoomProperty] = new Binding("WaveformZoom"),
             [!WaveformPreviewControl.OffsetProperty] = new Binding("WaveformOffset"),
             [!WaveformPreviewControl.SelectedSignalNameProperty] = new Binding("SelectedWaveformSignalName", BindingMode.TwoWay),
             [!WaveformPreviewControl.CursorOrderProperty] = new Binding("WaveformCursorOrder", BindingMode.TwoWay)
         };
-        Grid.SetRow(preview, 2);
-        waveform.Children.Add(preview);
+        Grid.SetColumn(preview, 2);
+        content.Children.Add(preview);
+
+        Grid.SetRow(content, 2);
+        waveform.Children.Add(content);
         return waveform;
+    }
+
+    private static Control BuildWaveformLaneList()
+    {
+        Grid grid = new()
+        {
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Star)
+            },
+            Margin = new Thickness(10)
+        };
+
+        grid.Children.Add(new TextBlock
+        {
+            Text = "Waveform Signals",
+            Foreground = AccentBrush,
+            FontSize = 12,
+            FontWeight = FontWeight.SemiBold
+        });
+
+        StackPanel actions = new()
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Margin = new Thickness(0, 10, 0, 10),
+            Children =
+            {
+                SmallButton("Up", "MoveWaveformSignalUpCommand"),
+                SmallButton("Down", "MoveWaveformSignalDownCommand"),
+                SmallButton("Remove", "RemoveSelectedWaveformSignalCommand"),
+                SmallButton("Clear", "ClearWaveformCommand")
+            }
+        };
+        Grid.SetRow(actions, 1);
+        grid.Children.Add(actions);
+
+        ListBox list = new()
+        {
+            Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
+            Foreground = TextBrush,
+            ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()),
+            ItemTemplate = WaveformLaneTemplate(),
+            [!ItemsControl.ItemsSourceProperty] = new Binding("WaveformLanes"),
+            [!SelectingItemsControl.SelectedItemProperty] = new Binding("SelectedWaveformLane", BindingMode.TwoWay)
+        };
+        Grid.SetRow(list, 2);
+        grid.Children.Add(list);
+
+        return grid;
     }
 
     private Control BuildSchematicPanelContent()
@@ -655,6 +735,70 @@ public sealed class MainWindow : Window
                 Margin = new Thickness(0, 4)
             });
 
+    private static IDataTemplate WaveformLaneTemplate() => new FuncDataTemplate<WaveformLaneViewModel>((lane, _) =>
+    {
+        if (lane is null)
+        {
+            return new TextBlock();
+        }
+
+        Grid row = new()
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(new GridLength(88))
+            },
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto)
+            },
+            Margin = new Thickness(0, 4),
+            ColumnSpacing = 8
+        };
+
+        row.Children.Add(new TextBlock
+        {
+            Text = lane.DisplayName,
+            Foreground = TextBrush,
+            FontFamily = FontFamily.Parse("monospace"),
+            FontSize = 12
+        });
+
+        row.Children.Add(new TextBlock
+        {
+            Text = lane.LatestValue,
+            Foreground = GreenBrush,
+            FontFamily = FontFamily.Parse("monospace"),
+            FontSize = 12,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            [Grid.ColumnProperty] = 1
+        });
+
+        row.Children.Add(new TextBlock
+        {
+            Text = lane.ScopeLabel,
+            Foreground = MutedBrush,
+            FontSize = 11,
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            [Grid.RowProperty] = 1
+        });
+
+        row.Children.Add(new TextBlock
+        {
+            Text = lane.WidthLabel,
+            Foreground = MutedBrush,
+            FontSize = 11,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            [Grid.ColumnProperty] = 1,
+            [Grid.RowProperty] = 1
+        });
+
+        return row;
+    });
+
     private static IDataTemplate SignalRowTemplate(bool editable) => new FuncDataTemplate<SignalViewModel>((signal, _) =>
     {
         if (signal is null)
@@ -790,6 +934,15 @@ public sealed class MainWindow : Window
         BorderBrush = StrokeBrush,
         HorizontalContentAlignment = HorizontalAlignment.Right,
         [!TextBox.TextProperty] = new Binding(path, BindingMode.TwoWay)
+    };
+
+    private static CheckBox ToolbarCheckBox(string text, string path) => new()
+    {
+        Content = text,
+        MinHeight = 34,
+        VerticalAlignment = VerticalAlignment.Center,
+        Foreground = TextBrush,
+        [!ToggleButton.IsCheckedProperty] = new Binding(path, BindingMode.TwoWay)
     };
 
     private static Button SmallButton(string text, string commandPath) => new()
