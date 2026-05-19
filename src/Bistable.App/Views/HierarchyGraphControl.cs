@@ -14,11 +14,16 @@ public sealed class HierarchyGraphControl : Control
     public static readonly StyledProperty<string?> SelectedPathProperty =
         AvaloniaProperty.Register<HierarchyGraphControl, string?>(nameof(SelectedPath));
 
+    public static readonly StyledProperty<IEnumerable<HierarchyTraceScopeSummaryViewModel>?> ScopeSummariesProperty =
+        AvaloniaProperty.Register<HierarchyGraphControl, IEnumerable<HierarchyTraceScopeSummaryViewModel>?>(nameof(ScopeSummaries));
+
     private static readonly IBrush BackgroundBrush = SolidColorBrush.Parse("#10141b");
     private static readonly IBrush NodeFillBrush = SolidColorBrush.Parse("#182130");
     private static readonly IBrush SelectedFillBrush = SolidColorBrush.Parse("#25344a");
     private static readonly IBrush NodeStrokeBrush = SolidColorBrush.Parse("#344157");
     private static readonly IBrush SelectedStrokeBrush = SolidColorBrush.Parse("#ffd166");
+    private static readonly IBrush BadgeFillBrush = SolidColorBrush.Parse("#121924");
+    private static readonly IBrush BadgeStrokeBrush = SolidColorBrush.Parse("#57c7ff");
     private static readonly IBrush TextBrush = SolidColorBrush.Parse("#d7dde8");
     private static readonly IBrush MutedBrush = SolidColorBrush.Parse("#8f9aad");
     private static readonly IBrush EdgeBrush = SolidColorBrush.Parse("#4f6487");
@@ -35,6 +40,12 @@ public sealed class HierarchyGraphControl : Control
     {
         get => GetValue(SelectedPathProperty);
         set => SetValue(SelectedPathProperty, value);
+    }
+
+    public IEnumerable<HierarchyTraceScopeSummaryViewModel>? ScopeSummaries
+    {
+        get => GetValue(ScopeSummariesProperty);
+        set => SetValue(ScopeSummariesProperty, value);
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -55,6 +66,8 @@ public sealed class HierarchyGraphControl : Control
         }
 
         _layouts.Clear();
+        Dictionary<string, HierarchyTraceScopeSummaryViewModel> summaries = (ScopeSummaries ?? Array.Empty<HierarchyTraceScopeSummaryViewModel>())
+            .ToDictionary(summary => summary.HierarchyPath, StringComparer.OrdinalIgnoreCase);
         Dictionary<int, List<HierarchyNodeViewModel>> byDepth = [];
         CollectByDepth(Root, 0, byDepth);
 
@@ -100,6 +113,11 @@ public sealed class HierarchyGraphControl : Control
             context.DrawRectangle(new Pen(isSelected ? SelectedStrokeBrush : NodeStrokeBrush, isSelected ? 2 : 1.2), layout.Bounds, 8);
             DrawText(context, layout.Node.InstanceName, layout.Bounds.X + 12, layout.Bounds.Y + 10, TextBrush, 12);
             DrawText(context, layout.Node.ModuleName, layout.Bounds.X + 12, layout.Bounds.Y + 29, MutedBrush, 11);
+            if (summaries.TryGetValue(layout.Node.HierarchyPath, out HierarchyTraceScopeSummaryViewModel? summary)
+                && (summary.ExactSignalCount > 0 || summary.DescendantSignalCount > 0))
+            {
+                DrawScopeBadges(context, layout.Bounds, summary);
+            }
         }
     }
 
@@ -141,6 +159,39 @@ public sealed class HierarchyGraphControl : Control
             size,
             brush);
         context.DrawText(formatted, new Point(x, y));
+    }
+
+    private static void DrawScopeBadges(DrawingContext context, Rect bounds, HierarchyTraceScopeSummaryViewModel summary)
+    {
+        string exactText = $"S {summary.ExactSignalCount}";
+        string nestedText = $"D {summary.DescendantSignalCount}";
+
+        double exactWidth = Math.Max(34, MeasureWidth(exactText, 10) + 12);
+        double nestedWidth = Math.Max(34, MeasureWidth(nestedText, 10) + 12);
+        Rect exactRect = new(bounds.Right - exactWidth - nestedWidth - 16, bounds.Bottom - 22, exactWidth, 16);
+        Rect nestedRect = new(bounds.Right - nestedWidth - 8, bounds.Bottom - 22, nestedWidth, 16);
+
+        DrawBadge(context, exactRect, exactText, summary.ExactSignalCount > 0 ? BadgeStrokeBrush : MutedBrush);
+        DrawBadge(context, nestedRect, nestedText, summary.DescendantSignalCount > 0 ? SelectedStrokeBrush : MutedBrush);
+    }
+
+    private static void DrawBadge(DrawingContext context, Rect rect, string text, IBrush strokeBrush)
+    {
+        context.FillRectangle(BadgeFillBrush, rect, 4);
+        context.DrawRectangle(new Pen(strokeBrush, 1), rect, 4);
+        DrawText(context, text, rect.X + 6, rect.Y + 2, strokeBrush, 10);
+    }
+
+    private static double MeasureWidth(string text, double size)
+    {
+        FormattedText formatted = new(
+            text,
+            System.Globalization.CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight,
+            MonoTypeface,
+            size,
+            TextBrush);
+        return formatted.Width;
     }
 
     private sealed record NodeLayout(HierarchyNodeViewModel Node, Rect Bounds);

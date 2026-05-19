@@ -64,6 +64,41 @@ public sealed class VerilatorIntegrationTests
     }
 
     [Fact]
+    public async Task ParallelWorkerBuildsShareOutputDirectorySafely()
+    {
+        string root = FindRepositoryRoot();
+        string sampleDirectory = Path.Combine(root, "samples", "alu");
+
+        ProjectConfiguration configuration = await ProjectConfiguration.LoadAsync(
+            Path.Combine(sampleDirectory, "alu.bistable.json"),
+            CancellationToken.None);
+
+        string outputXml = Path.Combine(Path.GetTempPath(), $"bistable-worker-parallel-{Guid.NewGuid():N}.xml");
+        VerilatorTool tool = new();
+        await tool.GenerateXmlAsync(configuration, sampleDirectory, outputXml, CancellationToken.None);
+
+        try
+        {
+            Bistable.Core.Design.ModuleMetadata metadata = new VerilatorXmlParser().Parse(outputXml);
+            SimulationWorkerBuilder builder = new();
+
+            Task<SimulationWorkerBuildResult> first = builder.BuildAsync(configuration, metadata, sampleDirectory, CancellationToken.None);
+            Task<SimulationWorkerBuildResult> second = builder.BuildAsync(configuration, metadata, sampleDirectory, CancellationToken.None);
+
+            SimulationWorkerBuildResult[] results = await Task.WhenAll(first, second);
+
+            Assert.All(results, result => Assert.True(File.Exists(result.ExecutablePath)));
+            await using SimulationWorkerClient client = new(results[0].ExecutablePath);
+            SimulationSnapshot snapshot = await client.SendAsync(new SimulationCommand(SimulationCommandType.Eval), CancellationToken.None);
+            Assert.NotNull(snapshot);
+        }
+        finally
+        {
+            File.Delete(outputXml);
+        }
+    }
+
+    [Fact]
     public async Task NativeWorkerEvaluatesParameterizedAlu()
     {
         string root = FindRepositoryRoot();

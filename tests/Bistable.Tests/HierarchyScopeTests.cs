@@ -1,0 +1,179 @@
+using Bistable.App.Services;
+using Bistable.App.ViewModels;
+using Bistable.Verilator;
+
+namespace Bistable.Tests;
+
+public sealed class HierarchyScopeTests
+{
+    [Fact]
+    public async Task SelectingHierarchyNodeFiltersTraceSignalsByExactScope()
+    {
+        string root = FindRepositoryRoot();
+        string samplePath = Path.Combine(root, "samples", "hierarchy", "hierarchy.bistable.json");
+        MainWindowViewModel viewModel = CreateViewModel();
+
+        await viewModel.LoadProjectFromPathAsync(samplePath, CancellationToken.None);
+        viewModel.LiveModeEnabled = false;
+        viewModel.BuildCommand.Execute(null);
+
+        await WaitUntilAsync(() => viewModel.TraceSignals.Count > 0, TimeSpan.FromSeconds(20));
+
+        viewModel.SelectedHierarchyPath = "system_top.u_core.u_logic";
+
+        await WaitUntilAsync(() => viewModel.HierarchyScopeSignals.Count > 0, TimeSpan.FromSeconds(5));
+
+        Assert.NotEmpty(viewModel.HierarchyScopeSignals);
+        Assert.All(viewModel.HierarchyScopeSignals, signal =>
+            Assert.Equal("system_top.u_core.u_logic", signal.ScopePath));
+        Assert.Contains(viewModel.HierarchyScopeSignals, signal => signal.Name == "system_top.u_core.u_logic.sum");
+        Assert.DoesNotContain(viewModel.HierarchyScopeSignals, signal => signal.Name.Contains("u_status", StringComparison.OrdinalIgnoreCase));
+
+        int before = viewModel.WaveformLanes.Count;
+        viewModel.AddHierarchyScopeSignalsToWaveformCommand.Execute(null);
+        int expectedAdded = viewModel.HierarchyScopeSignals.Count(signal =>
+            viewModel.WaveformLanes.Any(lane => string.Equals(lane.Name, signal.Name, StringComparison.OrdinalIgnoreCase)));
+
+        Assert.True(viewModel.WaveformLanes.Count >= before);
+        Assert.Equal(viewModel.HierarchyScopeSignals.Count, expectedAdded);
+    }
+
+    [Fact]
+    public async Task SelectingInternalSignalSyncsHierarchyAndBuildsScopeSummaries()
+    {
+        string root = FindRepositoryRoot();
+        string samplePath = Path.Combine(root, "samples", "hierarchy", "hierarchy.bistable.json");
+        MainWindowViewModel viewModel = CreateViewModel();
+
+        await viewModel.LoadProjectFromPathAsync(samplePath, CancellationToken.None);
+        viewModel.LiveModeEnabled = false;
+        viewModel.BuildCommand.Execute(null);
+
+        await WaitUntilAsync(() => viewModel.TraceSignals.Count > 0, TimeSpan.FromSeconds(20));
+        await WaitUntilAsync(() => viewModel.HierarchyTraceScopeSummaries.Count > 0, TimeSpan.FromSeconds(5));
+
+        SignalViewModel sum = viewModel.TraceSignals.Single(signal => signal.Name == "system_top.u_core.u_logic.sum");
+        viewModel.SelectedSignal = sum;
+
+        Assert.Equal("system_top.u_core.u_logic", viewModel.SelectedHierarchyPath);
+
+        HierarchyTraceScopeSummaryViewModel logicSummary = viewModel.HierarchyTraceScopeSummaries
+            .Single(summary => summary.HierarchyPath == "system_top.u_core.u_logic");
+        HierarchyTraceScopeSummaryViewModel coreSummary = viewModel.HierarchyTraceScopeSummaries
+            .Single(summary => summary.HierarchyPath == "system_top.u_core");
+
+        Assert.True(logicSummary.ExactSignalCount > 0);
+        Assert.Equal(0, logicSummary.DescendantSignalCount);
+        Assert.True(coreSummary.DescendantSignalCount >= logicSummary.ExactSignalCount);
+    }
+
+    [Fact]
+    public async Task SelectedSchematicSignalNameResolvesInternalTraceSignals()
+    {
+        string root = FindRepositoryRoot();
+        string samplePath = Path.Combine(root, "samples", "hierarchy", "hierarchy.bistable.json");
+        MainWindowViewModel viewModel = CreateViewModel();
+
+        await viewModel.LoadProjectFromPathAsync(samplePath, CancellationToken.None);
+        viewModel.LiveModeEnabled = false;
+        viewModel.BuildCommand.Execute(null);
+
+        await WaitUntilAsync(() => viewModel.TraceSignals.Count > 0, TimeSpan.FromSeconds(20));
+
+        viewModel.SelectedSchematicSignalName = "system_top.u_core.u_logic.parity";
+
+        Assert.NotNull(viewModel.SelectedSignal);
+        Assert.Equal("system_top.u_core.u_logic.parity", viewModel.SelectedSignal!.Name);
+        Assert.Equal("system_top.u_core.u_logic", viewModel.SelectedHierarchyPath);
+    }
+
+    [Fact]
+    public async Task SelectingHierarchyNodeUpdatesScopeMetadata()
+    {
+        string root = FindRepositoryRoot();
+        string samplePath = Path.Combine(root, "samples", "hierarchy", "hierarchy.bistable.json");
+        MainWindowViewModel viewModel = CreateViewModel();
+
+        await viewModel.LoadProjectFromPathAsync(samplePath, CancellationToken.None);
+        viewModel.LiveModeEnabled = false;
+        viewModel.BuildCommand.Execute(null);
+
+        await WaitUntilAsync(() => viewModel.TraceSignals.Count > 0, TimeSpan.FromSeconds(20));
+
+        viewModel.SelectedHierarchyPath = "system_top.u_core.u_logic";
+
+        await WaitUntilAsync(() => viewModel.HierarchyScopeSignals.Count > 0, TimeSpan.FromSeconds(5));
+
+        Assert.Equal("logic_unit", viewModel.SelectedHierarchyScopeModuleName);
+        Assert.Equal("system_top.u_core.u_logic", viewModel.SelectedHierarchyScopePath);
+        Assert.Contains("Double-click", viewModel.SelectedHierarchyScopeHint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SelectingIntermediateHierarchyNodeBuildsParentAndChildScopeNeighborhood()
+    {
+        string root = FindRepositoryRoot();
+        string samplePath = Path.Combine(root, "samples", "hierarchy", "hierarchy.bistable.json");
+        MainWindowViewModel viewModel = CreateViewModel();
+
+        await viewModel.LoadProjectFromPathAsync(samplePath, CancellationToken.None);
+        viewModel.LiveModeEnabled = false;
+        viewModel.BuildCommand.Execute(null);
+
+        await WaitUntilAsync(() => viewModel.TraceSignals.Count > 0, TimeSpan.FromSeconds(20));
+
+        viewModel.SelectedHierarchyPath = "system_top.u_core";
+
+        await WaitUntilAsync(() => viewModel.SelectedHierarchyChildScopes.Count == 2, TimeSpan.FromSeconds(5));
+
+        Assert.NotNull(viewModel.SelectedHierarchyParentScope);
+        Assert.Equal("system_top", viewModel.SelectedHierarchyParentScope!.HierarchyPath);
+        Assert.Contains(viewModel.SelectedHierarchyChildScopes, scope => scope.HierarchyPath == "system_top.u_core.u_logic");
+        Assert.Contains(viewModel.SelectedHierarchyChildScopes, scope => scope.HierarchyPath == "system_top.u_core.u_status");
+        Assert.Contains("Click a child instance", viewModel.SelectedHierarchyScopeHint, StringComparison.OrdinalIgnoreCase);
+
+        viewModel.SelectHierarchyScopeCommand.Execute("system_top.u_core.u_status");
+
+        Assert.Equal("system_top.u_core.u_status", viewModel.SelectedHierarchyPath);
+    }
+
+    private static MainWindowViewModel CreateViewModel()
+    {
+        string layoutPath = Path.Combine(Path.GetTempPath(), "bistable-tests", Guid.NewGuid().ToString("N"), "layout.json");
+        BistableWorkspace workspace = new(
+            new ProjectDialogService(),
+            new DesignLoadService(),
+            new SimulationWorkerBuilder(),
+            new PreviewSimulationService(),
+            new LayoutStateService(layoutPath));
+
+        return new MainWindowViewModel(workspace, loadPersistedLayout: false, liveEvaluationDelayMs: 20);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan timeout)
+    {
+        DateTime deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (predicate())
+            {
+                return;
+            }
+
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException("Condition was not satisfied within the expected time.");
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Bistable.slnx")))
+        {
+            directory = directory.Parent;
+        }
+
+        return directory?.FullName ?? throw new InvalidOperationException("Repository root could not be found.");
+    }
+}

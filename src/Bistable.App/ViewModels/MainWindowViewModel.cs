@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.Numerics;
 using System.Windows.Input;
@@ -32,6 +33,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private HierarchyNodeViewModel? _hierarchyRoot;
     private HierarchyNodeViewModel? _selectedHierarchyNode;
     private SignalViewModel? _selectedSignal;
+    private SignalViewModel? _observedSelectedSignal;
     private WaveformLaneViewModel? _selectedWaveformLane;
     private DockPanelViewModel? _selectedLeftDockPanel;
     private DockPanelViewModel? _selectedRightDockPanel;
@@ -55,6 +57,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private ulong _time;
     private string? _traceFilePath;
     private VcdTraceDocument _traceDocument = VcdTraceDocument.Empty;
+    private string _schematicDriveValue = "0";
     private readonly int _liveEvaluationDelayMs;
     private bool _liveModeEnabled = true;
     private bool _suppressInputLiveUpdate;
@@ -73,6 +76,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         RunCyclesCommand = new AsyncCommand(RunCyclesAsync);
         ResetCommand = new AsyncCommand(ResetAsync);
         AddSelectedWaveformSignalCommand = new RelayCommand(AddSelectedWaveformSignal);
+        AddHierarchyScopeSignalsToWaveformCommand = new RelayCommand(AddHierarchyScopeSignalsToWaveform);
+        SelectHierarchyScopeCommand = new ParameterizedRelayCommand<string>(SelectHierarchyScope);
+        ToggleInputSignalCommand = new ParameterizedRelayCommand<string>(ToggleInputSignal);
+        DriveSelectedSchematicInputCommand = new RelayCommand(DriveSelectedSchematicInput);
         RemoveSelectedWaveformSignalCommand = new RelayCommand(RemoveSelectedWaveformSignal);
         ClearWaveformCommand = new RelayCommand(ClearWaveform);
         MoveWaveformSignalUpCommand = new RelayCommand(MoveSelectedWaveformSignalUp);
@@ -106,6 +113,12 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<SignalViewModel> TraceSignals { get; } = [];
 
+    public ObservableCollection<SignalViewModel> HierarchyScopeSignals { get; } = [];
+
+    public ObservableCollection<HierarchyTraceScopeSummaryViewModel> HierarchyTraceScopeSummaries { get; } = [];
+
+    public ObservableCollection<HierarchyScopeNodeViewModel> SelectedHierarchyChildScopes { get; } = [];
+
     public ObservableCollection<SampleProjectViewModel> Samples { get; } = [];
 
     public ObservableCollection<WaveformLaneViewModel> WaveformLanes { get; } = [];
@@ -133,6 +146,14 @@ public sealed class MainWindowViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(SelectedHierarchyPath));
                 OnPropertyChanged(nameof(SelectedHierarchySummary));
+                OnPropertyChanged(nameof(SelectedHierarchyScopeTitle));
+                OnPropertyChanged(nameof(SelectedHierarchyScopeModuleName));
+                OnPropertyChanged(nameof(SelectedHierarchyScopePath));
+                OnPropertyChanged(nameof(SelectedHierarchyScopeSummary));
+                OnPropertyChanged(nameof(SelectedHierarchyScopeHint));
+                OnPropertyChanged(nameof(SelectedHierarchyParentScope));
+                RefreshHierarchyScopeSignals();
+                RefreshSelectedHierarchyNeighborhood();
             }
         }
     }
@@ -150,6 +171,14 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ICommand ResetCommand { get; }
 
     public ICommand AddSelectedWaveformSignalCommand { get; }
+
+    public ICommand AddHierarchyScopeSignalsToWaveformCommand { get; }
+
+    public ICommand SelectHierarchyScopeCommand { get; }
+
+    public ICommand ToggleInputSignalCommand { get; }
+
+    public ICommand DriveSelectedSchematicInputCommand { get; }
 
     public ICommand RemoveSelectedWaveformSignalCommand { get; }
 
@@ -184,7 +213,31 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             if (SetProperty(ref _selectedSignal, value))
             {
+                if (_observedSelectedSignal is not null)
+                {
+                    _observedSelectedSignal.PropertyChanged -= OnSelectedSignalPropertyChanged;
+                }
+
+                _observedSelectedSignal = value;
+                if (_observedSelectedSignal is not null)
+                {
+                    _observedSelectedSignal.PropertyChanged += OnSelectedSignalPropertyChanged;
+                }
+
+                if (value is not null && value.IsInput)
+                {
+                    SchematicDriveValue = value.Value;
+                }
+
                 SyncSelectedWaveformLaneFromSignal();
+                SyncHierarchySelectionFromSignal();
+                OnPropertyChanged(nameof(SelectedSchematicSignalDisplayName));
+                OnPropertyChanged(nameof(SelectedSchematicSignalDirection));
+                OnPropertyChanged(nameof(SelectedSchematicSignalWidth));
+                OnPropertyChanged(nameof(SelectedSchematicSignalValue));
+                OnPropertyChanged(nameof(IsSchematicSignalSelected));
+                OnPropertyChanged(nameof(CanDriveSelectedSchematicInput));
+                OnPropertyChanged(nameof(CanToggleSelectedSchematicInput));
                 OnPropertyChanged(nameof(SelectedSchematicSignalName));
             }
         }
@@ -232,7 +285,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
             SelectedSignal = value is null
                 ? null
-                : AllSignals.FirstOrDefault(signal => string.Equals(signal.Name, value, StringComparison.OrdinalIgnoreCase));
+                : FindAnySignalByName(value);
         }
     }
 
@@ -486,6 +539,8 @@ public sealed class MainWindowViewModel : ViewModelBase
             if (SetProperty(ref _topModule, value))
             {
                 OnPropertyChanged(nameof(SchematicModuleName));
+                OnPropertyChanged(nameof(SelectedHierarchyScopeModuleName));
+                OnPropertyChanged(nameof(SelectedHierarchyScopePath));
             }
         }
     }
@@ -509,6 +564,70 @@ public sealed class MainWindowViewModel : ViewModelBase
             ? "Hierarchy"
             : $"{SelectedHierarchyNode.InstanceName} : {SelectedHierarchyNode.ModuleName}";
 
+    public string SelectedHierarchyScopeTitle =>
+        SelectedHierarchyNode is null
+            ? "Scope Signals"
+            : $"{SelectedHierarchyNode.InstanceName} Scope";
+
+    public string SelectedHierarchyScopeModuleName =>
+        SelectedHierarchyNode?.ModuleName
+        ?? (TopModule == "-" ? string.Empty : TopModule);
+
+    public string SelectedHierarchyScopePath =>
+        SelectedHierarchyNode?.HierarchyPath ?? string.Empty;
+
+    public string SelectedHierarchyScopeSummary
+    {
+        get
+        {
+            if (SelectedHierarchyNode is null)
+            {
+                return "Select an instance to inspect its internal trace scope.";
+            }
+
+            int exactCount = HierarchyScopeSignals.Count;
+            int descendantCount = TraceSignals.Count(signal =>
+                !string.IsNullOrWhiteSpace(signal.ScopePath)
+                && signal.ScopePath.StartsWith($"{SelectedHierarchyNode.HierarchyPath}.", StringComparison.OrdinalIgnoreCase));
+
+            return descendantCount == 0
+                ? $"{exactCount} exact-scope traced signals."
+                : $"{exactCount} exact-scope traced signals, {descendantCount} nested below.";
+        }
+    }
+
+    public string SelectedHierarchyScopeHint
+    {
+        get
+        {
+            if (SelectedHierarchyNode is null)
+            {
+                return "Select a hierarchy node to inspect internal probes.";
+            }
+
+            if (SelectedHierarchyChildScopes.Count > 0)
+            {
+                return "Click a child instance to navigate deeper. Double-click a probe to add it to waveform.";
+            }
+
+            return HierarchyScopeSignals.Count switch
+            {
+                0 => "No exact-scope traced locals in this instance.",
+                1 => "Double-click the probe to add it to waveform.",
+                _ => "Select a probe or double-click one to add it to waveform."
+            };
+        }
+    }
+
+    public HierarchyScopeNodeViewModel? SelectedHierarchyParentScope
+    {
+        get
+        {
+            HierarchyNodeViewModel? parent = FindHierarchyParentNode(HierarchyRoot, SelectedHierarchyNode);
+            return parent is null ? null : CreateScopeNode(parent);
+        }
+    }
+
     public string? SelectedClockName
     {
         get => _selectedClockName;
@@ -519,6 +638,12 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         get => _runCyclesText;
         set => SetProperty(ref _runCyclesText, value);
+    }
+
+    public string SchematicDriveValue
+    {
+        get => _schematicDriveValue;
+        set => SetProperty(ref _schematicDriveValue, value);
     }
 
     public bool LiveModeEnabled
@@ -541,6 +666,20 @@ public sealed class MainWindowViewModel : ViewModelBase
     }
 
     public ulong WaveformCursorTime => SelectedWaveformLane?.GetTimeAtOrBefore(WaveformCursorOrder) ?? Time;
+
+    public bool IsSchematicSignalSelected => SelectedSignal is not null;
+
+    public bool CanDriveSelectedSchematicInput => SelectedSignal?.IsInput == true;
+
+    public bool CanToggleSelectedSchematicInput => SelectedSignal?.IsInput == true && SelectedSignal.IsBoolean;
+
+    public string SelectedSchematicSignalDisplayName => SelectedSignal?.DisplayName ?? "No signal selected";
+
+    public string SelectedSchematicSignalDirection => SelectedSignal?.DirectionLabel ?? "-";
+
+    public string SelectedSchematicSignalWidth => SelectedSignal?.WidthLabel ?? "-";
+
+    public string SelectedSchematicSignalValue => SelectedSignal?.Value ?? "-";
 
     public string WaveformCursorSummary
     {
@@ -588,6 +727,9 @@ public sealed class MainWindowViewModel : ViewModelBase
             Outputs.Clear();
             AllSignals.Clear();
             TraceSignals.Clear();
+            HierarchyScopeSignals.Clear();
+            HierarchyTraceScopeSummaries.Clear();
+            SelectedHierarchyChildScopes.Clear();
             WaveformLanes.Clear();
             AvailableClocks.Clear();
             UnsubscribeFromInputs();
@@ -786,6 +928,45 @@ public sealed class MainWindowViewModel : ViewModelBase
         Status = "Native worker reset.";
     }
 
+    private void ToggleInputSignal(string signalName)
+    {
+        SignalViewModel? input = Inputs.FirstOrDefault(input => string.Equals(input.Name, signalName, StringComparison.OrdinalIgnoreCase));
+        if (input is null)
+        {
+            Status = $"Signal '{signalName}' is not a top-level input.";
+            return;
+        }
+
+        SelectedSignal = input;
+        if (!input.IsBoolean)
+        {
+            Status = $"Selected {input.Name}. Use the drive editor for {input.WidthLabel} inputs.";
+            return;
+        }
+
+        input.BooleanValue = !input.BooleanValue;
+        SchematicDriveValue = input.Value;
+        Status = $"Toggled {input.Name} to {input.Value}.";
+    }
+
+    private void DriveSelectedSchematicInput()
+    {
+        if (SelectedSignal is null || !SelectedSignal.IsInput)
+        {
+            Status = "Select an input signal first.";
+            return;
+        }
+
+        if (!TryParseInputValue(SchematicDriveValue, out _))
+        {
+            Status = $"Invalid drive value for {SelectedSignal.Name}. Use decimal, 0x, or 0b.";
+            return;
+        }
+
+        SelectedSignal.Value = SchematicDriveValue.Trim();
+        Status = $"Drove {SelectedSignal.Name} to {SelectedSignal.Value}.";
+    }
+
     private async Task PushInputsAsync(CancellationToken cancellationToken)
     {
         if (_worker is null)
@@ -865,6 +1046,26 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         AddWaveformSignal(SelectedSignal, selectLane: true);
         Status = $"Added {SelectedSignal.Name} to waveform.";
+    }
+
+    private void AddHierarchyScopeSignalsToWaveform()
+    {
+        if (HierarchyScopeSignals.Count == 0)
+        {
+            Status = "No traced signals are available for the selected scope.";
+            return;
+        }
+
+        int before = WaveformLanes.Count;
+        foreach (SignalViewModel signal in HierarchyScopeSignals)
+        {
+            AddWaveformSignal(signal);
+        }
+
+        int added = WaveformLanes.Count - before;
+        Status = added == 0
+            ? $"All signals from {SelectedHierarchyNode?.InstanceName ?? "scope"} are already in the waveform."
+            : $"Added {added} scope signals from {SelectedHierarchyNode?.InstanceName ?? "scope"} to waveform.";
     }
 
     private void RemoveSelectedWaveformSignal()
@@ -1124,6 +1325,20 @@ public sealed class MainWindowViewModel : ViewModelBase
         ScheduleLiveEvaluation();
     }
 
+    private void OnSelectedSignalPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(SignalViewModel.Value))
+        {
+            return;
+        }
+
+        OnPropertyChanged(nameof(SelectedSchematicSignalValue));
+        if (SelectedSignal?.IsInput == true)
+        {
+            SchematicDriveValue = SelectedSignal.Value;
+        }
+    }
+
     private void ScheduleLiveEvaluation()
     {
         if (!LiveModeEnabled || TopModule == "-")
@@ -1232,52 +1447,23 @@ public sealed class MainWindowViewModel : ViewModelBase
     }
 
     private static bool TryParseInputValue(string text, out BigInteger value)
-    {
-        text = text.Trim().Replace("_", string.Empty, StringComparison.Ordinal);
-        if (text.Length == 0)
-        {
-            value = BigInteger.Zero;
-            return false;
-        }
-
-        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-        {
-            return BigInteger.TryParse(text[2..], NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out value);
-        }
-
-        if (text.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
-        {
-            value = BigInteger.Zero;
-            foreach (char bit in text[2..])
-            {
-                if (bit is not ('0' or '1'))
-                {
-                    return false;
-                }
-
-                value <<= 1;
-                if (bit == '1')
-                {
-                    value += BigInteger.One;
-                }
-            }
-
-            return true;
-        }
-
-        return BigInteger.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
-    }
+        => SignalValueCodec.TryParse(text, out value);
 
     private void RefreshTraceState()
     {
         if (string.IsNullOrWhiteSpace(_traceFilePath) || string.IsNullOrWhiteSpace(TopModule))
         {
             _traceDocument = VcdTraceDocument.Empty;
+            HierarchyScopeSignals.Clear();
+            HierarchyTraceScopeSummaries.Clear();
+            OnPropertyChanged(nameof(SelectedHierarchyScopeSummary));
             return;
         }
 
         _traceDocument = _traceReader.Load(_traceFilePath, TopModule);
         SyncTraceSignalCatalog();
+        RebuildHierarchyTraceScopeSummaries();
+        RefreshHierarchyScopeSignals();
         RefreshWaveformFromTrace();
     }
 
@@ -1326,6 +1512,86 @@ public sealed class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(WaveformCursorTime));
     }
 
+    private void RefreshHierarchyScopeSignals()
+    {
+        string? hierarchyPath = SelectedHierarchyNode?.HierarchyPath;
+        string? selectedSignalName = SelectedSignal?.Name;
+        HierarchyScopeSignals.Clear();
+
+        if (string.IsNullOrWhiteSpace(hierarchyPath))
+        {
+            OnPropertyChanged(nameof(SelectedHierarchyScopeSummary));
+            OnPropertyChanged(nameof(SelectedHierarchyScopeHint));
+            return;
+        }
+
+        foreach (SignalViewModel signal in TraceSignals
+                     .Where(signal => string.Equals(signal.ScopePath, hierarchyPath, StringComparison.OrdinalIgnoreCase))
+                     .OrderBy(signal => signal.ShortName, StringComparer.OrdinalIgnoreCase))
+        {
+            HierarchyScopeSignals.Add(signal);
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedSignalName))
+        {
+            SignalViewModel? matching = HierarchyScopeSignals.FirstOrDefault(signal =>
+                string.Equals(signal.Name, selectedSignalName, StringComparison.OrdinalIgnoreCase));
+            if (matching is not null && !ReferenceEquals(SelectedSignal, matching))
+            {
+                SelectedSignal = matching;
+            }
+        }
+
+        OnPropertyChanged(nameof(SelectedHierarchyScopeSummary));
+        OnPropertyChanged(nameof(SelectedHierarchyScopeHint));
+    }
+
+    private void RefreshSelectedHierarchyNeighborhood()
+    {
+        SelectedHierarchyChildScopes.Clear();
+        if (SelectedHierarchyNode is not null)
+        {
+            foreach (HierarchyNodeViewModel child in SelectedHierarchyNode.Children.OrderBy(static child => child.InstanceName, StringComparer.OrdinalIgnoreCase))
+            {
+                SelectedHierarchyChildScopes.Add(CreateScopeNode(child));
+            }
+        }
+
+        OnPropertyChanged(nameof(SelectedHierarchyParentScope));
+        OnPropertyChanged(nameof(SelectedHierarchyScopeHint));
+    }
+
+    private void RebuildHierarchyTraceScopeSummaries()
+    {
+        HierarchyTraceScopeSummaries.Clear();
+        if (HierarchyRoot is null)
+        {
+            return;
+        }
+
+        Dictionary<string, List<SignalViewModel>> byExactScope = TraceSignals
+            .Where(signal => !string.IsNullOrWhiteSpace(signal.ScopePath))
+            .GroupBy(signal => signal.ScopePath!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (HierarchyNodeViewModel node in EnumerateHierarchy(HierarchyRoot))
+        {
+            int exactCount = byExactScope.TryGetValue(node.HierarchyPath, out List<SignalViewModel>? exactSignals)
+                ? exactSignals.Count
+                : 0;
+            int descendantCount = TraceSignals.Count(signal =>
+                !string.IsNullOrWhiteSpace(signal.ScopePath)
+                && signal.ScopePath.StartsWith($"{node.HierarchyPath}.", StringComparison.OrdinalIgnoreCase));
+
+            HierarchyTraceScopeSummaries.Add(new HierarchyTraceScopeSummaryViewModel(
+                node.HierarchyPath,
+                exactCount,
+                descendantCount));
+        }
+
+        RefreshSelectedHierarchyNeighborhood();
+    }
+
     private bool TryPopulateLaneFromTrace(WaveformLaneViewModel lane)
     {
         if (!_traceDocument.TryGetEvents(lane.Name, out IReadOnlyList<VcdTraceEvent>? events) || events.Count == 0)
@@ -1352,6 +1618,16 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    private void SyncHierarchySelectionFromSignal()
+    {
+        if (_selectedSignal is null || string.IsNullOrWhiteSpace(_selectedSignal.ScopePath))
+        {
+            return;
+        }
+
+        SelectedHierarchyPath = _selectedSignal.ScopePath;
+    }
+
     private void SyncSelectedSignalFromWaveformLane()
     {
         if (_selectedWaveformLane is null)
@@ -1362,9 +1638,18 @@ public sealed class MainWindowViewModel : ViewModelBase
         SignalViewModel? signal = FindAnySignalByName(_selectedWaveformLane.Name);
         if (signal is not null && !ReferenceEquals(signal, SelectedSignal))
         {
-            _selectedSignal = signal;
-            OnPropertyChanged(nameof(SelectedSignal));
+            SelectedSignal = signal;
         }
+    }
+
+    private void SelectHierarchyScope(string hierarchyPath)
+    {
+        if (string.IsNullOrWhiteSpace(hierarchyPath))
+        {
+            return;
+        }
+
+        SelectedHierarchyPath = hierarchyPath;
     }
 
     private Task PersistLayoutStateAsync() =>
@@ -1498,6 +1783,18 @@ public sealed class MainWindowViewModel : ViewModelBase
         AllSignals.FirstOrDefault(signal => string.Equals(signal.Name, name, StringComparison.OrdinalIgnoreCase))
         ?? TraceSignals.FirstOrDefault(signal => string.Equals(signal.Name, name, StringComparison.OrdinalIgnoreCase));
 
+    private HierarchyScopeNodeViewModel CreateScopeNode(HierarchyNodeViewModel node)
+    {
+        HierarchyTraceScopeSummaryViewModel? summary = HierarchyTraceScopeSummaries.FirstOrDefault(
+            candidate => string.Equals(candidate.HierarchyPath, node.HierarchyPath, StringComparison.OrdinalIgnoreCase));
+        return new HierarchyScopeNodeViewModel(
+            node.HierarchyPath,
+            node.InstanceName,
+            node.ModuleName,
+            summary?.ExactSignalCount ?? 0,
+            summary?.DescendantSignalCount ?? 0);
+    }
+
     private void RebuildZoneCollection(ObservableCollection<DockPanelViewModel> target, DockZone zone)
     {
         target.Clear();
@@ -1569,5 +1866,41 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
 
         return null;
+    }
+
+    private static HierarchyNodeViewModel? FindHierarchyParentNode(HierarchyNodeViewModel? current, HierarchyNodeViewModel? target)
+    {
+        if (current is null || target is null)
+        {
+            return null;
+        }
+
+        foreach (HierarchyNodeViewModel child in current.Children)
+        {
+            if (ReferenceEquals(child, target))
+            {
+                return current;
+            }
+
+            HierarchyNodeViewModel? match = FindHierarchyParentNode(child, target);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<HierarchyNodeViewModel> EnumerateHierarchy(HierarchyNodeViewModel root)
+    {
+        yield return root;
+        foreach (HierarchyNodeViewModel child in root.Children)
+        {
+            foreach (HierarchyNodeViewModel descendant in EnumerateHierarchy(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 }

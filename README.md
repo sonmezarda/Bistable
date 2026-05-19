@@ -73,6 +73,14 @@ The current UI also supports a basic IDE-style workspace flow:
 - left, right, and bottom dock sizes persist across runs.
 - toolbar clock selection chooses which 1-bit signal `Tick` and `Run` will pulse.
 - `Live` enables immediate combinational/native re-evaluation from the input panel.
+- schematic panel now includes a live probe/drive surface for the selected top-level signal.
+- clicking a 1-bit input pin on the top-level symbol toggles it immediately.
+- clicking a bus input pin now opens a dedicated value editor dialog with radix selection and per-bit toggles.
+- selecting a hierarchy node now exposes its exact-scope traced internal signals in a dedicated explorer list.
+- hierarchy graph nodes now show exact-scope and descendant trace counts.
+- exact-scope internal signals are now also visible on the schematic canvas as selectable scope probes.
+- selected hierarchy instances now render as a focused scope panel on the schematic canvas instead of only a side probe strip.
+- the focused scope panel now shows parent/child instance neighborhood and lets you navigate hierarchy directly from the schematic canvas.
 - toolbar cycle count controls how many cycles `Run` advances.
 - trace-enabled projects expose internal signals under `Project > Trace Signals`.
 - internal trace signals can be added to the waveform like top-level ports.
@@ -81,6 +89,8 @@ The current UI also supports a basic IDE-style workspace flow:
 - schematic panel now also shows instance hierarchy extracted from Verilator XML.
 - bundled `samples/hierarchy/hierarchy.bistable.json` demonstrates a multi-level design.
 - selecting a signal in the browser or schematic highlights it across the workspace.
+- hierarchy scope signals can be added to the waveform one-by-one or as a whole scope.
+- selecting an internal trace signal now syncs the active hierarchy instance automatically.
 - click inside the waveform to select a lane and place the cursor.
 - drag inside the waveform to scrub the cursor across history.
 - mouse wheel zooms the waveform, `Shift + wheel` pans through history.
@@ -96,10 +106,15 @@ For a clocked example, select the `counter` sample, then:
 
 ## Live mode notes
 
-`Live` currently starts from the signal editor, not the schematic canvas. That
-means:
+`Live` now works from both the signal editor and the top-level schematic
+surface. That means:
 
 - combinational designs can behave like Logisim-style direct probing today
 - native worker builds also re-evaluate live after input edits
+- 1-bit top-level inputs can be toggled directly on the symbol
+- wider inputs can be driven directly from a schematic dialog or from the live probe panel
+- exact-scope internal signals can be selected directly on the schematic canvas and added to the waveform with a double-click
+- the schematic canvas now shows the selected hierarchy instance as an internal probe panel with module/path context and live probe values
+- child instances on the focused scope panel are clickable, so hierarchy navigation no longer depends on the tree view alone
 - clock edges are still explicit through `Tick` and `Run`
-- direct pin toggling on the schematic surface is the next planned interaction layer
+- deeper net-level geometry and instance pin routing are still the next planned interaction layer

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Bistable.App.Services;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -523,15 +524,44 @@ public sealed class MainWindow : Window
             "Schematic",
             DockPanelKind.Schematic));
 
+        Grid previewGrid = new()
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(new GridLength(300))
+            },
+            ColumnSpacing = 10,
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+
         SchematicPreviewControl preview = new()
         {
-            Margin = new Thickness(0, 12, 0, 0),
             [!SchematicPreviewControl.ModuleNameProperty] = new Binding("SchematicModuleName"),
             [!SchematicPreviewControl.SignalsProperty] = new Binding("AllSignals"),
-            [!SchematicPreviewControl.SelectedSignalNameProperty] = new Binding("SelectedSchematicSignalName", BindingMode.TwoWay)
+            [!SchematicPreviewControl.ScopeSignalsProperty] = new Binding("HierarchyScopeSignals"),
+            [!SchematicPreviewControl.SelectedSignalNameProperty] = new Binding("SelectedSchematicSignalName", BindingMode.TwoWay),
+            [!SchematicPreviewControl.ToggleInputCommandProperty] = new Binding("ToggleInputSignalCommand"),
+            [!SchematicPreviewControl.AddSelectedWaveformCommandProperty] = new Binding("AddSelectedWaveformSignalCommand"),
+            [!SchematicPreviewControl.SelectScopeCommandProperty] = new Binding("SelectHierarchyScopeCommand"),
+            [!SchematicPreviewControl.ActiveScopeTitleProperty] = new Binding("SelectedHierarchyScopeTitle"),
+            [!SchematicPreviewControl.ActiveScopeModuleNameProperty] = new Binding("SelectedHierarchyScopeModuleName"),
+            [!SchematicPreviewControl.ActiveScopePathProperty] = new Binding("SelectedHierarchyScopePath"),
+            [!SchematicPreviewControl.ActiveScopeSummaryProperty] = new Binding("SelectedHierarchyScopeSummary"),
+            [!SchematicPreviewControl.ActiveScopeHintProperty] = new Binding("SelectedHierarchyScopeHint"),
+            [!SchematicPreviewControl.ScopeParentProperty] = new Binding("SelectedHierarchyParentScope"),
+            [!SchematicPreviewControl.ScopeChildrenProperty] = new Binding("SelectedHierarchyChildScopes")
         };
-        Grid.SetRow(preview, 1);
-        grid.Children.Add(preview);
+        preview.SignalEditorRequested += OnSchematicSignalEditorRequested;
+        previewGrid.Children.Add(preview);
+
+        Border liveProbeBorder = PanelBorder();
+        liveProbeBorder.Child = BuildSchematicProbePanel();
+        Grid.SetColumn(liveProbeBorder, 1);
+        previewGrid.Children.Add(liveProbeBorder);
+
+        Grid.SetRow(previewGrid, 1);
+        grid.Children.Add(previewGrid);
 
         Grid hierarchyGrid = new()
         {
@@ -545,10 +575,19 @@ public sealed class MainWindow : Window
         };
 
         Border treeBorder = PanelBorder();
-        StackPanel treePanel = new()
+        Grid treePanel = new()
         {
-            Spacing = 8,
-            Margin = new Thickness(10)
+            Margin = new Thickness(10),
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(new GridLength(0.48, GridUnitType.Star)),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(new GridLength(0.52, GridUnitType.Star))
+            }
         };
         treePanel.Children.Add(new TextBlock
         {
@@ -557,16 +596,21 @@ public sealed class MainWindow : Window
             FontSize = 12,
             FontWeight = FontWeight.SemiBold
         });
+
         treePanel.Children.Add(new TextBlock
         {
             Foreground = MutedBrush,
             TextWrapping = TextWrapping.Wrap,
-            [!TextBlock.TextProperty] = new Binding("SelectedHierarchySummary")
+            Margin = new Thickness(0, 8, 0, 0),
+            [!TextBlock.TextProperty] = new Binding("SelectedHierarchySummary"),
+            [Grid.RowProperty] = 1
         });
+
         treePanel.Children.Add(new TreeView
         {
             Background = Brushes.Transparent,
             BorderBrush = Brushes.Transparent,
+            Margin = new Thickness(0, 8, 0, 0),
             [!ItemsControl.ItemsSourceProperty] = new Binding("HierarchyRoot.Children"),
             [!SelectingItemsControl.SelectedItemProperty] = new Binding("SelectedHierarchyNode", BindingMode.TwoWay),
             ItemTemplate = new FuncTreeDataTemplate<HierarchyNodeViewModel>(
@@ -579,8 +623,55 @@ public sealed class MainWindow : Window
                             Foreground = TextBrush,
                             FontFamily = FontFamily.Parse("monospace")
                         },
-                static node => node.Children)
+                static node => node.Children),
+            [Grid.RowProperty] = 2
         });
+
+        treePanel.Children.Add(new TextBlock
+        {
+            Foreground = AccentBrush,
+            FontSize = 12,
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(0, 10, 0, 0),
+            [!TextBlock.TextProperty] = new Binding("SelectedHierarchyScopeTitle"),
+            [Grid.RowProperty] = 3
+        });
+
+        treePanel.Children.Add(new TextBlock
+        {
+            Foreground = MutedBrush,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0),
+            [!TextBlock.TextProperty] = new Binding("SelectedHierarchyScopeSummary"),
+            [Grid.RowProperty] = 4
+        });
+
+        treePanel.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Margin = new Thickness(0, 8, 0, 0),
+            Children =
+            {
+                SmallButton("Add Selected", "AddSelectedWaveformSignalCommand"),
+                SmallButton("Add Scope", "AddHierarchyScopeSignalsToWaveformCommand")
+            },
+            [Grid.RowProperty] = 5
+        });
+
+        treePanel.Children.Add(new ListBox
+        {
+            Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
+            Foreground = TextBrush,
+            Margin = new Thickness(0, 8, 0, 0),
+            ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()),
+            ItemTemplate = SignalListTemplate(),
+            [!ItemsControl.ItemsSourceProperty] = new Binding("HierarchyScopeSignals"),
+            [!SelectingItemsControl.SelectedItemProperty] = new Binding("SelectedSignal", BindingMode.TwoWay),
+            [Grid.RowProperty] = 6
+        });
+
         treeBorder.Child = treePanel;
         hierarchyGrid.Children.Add(treeBorder);
 
@@ -588,7 +679,8 @@ public sealed class MainWindow : Window
         HierarchyGraphControl graph = new()
         {
             [!HierarchyGraphControl.RootProperty] = new Binding("HierarchyRoot"),
-            [!HierarchyGraphControl.SelectedPathProperty] = new Binding("SelectedHierarchyPath", BindingMode.TwoWay)
+            [!HierarchyGraphControl.SelectedPathProperty] = new Binding("SelectedHierarchyPath", BindingMode.TwoWay),
+            [!HierarchyGraphControl.ScopeSummariesProperty] = new Binding("HierarchyTraceScopeSummaries")
         };
         graphBorder.Child = graph;
         Grid.SetColumn(graphBorder, 1);
@@ -596,6 +688,131 @@ public sealed class MainWindow : Window
 
         Grid.SetRow(hierarchyGrid, 2);
         grid.Children.Add(hierarchyGrid);
+        return grid;
+    }
+
+    private static Control BuildSchematicProbePanel()
+    {
+        Grid grid = new()
+        {
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Star)
+            },
+            Margin = new Thickness(12)
+        };
+
+        grid.Children.Add(new TextBlock
+        {
+            Text = "Live Probe",
+            Foreground = AccentBrush,
+            FontSize = 13,
+            FontWeight = FontWeight.SemiBold
+        });
+
+        grid.Children.Add(new TextBlock
+        {
+            Foreground = TextBrush,
+            FontFamily = FontFamily.Parse("monospace"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0),
+            [!TextBlock.TextProperty] = new Binding("SelectedSchematicSignalDisplayName"),
+            [Grid.RowProperty] = 1
+        });
+
+        Grid metadata = new()
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(new GridLength(78)),
+                new ColumnDefinition(GridLength.Star)
+            },
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto)
+            },
+            RowSpacing = 6,
+            Margin = new Thickness(0, 10, 0, 0),
+            [Grid.RowProperty] = 2
+        };
+
+        metadata.Children.Add(MetadataCaption("Dir"));
+        metadata.Children.Add(MetadataValue("SelectedSchematicSignalDirection", 0));
+        metadata.Children.Add(MetadataCaption("Width", 1));
+        metadata.Children.Add(MetadataValue("SelectedSchematicSignalWidth", 1));
+        metadata.Children.Add(MetadataCaption("Value", 2));
+        metadata.Children.Add(MetadataValue("SelectedSchematicSignalValue", 2, GreenBrush));
+        grid.Children.Add(metadata);
+
+        grid.Children.Add(new TextBlock
+        {
+            Text = "Drive",
+            Foreground = MutedBrush,
+            Margin = new Thickness(0, 12, 0, 0),
+            [Grid.RowProperty] = 3
+        });
+
+        TextBox driveBox = new()
+        {
+            MinHeight = 32,
+            Background = SurfaceAltBrush,
+            Foreground = TextBrush,
+            BorderBrush = StrokeBrush,
+            FontFamily = FontFamily.Parse("monospace"),
+            Margin = new Thickness(0, 8, 0, 0),
+            [!Control.IsEnabledProperty] = new Binding("CanDriveSelectedSchematicInput"),
+            [!TextBox.TextProperty] = new Binding("SchematicDriveValue", BindingMode.TwoWay),
+            [Grid.RowProperty] = 4
+        };
+        grid.Children.Add(driveBox);
+
+        Button applyButton = SmallButton("Apply", "DriveSelectedSchematicInputCommand");
+        applyButton.Bind(Control.IsEnabledProperty, new Binding("CanDriveSelectedSchematicInput"));
+
+        Button toggleButton = SmallButton("Toggle", "ToggleInputSignalCommand");
+        toggleButton.Bind(Button.CommandParameterProperty, new Binding("SelectedSchematicSignalName"));
+        toggleButton.Bind(Control.IsEnabledProperty, new Binding("CanToggleSelectedSchematicInput"));
+
+        StackPanel actions = new()
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Margin = new Thickness(0, 10, 0, 0),
+            [Grid.RowProperty] = 5
+        };
+        actions.Children.Add(applyButton);
+        actions.Children.Add(toggleButton);
+        grid.Children.Add(actions);
+
+        Button addWaveformButton = SmallButton("Add To Waveform", "AddSelectedWaveformSignalCommand");
+
+        grid.Children.Add(new StackPanel
+        {
+            Spacing = 6,
+            Margin = new Thickness(0, 14, 0, 0),
+            Children =
+            {
+                addWaveformButton,
+                new TextBlock
+                {
+                    Text = "1-bit inputs toggle directly. Bus inputs open an editor.",
+                    Foreground = MutedBrush,
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 11
+                }
+            },
+            [Grid.RowProperty] = 6
+        });
+
         return grid;
     }
 
@@ -987,6 +1204,26 @@ public sealed class MainWindow : Window
         }
     }
 
+    private async void OnSchematicSignalEditorRequested(object? sender, SchematicPreviewControl.SignalEditorRequestedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        SignalViewModel signal = e.Signal;
+        viewModel.SelectedSignal = signal;
+        SignalValueEditorViewModel editorViewModel = new(signal.Name, signal.Width, signal.Value);
+        SignalValueEditorWindow dialog = new(editorViewModel, canonicalValue =>
+        {
+            viewModel.SelectedSchematicSignalName = signal.Name;
+            viewModel.SchematicDriveValue = canonicalValue;
+            viewModel.DriveSelectedSchematicInputCommand.Execute(null);
+        });
+
+        await dialog.ShowDialog(this);
+    }
+
     private Button DockButton(string text, DockPanelKind panelKind, DockZone zone) => new()
     {
         Content = text,
@@ -1032,6 +1269,22 @@ public sealed class MainWindow : Window
         row.Children.Add(BoundLabel(path, 12, TextBrush));
         return row;
     }
+
+    private static TextBlock MetadataCaption(string text, int row = 0) => new()
+    {
+        Text = text,
+        Foreground = MutedBrush,
+        [Grid.RowProperty] = row
+    };
+
+    private static TextBlock MetadataValue(string path, int row, IBrush? brush = null) => new()
+    {
+        Foreground = brush ?? TextBrush,
+        FontFamily = FontFamily.Parse("monospace"),
+        [!TextBlock.TextProperty] = new Binding(path),
+        [Grid.ColumnProperty] = 1,
+        [Grid.RowProperty] = row
+    };
 
     private static Border PanelBorder(Thickness? margin = null) => new()
     {

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.Collections.Concurrent;
 using Bistable.Core.Design;
 using Bistable.Core.Projects;
 
@@ -8,6 +9,7 @@ namespace Bistable.Verilator;
 
 public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "verilator")
 {
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> BuildLocks = new(StringComparer.Ordinal);
     private readonly VerilatorTool _verilator = new(verilatorExecutablePath);
 
     public async Task<SimulationWorkerBuildResult> BuildAsync(
@@ -28,67 +30,91 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         }
 
         string buildDirectory = Path.Combine(projectDirectory, ".bistable", "worker", configuration.TopModule);
-        Directory.CreateDirectory(buildDirectory);
-
-        string wrapperPath = Path.Combine(buildDirectory, "bistable_worker.cpp");
-        string? traceFilePath = configuration.Trace.Enabled
-            ? Path.Combine(buildDirectory, "bistable-trace.vcd")
-            : null;
-        WorkerGenerationOptions options = new(
-            configuration.Clocks.FirstOrDefault()?.Name,
-            configuration.Resets.FirstOrDefault()?.Name,
-            configuration.Resets.FirstOrDefault()?.ActiveLevel ?? 0,
-            configuration.Trace.Enabled,
-            configuration.Trace.Depth,
-            traceFilePath is null ? string.Empty : Path.GetFileName(traceFilePath));
-        await File.WriteAllTextAsync(wrapperPath, GenerateWorkerSource(configuration.TopModule, metadata, options), cancellationToken);
-
-        List<string> arguments =
-        [
-            "--cc",
-            "--exe",
-            "--build",
-            "--top-module",
-            configuration.TopModule,
-            "--Mdir",
-            buildDirectory,
-            "-o",
-            "bistable-worker"
-        ];
-
-        foreach (string includeDir in configuration.IncludeDirs)
+        SemaphoreSlim buildLock = BuildLocks.GetOrAdd(buildDirectory, static _ => new SemaphoreSlim(1, 1));
+        await buildLock.WaitAsync(cancellationToken);
+        try
         {
-            arguments.Add("-I" + ResolvePath(projectDirectory, includeDir));
+            Directory.CreateDirectory(buildDirectory);
+
+            string wrapperPath = Path.Combine(buildDirectory, "bistable_worker.cpp");
+            string? traceFilePath = configuration.Trace.Enabled
+                ? Path.Combine(buildDirectory, "bistable-trace.vcd")
+                : null;
+            WorkerGenerationOptions options = new(
+                configuration.Clocks.FirstOrDefault()?.Name,
+                configuration.Resets.FirstOrDefault()?.Name,
+                configuration.Resets.FirstOrDefault()?.ActiveLevel ?? 0,
+                configuration.Trace.Enabled,
+                configuration.Trace.Depth,
+                traceFilePath is null ? string.Empty : Path.GetFileName(traceFilePath));
+            await File.WriteAllTextAsync(wrapperPath, GenerateWorkerSource(configuration.TopModule, metadata, options), cancellationToken);
+
+            List<string> arguments =
+            [
+                "--cc",
+                "--exe",
+                "--build",
+                "--top-module",
+                configuration.TopModule,
+                "--Mdir",
+                buildDirectory,
+                "-o",
+                "bistable-worker"
+            ];
+
+            foreach (string includeDir in configuration.IncludeDirs)
+            {
+                arguments.Add("-I" + ResolvePath(projectDirectory, includeDir));
+            }
+
+            foreach (KeyValuePair<string, string> define in configuration.Defines)
+            {
+                arguments.Add($"+define+{define.Key}={define.Value}");
+            }
+
+            foreach (KeyValuePair<string, string> parameter in configuration.Parameters)
+            {
+                arguments.Add("-G" + parameter.Key + "=" + parameter.Value);
+            }
+
+            if (configuration.Trace.Enabled)
+            {
+                arguments.Add("--trace");
+            }
+
+            arguments.AddRange(configuration.VerilatorOptions);
+            arguments.AddRange(configuration.Sources.Select(source => ResolvePath(projectDirectory, source)));
+            arguments.Add(wrapperPath);
+
+            await _verilator.RunAsync(arguments, projectDirectory, cancellationToken);
+
+            string executablePath = Path.Combine(buildDirectory, "bistable-worker");
+            if (!File.Exists(executablePath))
+            {
+                throw new InvalidOperationException($"Worker build completed but executable was not found: {executablePath}");
+            }
+
+            EnsureExecutablePermissions(executablePath);
+            return new SimulationWorkerBuildResult(executablePath, buildDirectory, traceFilePath);
+        }
+        finally
+        {
+            buildLock.Release();
+        }
+    }
+
+    private static void EnsureExecutablePermissions(string executablePath)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+        {
+            return;
         }
 
-        foreach (KeyValuePair<string, string> define in configuration.Defines)
-        {
-            arguments.Add($"+define+{define.Key}={define.Value}");
-        }
-
-        foreach (KeyValuePair<string, string> parameter in configuration.Parameters)
-        {
-            arguments.Add("-G" + parameter.Key + "=" + parameter.Value);
-        }
-
-        if (configuration.Trace.Enabled)
-        {
-            arguments.Add("--trace");
-        }
-
-        arguments.AddRange(configuration.VerilatorOptions);
-        arguments.AddRange(configuration.Sources.Select(source => ResolvePath(projectDirectory, source)));
-        arguments.Add(wrapperPath);
-
-        await _verilator.RunAsync(arguments, projectDirectory, cancellationToken);
-
-        string executablePath = Path.Combine(buildDirectory, "bistable-worker");
-        if (!File.Exists(executablePath))
-        {
-            throw new InvalidOperationException($"Worker build completed but executable was not found: {executablePath}");
-        }
-
-        return new SimulationWorkerBuildResult(executablePath, buildDirectory, traceFilePath);
+        File.SetUnixFileMode(
+            executablePath,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+            | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
+            | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
     }
 
     private static string GenerateWorkerSource(string topModule, ModuleMetadata metadata, WorkerGenerationOptions options)
