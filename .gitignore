@@ -8,7 +8,9 @@ obj/
 
 # Local planning and scratch notes for Codex sessions.
 .codex-notes/
+.codex/
 
+*.AppImage
 # Generated simulation/build artifacts.
 .bistable/
 verilator-out/

@@ -90,10 +90,15 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("#include <regex>");
         builder.AppendLine("#include <sstream>");
         builder.AppendLine("#include <string>");
+        builder.AppendLine("#include <tuple>");
+        builder.AppendLine("#include <vector>");
         builder.AppendLine("#include \"verilated.h\"");
         builder.AppendLine($"#include \"{modelType}.h\"");
         builder.AppendLine();
         builder.AppendLine("namespace {");
+        builder.AppendLine("using trace_entry = std::tuple<std::string, std::string, std::uint64_t>;");
+        builder.AppendLine("using trace_buffer = std::vector<trace_entry>;");
+        builder.AppendLine();
         builder.AppendLine("std::uint64_t parse_u64(const std::string& text) {");
         builder.AppendLine("    std::size_t index = 0;");
         builder.AppendLine("    int base = 10;");
@@ -107,6 +112,10 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("        return value;");
         builder.AppendLine("    }");
         builder.AppendLine("    return std::stoull(text.substr(index), nullptr, base);");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("std::string to_decimal_string(std::uint64_t value) {");
+        builder.AppendLine("    return std::to_string(static_cast<unsigned long long>(value));");
         builder.AppendLine("}");
         builder.AppendLine();
         builder.AppendLine("std::string json_escape(const std::string& value) {");
@@ -130,19 +139,45 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("    return std::regex_search(json, match, pattern) ? std::stoull(match[1].str()) : fallback;");
         builder.AppendLine("}");
         builder.AppendLine();
-        AppendDriveClockFunction(builder, modelType, metadata);
-        AppendApplyResetFunction(builder, modelType, metadata, options);
+        builder.AppendLine("void append_trace(trace_buffer& trace, const std::string& signal, const std::string& value, std::uint64_t time) {");
+        builder.AppendLine("    trace.emplace_back(signal, value, time);");
+        builder.AppendLine("}");
         builder.AppendLine();
-        builder.AppendLine("void write_snapshot(const " + modelType + "& model, std::uint64_t time) {");
-        builder.AppendLine("    std::cout << \"{\\\"time\\\":\" << time << \",\\\"signals\\\":[\";");
+        builder.AppendLine("void append_output_trace(const " + modelType + "& model, std::uint64_t time, trace_buffer& trace) {");
+        foreach (SignalPort port in metadata.Outputs)
+        {
+            builder.AppendLine($"    append_trace(trace, \"{port.Name}\", to_decimal_string(static_cast<std::uint64_t>(model.{port.Name})), time);");
+        }
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("void write_signals(const " + modelType + "& model) {");
         bool first = true;
         foreach (SignalPort port in metadata.Outputs)
         {
             string separator = first ? string.Empty : ",";
             first = false;
-            builder.AppendLine($"    std::cout << \"{separator}{{\\\"signal\\\":\\\"{port.Name}\\\",\\\"value\\\":\\\"\" << static_cast<unsigned long long>(model.{port.Name}) << \"\\\",\\\"time\\\":\" << time << \"}}\";");
+            builder.AppendLine($"    std::cout << \"{separator}{{\\\"signal\\\":\\\"{port.Name}\\\",\\\"value\\\":\\\"\" << static_cast<unsigned long long>(model.{port.Name}) << \"\\\",\\\"time\\\":0}}\";");
         }
-
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("void write_trace(const trace_buffer& trace) {");
+        builder.AppendLine("    for (std::size_t index = 0; index < trace.size(); ++index) {");
+        builder.AppendLine("        if (index > 0) {");
+        builder.AppendLine("            std::cout << \",\";");
+        builder.AppendLine("        }");
+        builder.AppendLine("        const auto& entry = trace[index];");
+        builder.AppendLine("        std::cout << \"{\\\"signal\\\":\\\"\" << json_escape(std::get<0>(entry)) << \"\\\",\\\"value\\\":\\\"\" << json_escape(std::get<1>(entry)) << \"\\\",\\\"time\\\":\" << std::get<2>(entry) << \"}\";");
+        builder.AppendLine("    }");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        AppendDriveClockFunction(builder, modelType, metadata);
+        AppendApplyResetFunction(builder, modelType, metadata, options);
+        builder.AppendLine();
+        builder.AppendLine("void write_snapshot(const " + modelType + "& model, std::uint64_t time, const trace_buffer& trace) {");
+        builder.AppendLine("    std::cout << \"{\\\"time\\\":\" << time << \",\\\"signals\\\":[\";");
+        builder.AppendLine("    write_signals(model);");
+        builder.AppendLine("    std::cout << \"],\\\"trace\\\":[\";");
+        builder.AppendLine("    write_trace(trace);");
         builder.AppendLine("    std::cout << \"]}\" << std::endl;");
         builder.AppendLine("}");
         builder.AppendLine("}");
@@ -155,44 +190,49 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("    while (std::getline(std::cin, line)) {");
         builder.AppendLine("        try {");
         builder.AppendLine("            const std::string type = get_string(line, \"type\");");
+        builder.AppendLine("            trace_buffer trace;");
         builder.AppendLine("            if (type == \"setInput\") {");
         builder.AppendLine("                const std::string signal = get_string(line, \"signal\");");
-        builder.AppendLine("                const std::uint64_t value = parse_u64(get_string(line, \"value\"));");
+        builder.AppendLine("                const std::string raw_value = get_string(line, \"value\");");
+        builder.AppendLine("                const std::uint64_t value = parse_u64(raw_value);");
         foreach (SignalPort port in metadata.Inputs)
         {
             builder.AppendLine($"                if (signal == \"{port.Name}\") model->{port.Name} = value;");
         }
 
+        builder.AppendLine("                append_trace(trace, signal, raw_value, time);");
         builder.AppendLine("                model->eval();");
-        builder.AppendLine("                write_snapshot(*model, time);");
+        builder.AppendLine("                append_output_trace(*model, time, trace);");
+        builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"eval\" || type == \"getSnapshot\") {");
         builder.AppendLine("                model->eval();");
-        builder.AppendLine("                write_snapshot(*model, time);");
+        builder.AppendLine("                append_output_trace(*model, time, trace);");
+        builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"tick\") {");
         builder.AppendLine("                const std::string clock = get_string(line, \"signal\");");
-        builder.AppendLine("                drive_clock(*model, clock);");
+        builder.AppendLine("                drive_clock(*model, clock, time, trace);");
         builder.AppendLine("                ++time;");
-        builder.AppendLine("                write_snapshot(*model, time);");
+        builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"runCycles\") {");
         builder.AppendLine("                const std::uint64_t cycles = get_u64(line, \"cycles\", 1);");
         builder.AppendLine("                const std::string clock = get_string(line, \"signal\");");
         builder.AppendLine("                for (std::uint64_t i = 0; i < cycles; ++i) {");
         builder.AppendLine("                    if (!clock.empty()) {");
-        builder.AppendLine("                        drive_clock(*model, clock);");
+        builder.AppendLine("                        drive_clock(*model, clock, time, trace);");
         builder.AppendLine("                    }");
         builder.AppendLine("                    ++time;");
         builder.AppendLine("                }");
-        builder.AppendLine("                write_snapshot(*model, time);");
+        builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"reset\") {");
         builder.AppendLine("                time = 0;");
         builder.AppendLine("                model = std::make_unique<" + modelType + ">();");
-        builder.AppendLine("                apply_reset(*model);");
-        builder.AppendLine("                write_snapshot(*model, time);");
+        builder.AppendLine("                apply_reset(*model, time, trace);");
+        builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"pause\") {");
-        builder.AppendLine("                write_snapshot(*model, time);");
+        builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            }");
         builder.AppendLine("        } catch (const std::exception& ex) {");
-        builder.AppendLine("            std::cout << \"{\\\"time\\\":\" << time << \",\\\"signals\\\":[],\\\"error\\\":\\\"\" << json_escape(ex.what()) << \"\\\"}\" << std::endl;");
+        builder.AppendLine("            std::cout << \"{\\\"time\\\":\" << time << \",\\\"signals\\\":[],\\\"trace\\\":[],\\\"error\\\":\\\"\" << json_escape(ex.what()) << \"\\\"}\" << std::endl;");
         builder.AppendLine("        }");
         builder.AppendLine("    }");
         builder.AppendLine("    return 0;");
@@ -203,14 +243,20 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
 
     private static void AppendDriveClockFunction(StringBuilder builder, string modelType, ModuleMetadata metadata)
     {
-        builder.AppendLine("void drive_clock(" + modelType + "& model, const std::string& clock) {");
-        builder.AppendLine("    if (clock.empty()) { model.eval(); return; }");
+        builder.AppendLine("void drive_clock(" + modelType + "& model, const std::string& clock, std::uint64_t time, trace_buffer& trace) {");
+        builder.AppendLine("    if (clock.empty()) { model.eval(); append_output_trace(model, time, trace); return; }");
         foreach (SignalPort port in metadata.Inputs.Where(static port => port.Width == 1))
         {
-            builder.AppendLine($"    if (clock == \"{port.Name}\") {{ model.{port.Name} = 0; model.eval(); model.{port.Name} = 1; model.eval(); model.{port.Name} = 0; model.eval(); return; }}");
+            builder.AppendLine($"    if (clock == \"{port.Name}\") {{");
+            builder.AppendLine($"        model.{port.Name} = 0; append_trace(trace, \"{port.Name}\", \"0\", time); model.eval(); append_output_trace(model, time, trace);");
+            builder.AppendLine($"        model.{port.Name} = 1; append_trace(trace, \"{port.Name}\", \"1\", time); model.eval(); append_output_trace(model, time, trace);");
+            builder.AppendLine($"        model.{port.Name} = 0; append_trace(trace, \"{port.Name}\", \"0\", time + 1); model.eval(); append_output_trace(model, time + 1, trace);");
+            builder.AppendLine("        return;");
+            builder.AppendLine("    }");
         }
 
         builder.AppendLine("    model.eval();");
+        builder.AppendLine("    append_output_trace(model, time, trace);");
         builder.AppendLine("}");
         builder.AppendLine();
     }
@@ -228,10 +274,11 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             ? options.DefaultClock
             : null;
 
-        builder.AppendLine("void apply_reset(" + modelType + "& model) {");
+        builder.AppendLine("void apply_reset(" + modelType + "& model, std::uint64_t time, trace_buffer& trace) {");
         if (reset is null)
         {
             builder.AppendLine("    model.eval();");
+            builder.AppendLine("    append_output_trace(model, time, trace);");
             builder.AppendLine("}");
             builder.AppendLine();
             return;
@@ -240,14 +287,18 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         int active = options.ResetActiveLevel == 0 ? 0 : 1;
         int inactive = active == 0 ? 1 : 0;
         builder.AppendLine($"    model.{reset} = {active};");
+        builder.AppendLine($"    append_trace(trace, \"{reset}\", \"{active}\", time);");
         builder.AppendLine("    model.eval();");
+        builder.AppendLine("    append_output_trace(model, time, trace);");
         if (clock is not null)
         {
-            builder.AppendLine($"    model.{clock} = 0; model.eval(); model.{clock} = 1; model.eval(); model.{clock} = 0; model.eval();");
+            builder.AppendLine($"    drive_clock(model, \"{clock}\", time, trace);");
         }
 
         builder.AppendLine($"    model.{reset} = {inactive};");
+        builder.AppendLine($"    append_trace(trace, \"{reset}\", \"{inactive}\", time);");
         builder.AppendLine("    model.eval();");
+        builder.AppendLine("    append_output_trace(model, time, trace);");
         builder.AppendLine("}");
         builder.AppendLine();
     }

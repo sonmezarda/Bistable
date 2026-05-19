@@ -4,4 +4,5 @@ public sealed record BistableWorkspace(
     ProjectDialogService Dialogs,
     DesignLoadService DesignLoader,
     Bistable.Verilator.SimulationWorkerBuilder WorkerBuilder,
-    PreviewSimulationService PreviewSimulation);
+    PreviewSimulationService PreviewSimulation,
+    LayoutStateService LayoutState);

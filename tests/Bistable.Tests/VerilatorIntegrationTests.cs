@@ -142,6 +142,10 @@ public sealed class VerilatorIntegrationTests
 
             Assert.Equal("1", Assert.Single(first.Signals, static sample => sample.Signal == "count").Value);
             Assert.Equal("2", Assert.Single(second.Signals, static sample => sample.Signal == "count").Value);
+            Assert.NotNull(first.Trace);
+            Assert.Contains(first.Trace!, static sample => sample is { Signal: "clk", Value: "1", Time: 0 });
+            Assert.Contains(first.Trace!, static sample => sample is { Signal: "clk", Value: "0", Time: 1 });
+            Assert.Contains(first.Trace!, static sample => sample is { Signal: "count", Value: "1", Time: 0 or 1 });
         }
         finally
         {

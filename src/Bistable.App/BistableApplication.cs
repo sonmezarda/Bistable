@@ -24,7 +24,8 @@ public sealed class BistableApplication : Application
                 new ProjectDialogService(),
                 new DesignLoadService(),
                 new Bistable.Verilator.SimulationWorkerBuilder(),
-                new PreviewSimulationService());
+                new PreviewSimulationService(),
+                new LayoutStateService());
 
             desktop.MainWindow = new MainWindow
             {
