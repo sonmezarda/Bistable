@@ -10,6 +10,7 @@ modules through Verilator. The current build focuses on a small playable loop:
 - build a generated native Verilator worker
 - evaluate, tick, run, and reset the loaded design through the worker
 - stream native trace samples from the worker into the waveform viewer
+- ingest VCD trace files for internal signal browsing and waveform replay
 
 The waveform engine is intentionally kept as the next step after the native
 worker loop is stable. The bundled ALU sample also includes a small preview
@@ -57,7 +58,8 @@ Verilator-backed executable under `.bistable/worker`, then `Eval`, `Tick`,
 `Run`, and `Reset` talk to that process over the JSON control protocol.
 Waveform history is now driven by worker trace samples rather than only UI-side
 state reconstruction, so clocked runs carry real intermediate transitions into
-the viewer.
+the viewer. When project tracing is enabled, the worker also emits a VCD trace
+file that Bistable reads back to expose internal hierarchical signals.
 
 The current UI also supports a basic IDE-style workspace flow:
 
@@ -68,6 +70,8 @@ The current UI also supports a basic IDE-style workspace flow:
 - left, right, and bottom dock sizes persist across runs.
 - toolbar clock selection chooses which 1-bit signal `Tick` and `Run` will pulse.
 - toolbar cycle count controls how many cycles `Run` advances.
+- trace-enabled projects expose internal signals under `Project > Trace Signals`.
+- internal trace signals can be added to the waveform like top-level ports.
 - schematic panel shows a top-level symbol prototype built from the elaborated ports.
 - schematic panel now also shows instance hierarchy extracted from Verilator XML.
 - bundled `samples/hierarchy/hierarchy.bistable.json` demonstrates a multi-level design.
