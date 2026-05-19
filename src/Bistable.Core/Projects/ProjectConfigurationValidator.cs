@@ -45,6 +45,19 @@ public sealed class ProjectConfigurationValidator
             }
         }
 
+        if (configuration.Trace.Enabled)
+        {
+            if (!string.Equals(configuration.Trace.Format, "vcd", StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"Trace format '{configuration.Trace.Format}' is not supported yet. Use 'vcd'.");
+            }
+
+            if (configuration.Trace.Depth <= 0)
+            {
+                errors.Add("Trace depth must be greater than zero when tracing is enabled.");
+            }
+        }
+
         return errors;
     }
 }

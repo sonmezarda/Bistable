@@ -153,6 +153,79 @@ public sealed class VerilatorIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task GeneratesHierarchyForHierarchicalSample()
+    {
+        string root = FindRepositoryRoot();
+        string sampleDirectory = Path.Combine(root, "samples", "hierarchy");
+
+        ProjectConfiguration configuration = await ProjectConfiguration.LoadAsync(
+            Path.Combine(sampleDirectory, "hierarchy.bistable.json"),
+            CancellationToken.None);
+
+        string outputXml = Path.Combine(Path.GetTempPath(), $"bistable-hierarchy-{Guid.NewGuid():N}.xml");
+        VerilatorTool tool = new();
+        await tool.GenerateXmlAsync(configuration, sampleDirectory, outputXml, CancellationToken.None);
+
+        try
+        {
+            Bistable.Core.Design.ElaboratedDesign design = new VerilatorXmlParser().ParseDesign(outputXml);
+
+            Assert.Equal("system_top", design.TopModule.Name);
+            Bistable.Core.Design.DesignHierarchyNode core = Assert.Single(design.HierarchyRoot.Children);
+            Assert.Equal("u_core", core.InstanceName);
+            Assert.Equal("core_cluster", core.ModuleName);
+            Assert.Contains(core.Children, static child => child.InstanceName == "u_logic");
+            Assert.Contains(core.Children, static child => child.InstanceName == "u_status");
+        }
+        finally
+        {
+            File.Delete(outputXml);
+        }
+    }
+
+    [Fact]
+    public async Task NativeWorkerProducesTraceCatalogForHierarchicalSample()
+    {
+        string root = FindRepositoryRoot();
+        string sampleDirectory = Path.Combine(root, "samples", "hierarchy");
+
+        ProjectConfiguration configuration = await ProjectConfiguration.LoadAsync(
+            Path.Combine(sampleDirectory, "hierarchy.bistable.json"),
+            CancellationToken.None);
+
+        string outputXml = Path.Combine(Path.GetTempPath(), $"bistable-hierarchy-trace-{Guid.NewGuid():N}.xml");
+        VerilatorTool tool = new();
+        await tool.GenerateXmlAsync(configuration, sampleDirectory, outputXml, CancellationToken.None);
+
+        try
+        {
+            Bistable.Core.Design.ModuleMetadata metadata = new VerilatorXmlParser().Parse(outputXml);
+            SimulationWorkerBuildResult result = await new SimulationWorkerBuilder().BuildAsync(
+                configuration,
+                metadata,
+                sampleDirectory,
+                CancellationToken.None);
+
+            await using SimulationWorkerClient client = new(result.ExecutablePath);
+            await client.SendAsync(new SimulationCommand(SimulationCommandType.SetInput, "a", "0x03"), CancellationToken.None);
+            await client.SendAsync(new SimulationCommand(SimulationCommandType.SetInput, "b", "0x04"), CancellationToken.None);
+            await client.SendAsync(new SimulationCommand(SimulationCommandType.Eval), CancellationToken.None);
+
+            Assert.NotNull(result.TraceFilePath);
+            Assert.True(File.Exists(result.TraceFilePath));
+
+            VcdTraceDocument trace = new VcdTraceReader().Load(result.TraceFilePath!, configuration.TopModule);
+            Assert.Contains(trace.Signals, static signal => signal.Name == "system_top.u_core.u_logic.sum");
+            Assert.True(trace.TryGetEvents("result", out IReadOnlyList<VcdTraceEvent>? resultEvents));
+            Assert.NotEmpty(resultEvents);
+        }
+        finally
+        {
+            File.Delete(outputXml);
+        }
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);

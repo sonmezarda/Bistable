@@ -1,0 +1,20 @@
+{
+  "topModule": "system_top",
+  "sources": [
+    "system_top.sv",
+    "core_cluster.sv",
+    "logic_unit.sv",
+    "status_reg.sv"
+  ],
+  "clocks": [
+    { "name": "clk", "defaultPeriodNs": 10 }
+  ],
+  "resets": [
+    { "name": "rst_n", "activeLevel": 0 }
+  ],
+  "trace": {
+    "enabled": true,
+    "format": "vcd",
+    "depth": 3
+  }
+}

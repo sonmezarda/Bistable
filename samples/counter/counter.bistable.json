@@ -20,7 +20,7 @@
   ],
   "trace": {
     "enabled": true,
-    "format": "fst",
+    "format": "vcd",
     "depth": 1
   }
 }

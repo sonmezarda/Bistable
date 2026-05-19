@@ -41,4 +41,19 @@ public sealed class ProjectConfigurationTests
 
         Assert.Contains(errors, static error => error.Contains("Source file does not exist", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void ValidatorRejectsUnsupportedTraceFormat()
+    {
+        ProjectConfiguration configuration = new()
+        {
+            TopModule = "alu",
+            Sources = ["/tmp/alu.sv"],
+            Trace = new TraceConfiguration(true, "fst", 2)
+        };
+
+        IReadOnlyList<string> errors = new ProjectConfigurationValidator().Validate(configuration);
+
+        Assert.Contains(errors, static error => error.Contains("Trace format", StringComparison.Ordinal));
+    }
 }

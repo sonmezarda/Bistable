@@ -1,4 +1,5 @@
 using Bistable.Core.Projects;
+using Bistable.Core.Design;
 using Bistable.Verilator;
 
 namespace Bistable.App.Services;
@@ -27,6 +28,7 @@ public sealed class DesignLoadService
         await _verilator.GenerateXmlAsync(project, projectDirectory, xmlPath, cancellationToken);
         string version = await _verilator.GetVersionAsync(cancellationToken);
 
-        return new DesignLoadResult(project, _xmlParser.Parse(xmlPath), version, projectDirectory);
+        ElaboratedDesign design = _xmlParser.ParseDesign(xmlPath);
+        return new DesignLoadResult(project, design, design.TopModule, version, projectDirectory);
     }
 }

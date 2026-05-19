@@ -7,6 +7,7 @@ using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Bistable.App.Infrastructure;
 using Bistable.App.ViewModels;
 
 namespace Bistable.App.Views;
@@ -25,6 +26,9 @@ public sealed class MainWindow : Window
     private GridSplitter? _leftDockSplitter;
     private GridSplitter? _rightDockSplitter;
     private GridSplitter? _bottomDockSplitter;
+    private TabControl? _leftDockTabs;
+    private TabControl? _rightDockTabs;
+    private TabControl? _bottomDockTabs;
 
     private static readonly IBrush BackgroundBrush = SolidColorBrush.Parse("#0e1116");
     private static readonly IBrush SurfaceBrush = SolidColorBrush.Parse("#151922");
@@ -82,7 +86,7 @@ public sealed class MainWindow : Window
             }
         };
 
-        _leftDockPane = BuildDockHost("LeftDockPanels", "SelectedLeftDockPanel");
+        _leftDockPane = BuildDockHost();
         grid.Children.Add(_leftDockPane);
 
         _leftDockSplitter = new GridSplitter
@@ -107,7 +111,7 @@ public sealed class MainWindow : Window
         };
         grid.Children.Add(_rightDockSplitter);
 
-        _rightDockPane = BuildDockHost("RightDockPanels", "SelectedRightDockPanel");
+        _rightDockPane = BuildDockHost();
         Grid.SetColumn(_rightDockPane, 4);
         grid.Children.Add(_rightDockPane);
 
@@ -122,7 +126,7 @@ public sealed class MainWindow : Window
         };
         grid.Children.Add(_bottomDockSplitter);
 
-        _bottomDockPane = BuildDockHost("BottomDockPanels", "SelectedBottomDockPanel");
+        _bottomDockPane = BuildDockHost();
         Grid.SetColumnSpan(_bottomDockPane, 5);
         Grid.SetRow(_bottomDockPane, 2);
         grid.Children.Add(_bottomDockPane);
@@ -130,7 +134,7 @@ public sealed class MainWindow : Window
         return grid;
     }
 
-    private static Control BuildToolbar()
+    private Control BuildToolbar()
     {
         Border border = PanelBorder();
         DockPanel.SetDock(border, Dock.Top);
@@ -179,18 +183,13 @@ public sealed class MainWindow : Window
                 {
                     DockMenu("Project Pane",
                         "IsProjectPaneVisible",
-                        "ToggleProjectPaneCommand",
-                        "MoveProjectPaneLeftCommand",
-                        "MoveProjectPaneRightCommand",
-                        "MoveProjectPaneBottomCommand",
-                        "HideProjectPaneCommand"),
+                        DockPanelKind.Project),
                     DockMenu("Waveform Pane",
                         "IsWaveformPaneVisible",
-                        "ToggleWaveformPaneCommand",
-                        "MoveWaveformPaneLeftCommand",
-                        "MoveWaveformPaneRightCommand",
-                        "MoveWaveformPaneBottomCommand",
-                        "HideWaveformPaneCommand")
+                        DockPanelKind.Waveform),
+                    DockMenu("Schematic Pane",
+                        "IsSchematicPaneVisible",
+                        DockPanelKind.Schematic)
                 })
             }
         };
@@ -264,33 +263,7 @@ public sealed class MainWindow : Window
         return border;
     }
 
-    private static Border BuildDockHost(string itemsPath, string selectedItemPath)
-    {
-        Border host = PanelBorder(new Thickness(12, 12, 12, 12));
-        TabControl tabControl = new()
-        {
-            Background = Brushes.Transparent,
-            BorderBrush = Brushes.Transparent,
-            Margin = new Thickness(0),
-            [!ItemsControl.ItemsSourceProperty] = new Binding(itemsPath),
-            [!SelectingItemsControl.SelectedItemProperty] = new Binding(selectedItemPath, BindingMode.TwoWay),
-            ItemTemplate = new FuncDataTemplate<DockPanelViewModel>((panel, _) =>
-                panel is null
-                    ? new TextBlock()
-                    : new TextBlock
-                    {
-                        Text = panel.Title,
-                        Foreground = TextBrush,
-                        FontSize = 12
-                    }),
-            ContentTemplate = new FuncDataTemplate<DockPanelViewModel>((panel, _) =>
-                panel is null
-                    ? new TextBlock()
-                    : BuildPanelSurface(panel.Kind))
-        };
-        host.Child = tabControl;
-        return host;
-    }
+    private static Border BuildDockHost() => PanelBorder(new Thickness(12, 12, 12, 12));
 
     private static Control BuildInspectorSurface()
     {
@@ -366,7 +339,7 @@ public sealed class MainWindow : Window
         return border;
     }
 
-    private static Control BuildProjectPanelContent()
+    private Control BuildProjectPanelContent()
     {
         StackPanel panel = new()
         {
@@ -376,10 +349,7 @@ public sealed class MainWindow : Window
 
         panel.Children.Add(DockPanelHeader(
             "Project",
-            "MoveProjectPaneLeftCommand",
-            "MoveProjectPaneRightCommand",
-            "MoveProjectPaneBottomCommand",
-            "HideProjectPaneCommand"));
+            DockPanelKind.Project));
         panel.Children.Add(BoundLabel("ProjectName", 15, TextBrush));
         panel.Children.Add(MetadataLine("Top", "TopModule"));
         panel.Children.Add(MetadataLine("Tool", "VerilatorVersion"));
@@ -405,11 +375,22 @@ public sealed class MainWindow : Window
             [!ItemsControl.ItemsSourceProperty] = new Binding("AllSignals"),
             [!SelectingItemsControl.SelectedItemProperty] = new Binding("SelectedSignal", BindingMode.TwoWay)
         });
+        panel.Children.Add(SectionTitle("Trace Signals"));
+        panel.Children.Add(new ListBox
+        {
+            Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
+            Foreground = TextBrush,
+            ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()),
+            ItemTemplate = SignalListTemplate(),
+            [!ItemsControl.ItemsSourceProperty] = new Binding("TraceSignals"),
+            [!SelectingItemsControl.SelectedItemProperty] = new Binding("SelectedSignal", BindingMode.TwoWay)
+        });
 
         return panel;
     }
 
-    private static Control BuildWaveformPanelContent()
+    private Control BuildWaveformPanelContent()
     {
         Grid waveform = new()
         {
@@ -424,10 +405,7 @@ public sealed class MainWindow : Window
 
         waveform.Children.Add(DockPanelHeader(
             "Waveform",
-            "MoveWaveformPaneLeftCommand",
-            "MoveWaveformPaneRightCommand",
-            "MoveWaveformPaneBottomCommand",
-            "HideWaveformPaneCommand"));
+            DockPanelKind.Waveform));
 
         Control toolbar = BuildWaveformToolbar();
         Grid.SetRow(toolbar, 1);
@@ -446,6 +424,99 @@ public sealed class MainWindow : Window
         Grid.SetRow(preview, 2);
         waveform.Children.Add(preview);
         return waveform;
+    }
+
+    private Control BuildSchematicPanelContent()
+    {
+        Grid grid = new()
+        {
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(new GridLength(0.46, GridUnitType.Star)),
+                new RowDefinition(new GridLength(0.54, GridUnitType.Star))
+            },
+            Margin = new Thickness(12)
+        };
+
+        grid.Children.Add(DockPanelHeader(
+            "Schematic",
+            DockPanelKind.Schematic));
+
+        SchematicPreviewControl preview = new()
+        {
+            Margin = new Thickness(0, 12, 0, 0),
+            [!SchematicPreviewControl.ModuleNameProperty] = new Binding("SchematicModuleName"),
+            [!SchematicPreviewControl.SignalsProperty] = new Binding("AllSignals"),
+            [!SchematicPreviewControl.SelectedSignalNameProperty] = new Binding("SelectedSchematicSignalName", BindingMode.TwoWay)
+        };
+        Grid.SetRow(preview, 1);
+        grid.Children.Add(preview);
+
+        Grid hierarchyGrid = new()
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(new GridLength(240)),
+                new ColumnDefinition(GridLength.Star)
+            },
+            ColumnSpacing = 10,
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+
+        Border treeBorder = PanelBorder();
+        StackPanel treePanel = new()
+        {
+            Spacing = 8,
+            Margin = new Thickness(10)
+        };
+        treePanel.Children.Add(new TextBlock
+        {
+            Text = "Hierarchy",
+            Foreground = AccentBrush,
+            FontSize = 12,
+            FontWeight = FontWeight.SemiBold
+        });
+        treePanel.Children.Add(new TextBlock
+        {
+            Foreground = MutedBrush,
+            TextWrapping = TextWrapping.Wrap,
+            [!TextBlock.TextProperty] = new Binding("SelectedHierarchySummary")
+        });
+        treePanel.Children.Add(new TreeView
+        {
+            Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
+            [!ItemsControl.ItemsSourceProperty] = new Binding("HierarchyRoot.Children"),
+            [!SelectingItemsControl.SelectedItemProperty] = new Binding("SelectedHierarchyNode", BindingMode.TwoWay),
+            ItemTemplate = new FuncTreeDataTemplate<HierarchyNodeViewModel>(
+                (node, _) =>
+                    node is null
+                        ? new TextBlock()
+                        : new TextBlock
+                        {
+                            Text = node.DisplayLabel,
+                            Foreground = TextBrush,
+                            FontFamily = FontFamily.Parse("monospace")
+                        },
+                static node => node.Children)
+        });
+        treeBorder.Child = treePanel;
+        hierarchyGrid.Children.Add(treeBorder);
+
+        Border graphBorder = PanelBorder();
+        HierarchyGraphControl graph = new()
+        {
+            [!HierarchyGraphControl.RootProperty] = new Binding("HierarchyRoot"),
+            [!HierarchyGraphControl.SelectedPathProperty] = new Binding("SelectedHierarchyPath", BindingMode.TwoWay)
+        };
+        graphBorder.Child = graph;
+        Grid.SetColumn(graphBorder, 1);
+        hierarchyGrid.Children.Add(graphBorder);
+
+        Grid.SetRow(hierarchyGrid, 2);
+        grid.Children.Add(hierarchyGrid);
+        return grid;
     }
 
     private static Control BuildWaveformToolbar()
@@ -485,7 +556,7 @@ public sealed class MainWindow : Window
         return toolbar;
     }
 
-    private static Control BuildPanelSurface(DockPanelKind kind)
+    private Control BuildPanelSurface(DockPanelKind kind)
     {
         Border border = PanelBorder(new Thickness(0));
         border.CornerRadius = new CornerRadius(0);
@@ -494,17 +565,13 @@ public sealed class MainWindow : Window
         {
             DockPanelKind.Project => BuildProjectPanelContent(),
             DockPanelKind.Waveform => BuildWaveformPanelContent(),
+            DockPanelKind.Schematic => BuildSchematicPanelContent(),
             _ => new TextBlock { Text = "Unknown panel", Foreground = MutedBrush }
         };
         return border;
     }
 
-    private static Control DockPanelHeader(
-        string title,
-        string moveLeftCommand,
-        string moveRightCommand,
-        string moveBottomCommand,
-        string hideCommand)
+    private Control DockPanelHeader(string title, DockPanelKind panelKind)
     {
         DockPanel row = new()
         {
@@ -526,10 +593,10 @@ public sealed class MainWindow : Window
             Spacing = 6,
             Children =
             {
-                TinyButton("L", moveLeftCommand),
-                TinyButton("R", moveRightCommand),
-                TinyButton("B", moveBottomCommand),
-                TinyButton("X", hideCommand)
+                DockButton("L", panelKind, DockZone.Left),
+                DockButton("R", panelKind, DockZone.Right),
+                DockButton("B", panelKind, DockZone.Bottom),
+                DockButton("X", panelKind, DockZone.Hidden)
             }
         };
         DockPanel.SetDock(actions, Dock.Right);
@@ -537,14 +604,10 @@ public sealed class MainWindow : Window
         return row;
     }
 
-    private static MenuItem DockMenu(
+    private MenuItem DockMenu(
         string header,
         string visiblePath,
-        string toggleCommandPath,
-        string moveLeftCommandPath,
-        string moveRightCommandPath,
-        string moveBottomCommandPath,
-        string hideCommandPath) =>
+        DockPanelKind panelKind) =>
         new()
         {
             Header = header,
@@ -554,30 +617,29 @@ public sealed class MainWindow : Window
                 {
                     Header = "Visible",
                     ToggleType = MenuItemToggleType.CheckBox,
-                    [!MenuItem.IsCheckedProperty] = new Binding(visiblePath, BindingMode.TwoWay),
-                    [!MenuItem.CommandProperty] = new Binding(toggleCommandPath)
+                    [!MenuItem.IsCheckedProperty] = new Binding(visiblePath, BindingMode.TwoWay)
                 },
                 new Separator(),
                 new MenuItem
                 {
                     Header = "Dock Left",
-                    [!MenuItem.CommandProperty] = new Binding(moveLeftCommandPath)
+                    Command = CreateDockCommand(panelKind, DockZone.Left)
                 },
                 new MenuItem
                 {
                     Header = "Dock Right",
-                    [!MenuItem.CommandProperty] = new Binding(moveRightCommandPath)
+                    Command = CreateDockCommand(panelKind, DockZone.Right)
                 },
                 new MenuItem
                 {
                     Header = "Dock Bottom",
-                    [!MenuItem.CommandProperty] = new Binding(moveBottomCommandPath)
+                    Command = CreateDockCommand(panelKind, DockZone.Bottom)
                 },
                 new Separator(),
                 new MenuItem
                 {
                     Header = "Hide",
-                    [!MenuItem.CommandProperty] = new Binding(hideCommandPath)
+                    Command = CreateDockCommand(panelKind, DockZone.Hidden)
                 }
             }
         };
@@ -587,7 +649,7 @@ public sealed class MainWindow : Window
             ? new TextBlock()
             : new TextBlock
             {
-                Text = $"{signal.DirectionLabel,-6} {signal.Name}[{signal.WidthLabel}]",
+                Text = signal.BrowseLabel,
                 Foreground = TextBrush,
                 FontFamily = FontFamily.Parse("monospace"),
                 Margin = new Thickness(0, 4)
@@ -755,6 +817,36 @@ public sealed class MainWindow : Window
         [!Button.CommandProperty] = new Binding(commandPath)
     };
 
+    private RelayCommand CreateDockCommand(DockPanelKind panelKind, DockZone zone) =>
+        new(() => ExecuteDockCommand(panelKind, zone));
+
+    private void ExecuteDockCommand(DockPanelKind panelKind, DockZone zone)
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        DockCommandParameter parameter = new(panelKind, zone);
+        if (viewModel.DockPanelCommand.CanExecute(parameter))
+        {
+            viewModel.DockPanelCommand.Execute(parameter);
+        }
+    }
+
+    private Button DockButton(string text, DockPanelKind panelKind, DockZone zone) => new()
+    {
+        Content = text,
+        Width = 24,
+        Height = 24,
+        FontSize = 11,
+        Padding = new Thickness(0),
+        Background = SurfaceAltBrush,
+        Foreground = TextBrush,
+        BorderBrush = StrokeBrush,
+        Command = CreateDockCommand(panelKind, zone)
+    };
+
     private static TextBlock SectionTitle(string text) => new()
     {
         Text = text,
@@ -826,6 +918,7 @@ public sealed class MainWindow : Window
 
         if (e.PropertyName is nameof(MainWindowViewModel.ProjectDockZone)
             or nameof(MainWindowViewModel.WaveformDockZone)
+            or nameof(MainWindowViewModel.SchematicDockZone)
             or nameof(MainWindowViewModel.LeftDockWidth)
             or nameof(MainWindowViewModel.RightDockWidth)
             or nameof(MainWindowViewModel.BottomDockHeight))
@@ -836,6 +929,8 @@ public sealed class MainWindow : Window
 
     private void SyncDockLayout(MainWindowViewModel viewModel)
     {
+        RefreshDockHosts(viewModel);
+
         bool hasLeftDock = viewModel.LeftDockPanels.Count > 0;
         bool hasRightDock = viewModel.RightDockPanels.Count > 0;
         bool hasBottomDock = viewModel.BottomDockPanels.Count > 0;
@@ -876,6 +971,66 @@ public sealed class MainWindow : Window
         {
             _bottomDockSplitter.IsVisible = hasBottomDock;
         }
+    }
+
+    private void RefreshDockHosts(MainWindowViewModel viewModel)
+    {
+        _leftDockTabs = PopulateDockHost(_leftDockPane, viewModel.LeftDockPanels, viewModel.SelectedLeftDockPanel);
+        _rightDockTabs = PopulateDockHost(_rightDockPane, viewModel.RightDockPanels, viewModel.SelectedRightDockPanel);
+        _bottomDockTabs = PopulateDockHost(_bottomDockPane, viewModel.BottomDockPanels, viewModel.SelectedBottomDockPanel);
+    }
+
+    private TabControl? PopulateDockHost(Border? host, IReadOnlyList<DockPanelViewModel> panels, DockPanelViewModel? selectedPanel)
+    {
+        if (host is null)
+        {
+            return null;
+        }
+
+        if (panels.Count == 0)
+        {
+            host.Child = null;
+            return null;
+        }
+
+        TabControl tabControl = new()
+        {
+            Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
+            Margin = new Thickness(0)
+        };
+
+        List<TabItem> items = [];
+        foreach (DockPanelViewModel panel in panels)
+        {
+            Control content = BuildPanelSurface(panel.Kind);
+            content.DataContext = DataContext;
+            TabItem item = new()
+            {
+                Header = new TextBlock
+                {
+                    Text = panel.Title,
+                    Foreground = TextBrush,
+                    FontSize = 12
+                },
+                Content = content,
+                DataContext = panel
+            };
+            items.Add(item);
+            if (selectedPanel is not null && selectedPanel.Kind == panel.Kind)
+            {
+                tabControl.SelectedItem = item;
+            }
+        }
+
+        if (tabControl.SelectedItem is null && items.Count > 0)
+        {
+            tabControl.SelectedIndex = 0;
+        }
+
+        tabControl.ItemsSource = items;
+        host.Child = tabControl;
+        return tabControl;
     }
 
     private void OnClosing(object? sender, WindowClosingEventArgs e)

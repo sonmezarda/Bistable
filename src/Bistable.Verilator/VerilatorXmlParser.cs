@@ -7,6 +7,9 @@ namespace Bistable.Verilator;
 public sealed class VerilatorXmlParser
 {
     public ModuleMetadata Parse(string xmlPath)
+        => ParseDesign(xmlPath).TopModule;
+
+    public ElaboratedDesign ParseDesign(string xmlPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(xmlPath);
 
@@ -37,8 +40,93 @@ public sealed class VerilatorXmlParser
             .Select(ParseParameter)
             .ToList();
 
-        return new ModuleMetadata((string?)module.Attribute("name") ?? "unknown", ports, parameters);
+        ModuleMetadata topModule = new((string?)module.Attribute("name") ?? "unknown", ports, parameters);
+        DesignHierarchyNode hierarchyRoot = ParseHierarchy(document, topModule.Name);
+        return new ElaboratedDesign(topModule, hierarchyRoot);
     }
+
+    private static DesignHierarchyNode ParseHierarchy(XDocument document, string fallbackTopModuleName)
+    {
+        List<CellInfo> cells = document
+            .Descendants("cells")
+            .Descendants("cell")
+            .Select(static element => new CellInfo(
+                (string?)element.Attribute("name") ?? string.Empty,
+                (string?)element.Attribute("submodname") ?? string.Empty,
+                (string?)element.Attribute("hier") ?? string.Empty))
+            .Where(static cell => !string.IsNullOrWhiteSpace(cell.HierarchyPath))
+            .OrderBy(static cell => GetDepth(cell.HierarchyPath))
+            .ThenBy(static cell => cell.HierarchyPath, StringComparer.Ordinal)
+            .ToList();
+
+        if (cells.Count == 0)
+        {
+            XElement? rootCell = document
+                .Descendants("cells")
+                .Elements("cell")
+                .FirstOrDefault();
+            if (rootCell is not null)
+            {
+                return ParseHierarchyCell(rootCell);
+            }
+
+            return new DesignHierarchyNode(fallbackTopModuleName, fallbackTopModuleName, fallbackTopModuleName, []);
+        }
+
+        Dictionary<string, MutableHierarchyNode> nodes = new(StringComparer.Ordinal);
+        MutableHierarchyNode? root = null;
+        foreach (CellInfo cell in cells)
+        {
+            string[] segments = cell.HierarchyPath.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (segments.Length == 0)
+            {
+                continue;
+            }
+
+            string instanceName = !string.IsNullOrWhiteSpace(cell.InstanceName) ? cell.InstanceName : segments[^1];
+            string moduleName = !string.IsNullOrWhiteSpace(cell.ModuleName) ? cell.ModuleName : segments[^1];
+            MutableHierarchyNode current = new(instanceName, moduleName, cell.HierarchyPath);
+            nodes[cell.HierarchyPath] = current;
+
+            if (segments.Length == 1)
+            {
+                root = current;
+                continue;
+            }
+
+            string parentPath = string.Join('.', segments[..^1]);
+            if (nodes.TryGetValue(parentPath, out MutableHierarchyNode? parent))
+            {
+                parent.Children.Add(current);
+            }
+        }
+
+        root ??= nodes.Values.OrderBy(static node => GetDepth(node.HierarchyPath)).First();
+        return ToImmutable(root);
+    }
+
+    private static DesignHierarchyNode ParseHierarchyCell(XElement element)
+    {
+        string hierarchyPath = (string?)element.Attribute("hier") ?? string.Empty;
+        string instanceName = (string?)element.Attribute("name")
+            ?? hierarchyPath.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault()
+            ?? "instance";
+        string moduleName = (string?)element.Attribute("submodname") ?? instanceName;
+        return new DesignHierarchyNode(
+            instanceName,
+            moduleName,
+            hierarchyPath,
+            element.Elements("cell").Select(ParseHierarchyCell).ToArray());
+    }
+
+    private static int GetDepth(string hierarchyPath) => hierarchyPath.Count(static c => c == '.');
+
+    private static DesignHierarchyNode ToImmutable(MutableHierarchyNode node) =>
+        new(
+            node.InstanceName,
+            node.ModuleName,
+            node.HierarchyPath,
+            node.Children.Select(ToImmutable).ToArray());
 
     private static SignalPort ParsePort(XElement element, IReadOnlyDictionary<string, DType> dtypes)
     {
@@ -91,5 +179,18 @@ public sealed class VerilatorXmlParser
     private sealed record DType(string? Id, int Width, bool IsSigned)
     {
         public static DType Scalar(string id) => new(id, 1, false);
+    }
+
+    private sealed record CellInfo(string InstanceName, string ModuleName, string HierarchyPath);
+
+    private sealed class MutableHierarchyNode(string instanceName, string moduleName, string hierarchyPath)
+    {
+        public string InstanceName { get; } = instanceName;
+
+        public string ModuleName { get; } = moduleName;
+
+        public string HierarchyPath { get; } = hierarchyPath;
+
+        public List<MutableHierarchyNode> Children { get; } = [];
     }
 }

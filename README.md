@@ -64,10 +64,14 @@ The current UI also supports a basic IDE-style workspace flow:
 - `File > Open Project...` loads a `.bistable.json` project.
 - `File > Open Sample` lists bundled samples.
 - `View` can hide/show the project and waveform panes and re-dock them left/right/bottom.
-- tool panes are tabbed inside dock zones, so project and waveform can share the same side.
+- tool panes are tabbed inside dock zones, so project, waveform, and schematic can share the same side.
 - left, right, and bottom dock sizes persist across runs.
 - toolbar clock selection chooses which 1-bit signal `Tick` and `Run` will pulse.
 - toolbar cycle count controls how many cycles `Run` advances.
+- schematic panel shows a top-level symbol prototype built from the elaborated ports.
+- schematic panel now also shows instance hierarchy extracted from Verilator XML.
+- bundled `samples/hierarchy/hierarchy.bistable.json` demonstrates a multi-level design.
+- selecting a signal in the browser or schematic highlights it across the workspace.
 - click inside the waveform to select a lane and place the cursor.
 - drag inside the waveform to scrub the cursor across history.
 - mouse wheel zooms the waveform, `Shift + wheel` pans through history.

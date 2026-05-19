@@ -20,7 +20,8 @@ public sealed class LayoutStateTests
           "rightDockWidth": 340,
           "bottomDockHeight": 320,
           "projectDockZone": "right",
-          "waveformDockZone": "bottom"
+          "waveformDockZone": "bottom",
+          "schematicDockZone": "left"
         }
         """;
 
@@ -34,6 +35,7 @@ public sealed class LayoutStateTests
         Assert.Equal(320, state.BottomDockHeight);
         Assert.Equal(DockZone.Right, state.ProjectDockZone);
         Assert.Equal(DockZone.Bottom, state.WaveformDockZone);
+        Assert.Equal(DockZone.Left, state.SchematicDockZone);
     }
 
     private static JsonSerializerOptions CreateJsonOptions()

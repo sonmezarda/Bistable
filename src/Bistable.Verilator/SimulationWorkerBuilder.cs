@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using Bistable.Core.Design;
 using Bistable.Core.Projects;
@@ -30,10 +31,16 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         Directory.CreateDirectory(buildDirectory);
 
         string wrapperPath = Path.Combine(buildDirectory, "bistable_worker.cpp");
+        string? traceFilePath = configuration.Trace.Enabled
+            ? Path.Combine(buildDirectory, "bistable-trace.vcd")
+            : null;
         WorkerGenerationOptions options = new(
             configuration.Clocks.FirstOrDefault()?.Name,
             configuration.Resets.FirstOrDefault()?.Name,
-            configuration.Resets.FirstOrDefault()?.ActiveLevel ?? 0);
+            configuration.Resets.FirstOrDefault()?.ActiveLevel ?? 0,
+            configuration.Trace.Enabled,
+            configuration.Trace.Depth,
+            traceFilePath is null ? string.Empty : Path.GetFileName(traceFilePath));
         await File.WriteAllTextAsync(wrapperPath, GenerateWorkerSource(configuration.TopModule, metadata, options), cancellationToken);
 
         List<string> arguments =
@@ -64,6 +71,11 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             arguments.Add("-G" + parameter.Key + "=" + parameter.Value);
         }
 
+        if (configuration.Trace.Enabled)
+        {
+            arguments.Add("--trace");
+        }
+
         arguments.AddRange(configuration.VerilatorOptions);
         arguments.AddRange(configuration.Sources.Select(source => ResolvePath(projectDirectory, source)));
         arguments.Add(wrapperPath);
@@ -76,7 +88,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             throw new InvalidOperationException($"Worker build completed but executable was not found: {executablePath}");
         }
 
-        return new SimulationWorkerBuildResult(executablePath, buildDirectory);
+        return new SimulationWorkerBuildResult(executablePath, buildDirectory, traceFilePath);
     }
 
     private static string GenerateWorkerSource(string topModule, ModuleMetadata metadata, WorkerGenerationOptions options)
@@ -93,11 +105,19 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("#include <tuple>");
         builder.AppendLine("#include <vector>");
         builder.AppendLine("#include \"verilated.h\"");
+        if (options.TraceEnabled)
+        {
+            builder.AppendLine("#include \"verilated_vcd_c.h\"");
+        }
         builder.AppendLine($"#include \"{modelType}.h\"");
         builder.AppendLine();
         builder.AppendLine("namespace {");
         builder.AppendLine("using trace_entry = std::tuple<std::string, std::string, std::uint64_t>;");
         builder.AppendLine("using trace_buffer = std::vector<trace_entry>;");
+        if (options.TraceEnabled)
+        {
+            builder.AppendLine("using trace_file_t = VerilatedVcdC;");
+        }
         builder.AppendLine();
         builder.AppendLine("std::uint64_t parse_u64(const std::string& text) {");
         builder.AppendLine("    std::size_t index = 0;");
@@ -170,8 +190,13 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("    }");
         builder.AppendLine("}");
         builder.AppendLine();
-        AppendDriveClockFunction(builder, modelType, metadata);
-        AppendApplyResetFunction(builder, modelType, metadata, options);
+        if (options.TraceEnabled)
+        {
+            AppendTraceSupport(builder, modelType, options);
+        }
+
+        AppendDriveClockFunction(builder, modelType, metadata, options.TraceEnabled);
+        AppendApplyResetFunction(builder, modelType, metadata, options, options.TraceEnabled);
         builder.AppendLine();
         builder.AppendLine("void write_snapshot(const " + modelType + "& model, std::uint64_t time, const trace_buffer& trace) {");
         builder.AppendLine("    std::cout << \"{\\\"time\\\":\" << time << \",\\\"signals\\\":[\";");
@@ -185,7 +210,15 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("int main(int argc, char** argv) {");
         builder.AppendLine("    Verilated::commandArgs(argc, argv);");
         builder.AppendLine($"    auto model = std::make_unique<{modelType}>();");
+        if (options.TraceEnabled)
+        {
+            builder.AppendLine("    auto tracer = create_trace(*model);");
+        }
         builder.AppendLine("    std::uint64_t time = 0;");
+        if (options.TraceEnabled)
+        {
+            builder.AppendLine("    std::uint64_t trace_time = 0;");
+        }
         builder.AppendLine("    std::string line;");
         builder.AppendLine("    while (std::getline(std::cin, line)) {");
         builder.AppendLine("        try {");
@@ -202,15 +235,25 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
 
         builder.AppendLine("                append_trace(trace, signal, raw_value, time);");
         builder.AppendLine("                model->eval();");
+        if (options.TraceEnabled)
+        {
+            builder.AppendLine("                dump_trace(tracer.get(), trace_time);");
+        }
         builder.AppendLine("                append_output_trace(*model, time, trace);");
         builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"eval\" || type == \"getSnapshot\") {");
         builder.AppendLine("                model->eval();");
+        if (options.TraceEnabled)
+        {
+            builder.AppendLine("                dump_trace(tracer.get(), trace_time);");
+        }
         builder.AppendLine("                append_output_trace(*model, time, trace);");
         builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"tick\") {");
         builder.AppendLine("                const std::string clock = get_string(line, \"signal\");");
-        builder.AppendLine("                drive_clock(*model, clock, time, trace);");
+        builder.AppendLine(options.TraceEnabled
+            ? "                drive_clock(*model, tracer.get(), trace_time, clock, time, trace);"
+            : "                drive_clock(*model, clock, time, trace);");
         builder.AppendLine("                ++time;");
         builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"runCycles\") {");
@@ -218,15 +261,30 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("                const std::string clock = get_string(line, \"signal\");");
         builder.AppendLine("                for (std::uint64_t i = 0; i < cycles; ++i) {");
         builder.AppendLine("                    if (!clock.empty()) {");
-        builder.AppendLine("                        drive_clock(*model, clock, time, trace);");
+        builder.AppendLine(options.TraceEnabled
+            ? "                        drive_clock(*model, tracer.get(), trace_time, clock, time, trace);"
+            : "                        drive_clock(*model, clock, time, trace);");
         builder.AppendLine("                    }");
         builder.AppendLine("                    ++time;");
         builder.AppendLine("                }");
         builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"reset\") {");
         builder.AppendLine("                time = 0;");
+        if (options.TraceEnabled)
+        {
+            builder.AppendLine("                if (tracer) { tracer->close(); }");
+        }
         builder.AppendLine("                model = std::make_unique<" + modelType + ">();");
-        builder.AppendLine("                apply_reset(*model, time, trace);");
+        if (options.TraceEnabled)
+        {
+            builder.AppendLine("                tracer = create_trace(*model);");
+            builder.AppendLine("                trace_time = 0;");
+            builder.AppendLine("                apply_reset(*model, tracer.get(), trace_time, time, trace);");
+        }
+        else
+        {
+            builder.AppendLine("                apply_reset(*model, time, trace);");
+        }
         builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"pause\") {");
         builder.AppendLine("                write_snapshot(*model, time, trace);");
@@ -235,27 +293,57 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("            std::cout << \"{\\\"time\\\":\" << time << \",\\\"signals\\\":[],\\\"trace\\\":[],\\\"error\\\":\\\"\" << json_escape(ex.what()) << \"\\\"}\" << std::endl;");
         builder.AppendLine("        }");
         builder.AppendLine("    }");
+        if (options.TraceEnabled)
+        {
+            builder.AppendLine("    if (tracer) { tracer->close(); }");
+        }
         builder.AppendLine("    return 0;");
         builder.AppendLine("}");
 
         return builder.ToString();
     }
 
-    private static void AppendDriveClockFunction(StringBuilder builder, string modelType, ModuleMetadata metadata)
+    private static void AppendTraceSupport(StringBuilder builder, string modelType, WorkerGenerationOptions options)
     {
-        builder.AppendLine("void drive_clock(" + modelType + "& model, const std::string& clock, std::uint64_t time, trace_buffer& trace) {");
-        builder.AppendLine("    if (clock.empty()) { model.eval(); append_output_trace(model, time, trace); return; }");
+        builder.AppendLine("std::unique_ptr<trace_file_t> create_trace(" + modelType + "& model) {");
+        builder.AppendLine("    Verilated::traceEverOn(true);");
+        builder.AppendLine("    auto trace = std::make_unique<trace_file_t>();");
+        builder.AppendLine("    model.trace(trace.get(), " + Math.Max(1, options.TraceDepth).ToString(CultureInfo.InvariantCulture) + ");");
+        builder.AppendLine("    trace->open(\"" + options.TraceFileName + "\");");
+        builder.AppendLine("    return trace;");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("void dump_trace(trace_file_t* trace, std::uint64_t& trace_time) {");
+        builder.AppendLine("    if (trace == nullptr) {");
+        builder.AppendLine("        return;");
+        builder.AppendLine("    }");
+        builder.AppendLine("    trace->dump(static_cast<vluint64_t>(trace_time));");
+        builder.AppendLine("    trace->flush();");
+        builder.AppendLine("    ++trace_time;");
+        builder.AppendLine("}");
+        builder.AppendLine();
+    }
+
+    private static void AppendDriveClockFunction(StringBuilder builder, string modelType, ModuleMetadata metadata, bool traceEnabled)
+    {
+        string traceParameter = traceEnabled ? "trace_file_t* trace_file, std::uint64_t& trace_time, " : string.Empty;
+        builder.AppendLine("void drive_clock(" + modelType + "& model, " + traceParameter + "const std::string& clock, std::uint64_t time, trace_buffer& trace) {");
+        builder.AppendLine("    if (clock.empty()) { model.eval();" + (traceEnabled ? " dump_trace(trace_file, trace_time);" : string.Empty) + " append_output_trace(model, time, trace); return; }");
         foreach (SignalPort port in metadata.Inputs.Where(static port => port.Width == 1))
         {
             builder.AppendLine($"    if (clock == \"{port.Name}\") {{");
-            builder.AppendLine($"        model.{port.Name} = 0; append_trace(trace, \"{port.Name}\", \"0\", time); model.eval(); append_output_trace(model, time, trace);");
-            builder.AppendLine($"        model.{port.Name} = 1; append_trace(trace, \"{port.Name}\", \"1\", time); model.eval(); append_output_trace(model, time, trace);");
-            builder.AppendLine($"        model.{port.Name} = 0; append_trace(trace, \"{port.Name}\", \"0\", time + 1); model.eval(); append_output_trace(model, time + 1, trace);");
+            builder.AppendLine($"        model.{port.Name} = 0; append_trace(trace, \"{port.Name}\", \"0\", time); model.eval();{(traceEnabled ? " dump_trace(trace_file, trace_time);" : string.Empty)} append_output_trace(model, time, trace);");
+            builder.AppendLine($"        model.{port.Name} = 1; append_trace(trace, \"{port.Name}\", \"1\", time); model.eval();{(traceEnabled ? " dump_trace(trace_file, trace_time);" : string.Empty)} append_output_trace(model, time, trace);");
+            builder.AppendLine($"        model.{port.Name} = 0; append_trace(trace, \"{port.Name}\", \"0\", time + 1); model.eval();{(traceEnabled ? " dump_trace(trace_file, trace_time);" : string.Empty)} append_output_trace(model, time + 1, trace);");
             builder.AppendLine("        return;");
             builder.AppendLine("    }");
         }
 
         builder.AppendLine("    model.eval();");
+        if (traceEnabled)
+        {
+            builder.AppendLine("    dump_trace(trace_file, trace_time);");
+        }
         builder.AppendLine("    append_output_trace(model, time, trace);");
         builder.AppendLine("}");
         builder.AppendLine();
@@ -265,7 +353,8 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         StringBuilder builder,
         string modelType,
         ModuleMetadata metadata,
-        WorkerGenerationOptions options)
+        WorkerGenerationOptions options,
+        bool traceEnabled)
     {
         string? reset = options.ResetSignal is not null && metadata.Inputs.Any(port => port.Name == options.ResetSignal && port.Width == 1)
             ? options.ResetSignal
@@ -274,10 +363,15 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             ? options.DefaultClock
             : null;
 
-        builder.AppendLine("void apply_reset(" + modelType + "& model, std::uint64_t time, trace_buffer& trace) {");
+        string traceParameter = traceEnabled ? "trace_file_t* trace_file, std::uint64_t& trace_time, " : string.Empty;
+        builder.AppendLine("void apply_reset(" + modelType + "& model, " + traceParameter + "std::uint64_t time, trace_buffer& trace) {");
         if (reset is null)
         {
             builder.AppendLine("    model.eval();");
+            if (traceEnabled)
+            {
+                builder.AppendLine("    dump_trace(trace_file, trace_time);");
+            }
             builder.AppendLine("    append_output_trace(model, time, trace);");
             builder.AppendLine("}");
             builder.AppendLine();
@@ -289,15 +383,25 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine($"    model.{reset} = {active};");
         builder.AppendLine($"    append_trace(trace, \"{reset}\", \"{active}\", time);");
         builder.AppendLine("    model.eval();");
+        if (traceEnabled)
+        {
+            builder.AppendLine("    dump_trace(trace_file, trace_time);");
+        }
         builder.AppendLine("    append_output_trace(model, time, trace);");
         if (clock is not null)
         {
-            builder.AppendLine($"    drive_clock(model, \"{clock}\", time, trace);");
+            builder.AppendLine(traceEnabled
+                ? $"    drive_clock(model, trace_file, trace_time, \"{clock}\", time, trace);"
+                : $"    drive_clock(model, \"{clock}\", time, trace);");
         }
 
         builder.AppendLine($"    model.{reset} = {inactive};");
         builder.AppendLine($"    append_trace(trace, \"{reset}\", \"{inactive}\", time);");
         builder.AppendLine("    model.eval();");
+        if (traceEnabled)
+        {
+            builder.AppendLine("    dump_trace(trace_file, trace_time);");
+        }
         builder.AppendLine("    append_output_trace(model, time, trace);");
         builder.AppendLine("}");
         builder.AppendLine();

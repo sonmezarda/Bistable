@@ -108,4 +108,15 @@ public sealed class WaveformLaneViewModel : ViewModelBase
         Samples.Clear();
         LatestValue = _signal.Value;
     }
+
+    public void ReplaceSamples(IEnumerable<WaveformSampleViewModel> samples)
+    {
+        Samples.Clear();
+        foreach (WaveformSampleViewModel sample in samples)
+        {
+            Samples.Add(sample);
+        }
+
+        LatestValue = Samples.Count > 0 ? Samples[^1].Value : _signal.Value;
+    }
 }

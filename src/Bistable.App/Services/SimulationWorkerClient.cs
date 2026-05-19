@@ -16,6 +16,7 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
             StartInfo = new ProcessStartInfo
             {
                 FileName = executablePath,
+                WorkingDirectory = Path.GetDirectoryName(executablePath) ?? Directory.GetCurrentDirectory(),
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

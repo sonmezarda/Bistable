@@ -17,10 +17,9 @@ public sealed class LayoutStateService
 
     public string LayoutPath { get; }
 
-    public LayoutStateService()
+    public LayoutStateService(string? layoutPath = null)
     {
-        string root = FindRepositoryRoot();
-        LayoutPath = Path.Combine(root, ".bistable", "layout.json");
+        LayoutPath = layoutPath ?? Path.Combine(FindRepositoryRoot(), ".bistable", "layout.json");
     }
 
     public async Task<LayoutState> LoadAsync(CancellationToken cancellationToken = default)
@@ -30,9 +29,19 @@ public sealed class LayoutStateService
             return LayoutState.Default;
         }
 
-        await using FileStream stream = File.OpenRead(LayoutPath);
-        LayoutState? state = await JsonSerializer.DeserializeAsync<LayoutState>(stream, JsonOptions, cancellationToken);
-        return state ?? LayoutState.Default;
+        string json = await File.ReadAllTextAsync(LayoutPath, cancellationToken);
+        LayoutState? state = JsonSerializer.Deserialize<LayoutState>(json, JsonOptions);
+        if (state is null)
+        {
+            return LayoutState.Default;
+        }
+
+        if (!json.Contains("\"schematicDockZone\"", StringComparison.Ordinal))
+        {
+            state = state with { SchematicDockZone = LayoutState.Default.SchematicDockZone };
+        }
+
+        return state;
     }
 
     public async Task SaveAsync(LayoutState state, CancellationToken cancellationToken = default)

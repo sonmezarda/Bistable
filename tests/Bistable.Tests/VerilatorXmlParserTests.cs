@@ -47,4 +47,46 @@ public sealed class VerilatorXmlParserTests
             File.Delete(xmlPath);
         }
     }
+
+    [Fact]
+    public void ParsesHierarchyTreeFromCells()
+    {
+        string xmlPath = Path.Combine(Path.GetTempPath(), $"bistable-hier-{Guid.NewGuid():N}.xml");
+        File.WriteAllText(xmlPath, """
+        <verilator_xml>
+          <cells>
+            <cell name="system_top" submodname="system_top" hier="system_top" />
+            <cell name="u_core" submodname="core_cluster" hier="system_top.u_core" />
+            <cell name="u_logic" submodname="logic_unit" hier="system_top.u_core.u_logic" />
+            <cell name="u_status" submodname="status_reg" hier="system_top.u_core.u_status" />
+          </cells>
+          <netlist>
+            <module name="system_top" topModule="1">
+              <var name="clk" dtype_id="1" dir="input" pinIndex="1" vartype="logic" />
+              <var name="valid" dtype_id="1" dir="output" pinIndex="2" vartype="logic" />
+            </module>
+            <typetable>
+              <basicdtype id="1" name="logic" />
+            </typetable>
+          </netlist>
+        </verilator_xml>
+        """);
+
+        try
+        {
+            ElaboratedDesign design = new VerilatorXmlParser().ParseDesign(xmlPath);
+
+            Assert.Equal("system_top", design.HierarchyRoot.InstanceName);
+            DesignHierarchyNode core = Assert.Single(design.HierarchyRoot.Children);
+            Assert.Equal("u_core", core.InstanceName);
+            Assert.Equal("core_cluster", core.ModuleName);
+            Assert.Equal(2, core.Children.Count);
+            Assert.Contains(core.Children, static child => child.InstanceName == "u_logic");
+            Assert.Contains(core.Children, static child => child.InstanceName == "u_status");
+        }
+        finally
+        {
+            File.Delete(xmlPath);
+        }
+    }
 }

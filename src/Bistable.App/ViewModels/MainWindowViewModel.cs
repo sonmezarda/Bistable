@@ -16,6 +16,7 @@ namespace Bistable.App.ViewModels;
 public sealed class MainWindowViewModel : ViewModelBase
 {
     private readonly BistableWorkspace _workspace;
+    private readonly VcdTraceReader _traceReader = new();
     private string _status = "Ready. Open a project to inspect top-level ports.";
     private string _projectName = "No project";
     private string _topModule = "-";
@@ -27,6 +28,9 @@ public sealed class MainWindowViewModel : ViewModelBase
     private SimulationWorkerClient? _worker;
     private readonly DockPanelViewModel _projectPanel = new(DockPanelKind.Project, "Project");
     private readonly DockPanelViewModel _waveformPanel = new(DockPanelKind.Waveform, "Waveform");
+    private readonly DockPanelViewModel _schematicPanel = new(DockPanelKind.Schematic, "Schematic");
+    private HierarchyNodeViewModel? _hierarchyRoot;
+    private HierarchyNodeViewModel? _selectedHierarchyNode;
     private SignalViewModel? _selectedSignal;
     private WaveformLaneViewModel? _selectedWaveformLane;
     private DockPanelViewModel? _selectedLeftDockPanel;
@@ -34,8 +38,11 @@ public sealed class MainWindowViewModel : ViewModelBase
     private DockPanelViewModel? _selectedBottomDockPanel;
     private DockZone _projectDockZone = DockZone.Left;
     private DockZone _waveformDockZone = DockZone.Bottom;
+    private DockZone _schematicDockZone = DockZone.Right;
+    private DockPanelKind? _preferredDockPanelSelection;
     private DockZone _projectLastVisibleZone = DockZone.Left;
     private DockZone _waveformLastVisibleZone = DockZone.Bottom;
+    private DockZone _schematicLastVisibleZone = DockZone.Right;
     private double _waveformZoom = 1;
     private int _waveformOffset;
     private double _leftDockWidth = 260;
@@ -46,8 +53,10 @@ public sealed class MainWindowViewModel : ViewModelBase
     private string? _selectedClockName;
     private string _runCyclesText = "10";
     private ulong _time;
+    private string? _traceFilePath;
+    private VcdTraceDocument _traceDocument = VcdTraceDocument.Empty;
 
-    public MainWindowViewModel(BistableWorkspace workspace)
+    public MainWindowViewModel(BistableWorkspace workspace, bool loadPersistedLayout = true)
     {
         _workspace = workspace;
         LoadProjectCommand = new AsyncCommand(LoadProjectAsync);
@@ -67,14 +76,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         PanWaveformRightCommand = new RelayCommand(() => WaveformOffset = Math.Max(0, WaveformOffset - 20));
         ToggleProjectPaneCommand = new RelayCommand(() => IsProjectPaneVisible = !IsProjectPaneVisible);
         ToggleWaveformPaneCommand = new RelayCommand(() => IsWaveformPaneVisible = !IsWaveformPaneVisible);
-        MoveProjectPaneLeftCommand = new RelayCommand(() => MoveDockPanel(DockPanelKind.Project, DockZone.Left));
-        MoveProjectPaneRightCommand = new RelayCommand(() => MoveDockPanel(DockPanelKind.Project, DockZone.Right));
-        MoveProjectPaneBottomCommand = new RelayCommand(() => MoveDockPanel(DockPanelKind.Project, DockZone.Bottom));
-        HideProjectPaneCommand = new RelayCommand(() => MoveDockPanel(DockPanelKind.Project, DockZone.Hidden));
-        MoveWaveformPaneLeftCommand = new RelayCommand(() => MoveDockPanel(DockPanelKind.Waveform, DockZone.Left));
-        MoveWaveformPaneRightCommand = new RelayCommand(() => MoveDockPanel(DockPanelKind.Waveform, DockZone.Right));
-        MoveWaveformPaneBottomCommand = new RelayCommand(() => MoveDockPanel(DockPanelKind.Waveform, DockZone.Bottom));
-        HideWaveformPaneCommand = new RelayCommand(() => MoveDockPanel(DockPanelKind.Waveform, DockZone.Hidden));
+        DockPanelCommand = new ParameterizedRelayCommand<DockCommandParameter>(request => MoveDockPanel(request.PanelKind, request.Zone));
+        ToggleSchematicPaneCommand = new RelayCommand(() => IsSchematicPaneVisible = !IsSchematicPaneVisible);
         FitWaveformCommand = new RelayCommand(() =>
         {
             WaveformZoom = 1;
@@ -82,7 +85,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         });
         RebuildDockCollections();
         LoadSamples();
-        _ = LoadLayoutStateAsync();
+        if (loadPersistedLayout)
+        {
+            _ = LoadLayoutStateAsync();
+        }
     }
 
     public ObservableCollection<SignalViewModel> Inputs { get; } = [];
@@ -90,6 +96,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ObservableCollection<SignalViewModel> Outputs { get; } = [];
 
     public ObservableCollection<SignalViewModel> AllSignals { get; } = [];
+
+    public ObservableCollection<SignalViewModel> TraceSignals { get; } = [];
 
     public ObservableCollection<SampleProjectViewModel> Samples { get; } = [];
 
@@ -102,6 +110,25 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ObservableCollection<DockPanelViewModel> RightDockPanels { get; } = [];
 
     public ObservableCollection<DockPanelViewModel> BottomDockPanels { get; } = [];
+
+    public HierarchyNodeViewModel? HierarchyRoot
+    {
+        get => _hierarchyRoot;
+        private set => SetProperty(ref _hierarchyRoot, value);
+    }
+
+    public HierarchyNodeViewModel? SelectedHierarchyNode
+    {
+        get => _selectedHierarchyNode;
+        set
+        {
+            if (SetProperty(ref _selectedHierarchyNode, value))
+            {
+                OnPropertyChanged(nameof(SelectedHierarchyPath));
+                OnPropertyChanged(nameof(SelectedHierarchySummary));
+            }
+        }
+    }
 
     public ICommand LoadProjectCommand { get; }
 
@@ -137,21 +164,9 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ICommand ToggleWaveformPaneCommand { get; }
 
-    public ICommand MoveProjectPaneLeftCommand { get; }
+    public ICommand DockPanelCommand { get; }
 
-    public ICommand MoveProjectPaneRightCommand { get; }
-
-    public ICommand MoveProjectPaneBottomCommand { get; }
-
-    public ICommand HideProjectPaneCommand { get; }
-
-    public ICommand MoveWaveformPaneLeftCommand { get; }
-
-    public ICommand MoveWaveformPaneRightCommand { get; }
-
-    public ICommand MoveWaveformPaneBottomCommand { get; }
-
-    public ICommand HideWaveformPaneCommand { get; }
+    public ICommand ToggleSchematicPaneCommand { get; }
 
     public ICommand FitWaveformCommand { get; }
 
@@ -163,6 +178,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             if (SetProperty(ref _selectedSignal, value))
             {
                 SyncSelectedWaveformLaneFromSignal();
+                OnPropertyChanged(nameof(SelectedSchematicSignalName));
             }
         }
     }
@@ -194,6 +210,41 @@ public sealed class MainWindowViewModel : ViewModelBase
             SelectedWaveformLane = value is null
                 ? null
                 : WaveformLanes.FirstOrDefault(lane => string.Equals(lane.Name, value, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    public string? SelectedSchematicSignalName
+    {
+        get => SelectedSignal?.Name;
+        set
+        {
+            if (string.Equals(SelectedSignal?.Name, value, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            SelectedSignal = value is null
+                ? null
+                : AllSignals.FirstOrDefault(signal => string.Equals(signal.Name, value, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    public string? SelectedHierarchyPath
+    {
+        get => SelectedHierarchyNode?.HierarchyPath;
+        set
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                SelectedHierarchyNode = HierarchyRoot;
+                return;
+            }
+
+            HierarchyNodeViewModel? node = FindHierarchyNode(HierarchyRoot, value);
+            if (node is not null && !ReferenceEquals(node, SelectedHierarchyNode))
+            {
+                SelectedHierarchyNode = node;
+            }
         }
     }
 
@@ -266,23 +317,43 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    public bool IsSchematicPaneVisible
+    {
+        get => SchematicDockZone != DockZone.Hidden;
+        private set
+        {
+            if (value)
+            {
+                MoveDockPanel(DockPanelKind.Schematic, _schematicLastVisibleZone);
+            }
+            else
+            {
+                MoveDockPanel(DockPanelKind.Schematic, DockZone.Hidden);
+            }
+        }
+    }
+
     public DockZone ProjectDockZone
     {
         get => _projectDockZone;
         private set
         {
-            if (SetProperty(ref _projectDockZone, value))
+            if (_projectDockZone == value)
             {
-                if (value != DockZone.Hidden)
-                {
-                    _projectLastVisibleZone = value;
-                }
-
-                _projectPanel.Zone = value;
-                RebuildDockCollections();
-                OnPropertyChanged(nameof(IsProjectPaneVisible));
-                _ = PersistLayoutStateAsync();
+                return;
             }
+
+            _projectDockZone = value;
+            if (value != DockZone.Hidden)
+            {
+                _projectLastVisibleZone = value;
+            }
+
+            _projectPanel.Zone = value;
+            RebuildDockCollections();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsProjectPaneVisible));
+            _ = PersistLayoutStateAsync();
         }
     }
 
@@ -291,18 +362,46 @@ public sealed class MainWindowViewModel : ViewModelBase
         get => _waveformDockZone;
         private set
         {
-            if (SetProperty(ref _waveformDockZone, value))
+            if (_waveformDockZone == value)
             {
-                if (value != DockZone.Hidden)
-                {
-                    _waveformLastVisibleZone = value;
-                }
-
-                _waveformPanel.Zone = value;
-                RebuildDockCollections();
-                OnPropertyChanged(nameof(IsWaveformPaneVisible));
-                _ = PersistLayoutStateAsync();
+                return;
             }
+
+            _waveformDockZone = value;
+            if (value != DockZone.Hidden)
+            {
+                _waveformLastVisibleZone = value;
+            }
+
+            _waveformPanel.Zone = value;
+            RebuildDockCollections();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsWaveformPaneVisible));
+            _ = PersistLayoutStateAsync();
+        }
+    }
+
+    public DockZone SchematicDockZone
+    {
+        get => _schematicDockZone;
+        private set
+        {
+            if (_schematicDockZone == value)
+            {
+                return;
+            }
+
+            _schematicDockZone = value;
+            if (value != DockZone.Hidden)
+            {
+                _schematicLastVisibleZone = value;
+            }
+
+            _schematicPanel.Zone = value;
+            RebuildDockCollections();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsSchematicPaneVisible));
+            _ = PersistLayoutStateAsync();
         }
     }
 
@@ -375,7 +474,13 @@ public sealed class MainWindowViewModel : ViewModelBase
     public string TopModule
     {
         get => _topModule;
-        private set => SetProperty(ref _topModule, value);
+        private set
+        {
+            if (SetProperty(ref _topModule, value))
+            {
+                OnPropertyChanged(nameof(SchematicModuleName));
+            }
+        }
     }
 
     public string VerilatorVersion
@@ -389,6 +494,13 @@ public sealed class MainWindowViewModel : ViewModelBase
         get => _time;
         private set => SetProperty(ref _time, value);
     }
+
+    public string SchematicModuleName => string.IsNullOrWhiteSpace(TopModule) || TopModule == "-" ? "module" : TopModule;
+
+    public string SelectedHierarchySummary =>
+        SelectedHierarchyNode is null
+            ? "Hierarchy"
+            : $"{SelectedHierarchyNode.InstanceName} : {SelectedHierarchyNode.ModuleName}";
 
     public string? SelectedClockName
     {
@@ -449,11 +561,16 @@ public sealed class MainWindowViewModel : ViewModelBase
             Inputs.Clear();
             Outputs.Clear();
             AllSignals.Clear();
+            TraceSignals.Clear();
             WaveformLanes.Clear();
             AvailableClocks.Clear();
             _waveformOrder = 0;
             WaveformOffset = 0;
             WaveformCursorOrder = 0;
+            _traceFilePath = null;
+            _traceDocument = VcdTraceDocument.Empty;
+            HierarchyRoot = null;
+            SelectedHierarchyNode = null;
             SelectedSignal = null;
             SelectedWaveformLane = null;
 
@@ -485,6 +602,8 @@ public sealed class MainWindowViewModel : ViewModelBase
 
             SelectedWaveformLane = WaveformLanes.FirstOrDefault();
             WaveformCursorOrder = _waveformOrder;
+            HierarchyRoot = new HierarchyNodeViewModel(result.Design.HierarchyRoot);
+            SelectedHierarchyNode = HierarchyRoot;
 
             ProjectName = Path.GetFileName(path);
             TopModule = result.Metadata.Name;
@@ -540,9 +659,11 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         await DisposeWorkerAsync();
         _worker = new SimulationWorkerClient(build.ExecutablePath);
+        _traceFilePath = build.TraceFilePath;
         await PushInputsAsync(cancellationToken);
         SimulationSnapshot snapshot = await _worker.SendAsync(new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
         ApplySnapshot(snapshot);
+        RefreshTraceState();
         Status = $"Worker ready: {Path.GetFileName(build.ExecutablePath)}";
     }
 
@@ -559,6 +680,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             await PushInputsAsync(cancellationToken);
             SimulationSnapshot snapshot = await _worker.SendAsync(new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
             ApplySnapshot(snapshot);
+            RefreshTraceState();
             Status = "Native eval completed.";
             return;
         }
@@ -582,6 +704,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         string? clock = ResolveActiveClockName();
         SimulationSnapshot snapshot = await _worker.SendAsync(new SimulationCommand(SimulationCommandType.Tick, Signal: clock), cancellationToken);
         ApplySnapshot(snapshot);
+        RefreshTraceState();
         SetInputValueSilently(clock, "0");
         Status = $"Native tick pulsed {clock ?? "clock"} 0->1->0 at t={Time}.";
     }
@@ -605,6 +728,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         SimulationSnapshot snapshot = await _worker.SendAsync(new SimulationCommand(SimulationCommandType.RunCycles, Signal: clock, Cycles: cycles), cancellationToken);
         ApplySnapshot(snapshot);
+        RefreshTraceState();
         SetInputValueSilently(clock, "0");
         Status = $"Native run pulsed {clock ?? "clock"} for {cycles} cycles; t={Time}.";
     }
@@ -622,6 +746,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         SimulationSnapshot snapshot = await _worker.SendAsync(new SimulationCommand(SimulationCommandType.Reset), cancellationToken);
         ClearWaveformSamples();
         ApplySnapshot(snapshot);
+        RefreshTraceState();
         string? reset = _currentProject?.Resets.FirstOrDefault()?.Name;
         if (reset is not null)
         {
@@ -651,7 +776,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     private void ApplySnapshot(SimulationSnapshot snapshot)
     {
         Time = snapshot.Time;
-        if (snapshot.Trace is not null)
+        bool useTraceDocument = !string.IsNullOrWhiteSpace(_traceFilePath);
+        if (!useTraceDocument && snapshot.Trace is not null)
         {
             foreach (SignalSample sample in snapshot.Trace)
             {
@@ -666,11 +792,17 @@ public sealed class MainWindowViewModel : ViewModelBase
             {
                 string formattedValue = FormatOutputValue(sample.Value, output.Width);
                 output.Value = formattedValue;
-                AppendWaveformSample(sample.Signal, formattedValue, snapshot.Time);
+                if (!useTraceDocument)
+                {
+                    AppendWaveformSample(sample.Signal, formattedValue, snapshot.Time);
+                }
             }
         }
 
-        WaveformCursorOrder = _waveformOrder;
+        if (!useTraceDocument)
+        {
+            WaveformCursorOrder = _waveformOrder;
+        }
     }
 
     private void AppendWaveformSample(string? signal, string value, ulong time, bool force = false)
@@ -802,7 +934,11 @@ public sealed class MainWindowViewModel : ViewModelBase
             WaveformLanes.Add(lane);
         }
 
-        lane.AppendSample(++_waveformOrder, Time, signal.Value, force: true);
+        if (!TryPopulateLaneFromTrace(lane))
+        {
+            lane.AppendSample(++_waveformOrder, Time, signal.Value, force: true);
+        }
+
         if (selectLane)
         {
             SelectedWaveformLane = lane;
@@ -869,10 +1005,13 @@ public sealed class MainWindowViewModel : ViewModelBase
         _bottomDockHeight = state.BottomDockHeight > 0 ? state.BottomDockHeight : 280;
         _projectDockZone = state.ProjectDockZone;
         _waveformDockZone = state.WaveformDockZone;
+        _schematicDockZone = state.SchematicDockZone;
         _projectLastVisibleZone = _projectDockZone == DockZone.Hidden ? DockZone.Left : _projectDockZone;
         _waveformLastVisibleZone = _waveformDockZone == DockZone.Hidden ? DockZone.Bottom : _waveformDockZone;
+        _schematicLastVisibleZone = _schematicDockZone == DockZone.Hidden ? DockZone.Right : _schematicDockZone;
         _projectPanel.Zone = _projectDockZone;
         _waveformPanel.Zone = _waveformDockZone;
+        _schematicPanel.Zone = _schematicDockZone;
         RebuildDockCollections();
         OnPropertyChanged(nameof(WaveformZoom));
         OnPropertyChanged(nameof(WaveformOffset));
@@ -881,8 +1020,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(BottomDockHeight));
         OnPropertyChanged(nameof(ProjectDockZone));
         OnPropertyChanged(nameof(WaveformDockZone));
+        OnPropertyChanged(nameof(SchematicDockZone));
         OnPropertyChanged(nameof(IsProjectPaneVisible));
         OnPropertyChanged(nameof(IsWaveformPaneVisible));
+        OnPropertyChanged(nameof(IsSchematicPaneVisible));
     }
 
     public void UpdateLayoutMetrics(double leftDockWidth, double rightDockWidth, double bottomDockHeight)
@@ -918,6 +1059,76 @@ public sealed class MainWindowViewModel : ViewModelBase
         WaveformCursorOrder = _waveformOrder;
     }
 
+    private void RefreshTraceState()
+    {
+        if (string.IsNullOrWhiteSpace(_traceFilePath) || string.IsNullOrWhiteSpace(TopModule))
+        {
+            _traceDocument = VcdTraceDocument.Empty;
+            return;
+        }
+
+        _traceDocument = _traceReader.Load(_traceFilePath, TopModule);
+        SyncTraceSignalCatalog();
+        RefreshWaveformFromTrace();
+    }
+
+    private void SyncTraceSignalCatalog()
+    {
+        Dictionary<string, SignalViewModel> existing = TraceSignals.ToDictionary(static signal => signal.Name, StringComparer.OrdinalIgnoreCase);
+        TraceSignals.Clear();
+
+        foreach (VcdTraceSignal traceSignal in _traceDocument.Signals.Where(static signal => !signal.IsTopLevel))
+        {
+            if (!existing.TryGetValue(traceSignal.Name, out SignalViewModel? signal))
+            {
+                signal = new SignalViewModel(
+                    traceSignal.Name,
+                    traceSignal.ShortName,
+                    traceSignal.ScopePath,
+                    SignalDirection.Internal,
+                    traceSignal.Width,
+                    isSigned: false);
+            }
+
+            if (_traceDocument.TryGetEvents(traceSignal.Name, out IReadOnlyList<VcdTraceEvent>? events) && events.Count > 0)
+            {
+                signal.Value = events[^1].Value;
+            }
+
+            TraceSignals.Add(signal);
+        }
+    }
+
+    private void RefreshWaveformFromTrace()
+    {
+        if (_traceDocument.MaxOrder <= 0)
+        {
+            return;
+        }
+
+        foreach (WaveformLaneViewModel lane in WaveformLanes)
+        {
+            TryPopulateLaneFromTrace(lane);
+        }
+
+        _waveformOrder = _traceDocument.MaxOrder;
+        WaveformCursorOrder = _waveformOrder;
+        OnPropertyChanged(nameof(WaveformCursorSummary));
+        OnPropertyChanged(nameof(WaveformCursorTime));
+    }
+
+    private bool TryPopulateLaneFromTrace(WaveformLaneViewModel lane)
+    {
+        if (!_traceDocument.TryGetEvents(lane.Name, out IReadOnlyList<VcdTraceEvent>? events) || events.Count == 0)
+        {
+            return false;
+        }
+
+        lane.ReplaceSamples(events.Select(static traceEvent => new WaveformSampleViewModel(traceEvent.Order, traceEvent.Time, traceEvent.Value)));
+        lane.Signal.Value = lane.LatestValue;
+        return true;
+    }
+
     private void SyncSelectedWaveformLaneFromSignal()
     {
         if (_selectedSignal is null)
@@ -939,7 +1150,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        SignalViewModel? signal = AllSignals.FirstOrDefault(candidate => string.Equals(candidate.Name, _selectedWaveformLane.Name, StringComparison.OrdinalIgnoreCase));
+        SignalViewModel? signal = FindAnySignalByName(_selectedWaveformLane.Name);
         if (signal is not null && !ReferenceEquals(signal, SelectedSignal))
         {
             _selectedSignal = signal;
@@ -955,7 +1166,8 @@ public sealed class MainWindowViewModel : ViewModelBase
             RightDockWidth,
             BottomDockHeight,
             ProjectDockZone,
-            WaveformDockZone));
+            WaveformDockZone,
+            SchematicDockZone));
 
     private int GetMaxWaveformOffset() => Math.Max(0, (int)_waveformOrder - 1);
 
@@ -1004,6 +1216,23 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     private void MoveDockPanel(DockPanelKind kind, DockZone zone)
     {
+        _preferredDockPanelSelection = kind;
+        try
+        {
+            MoveDockPanelCore(kind, zone);
+        }
+        finally
+        {
+            _preferredDockPanelSelection = null;
+        }
+
+        Status = zone == DockZone.Hidden
+            ? $"{kind} pane hidden."
+            : $"{kind} pane docked {zone}.";
+    }
+
+    private void MoveDockPanelCore(DockPanelKind kind, DockZone zone)
+    {
         switch (kind)
         {
             case DockPanelKind.Project:
@@ -1011,6 +1240,9 @@ public sealed class MainWindowViewModel : ViewModelBase
                 break;
             case DockPanelKind.Waveform:
                 WaveformDockZone = zone;
+                break;
+            case DockPanelKind.Schematic:
+                SchematicDockZone = zone;
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
@@ -1023,10 +1255,39 @@ public sealed class MainWindowViewModel : ViewModelBase
         RebuildZoneCollection(RightDockPanels, DockZone.Right);
         RebuildZoneCollection(BottomDockPanels, DockZone.Bottom);
 
-        SelectedLeftDockPanel = LeftDockPanels.FirstOrDefault();
-        SelectedRightDockPanel = RightDockPanels.FirstOrDefault();
-        SelectedBottomDockPanel = BottomDockPanels.FirstOrDefault();
+        SelectedLeftDockPanel = SelectDockPanelForZone(LeftDockPanels, SelectedLeftDockPanel);
+        SelectedRightDockPanel = SelectDockPanelForZone(RightDockPanels, SelectedRightDockPanel);
+        SelectedBottomDockPanel = SelectDockPanelForZone(BottomDockPanels, SelectedBottomDockPanel);
     }
+
+    private DockPanelViewModel? SelectDockPanelForZone(
+        IReadOnlyList<DockPanelViewModel> panels,
+        DockPanelViewModel? current)
+    {
+        if (_preferredDockPanelSelection is { } preferred)
+        {
+            DockPanelViewModel? preferredPanel = panels.FirstOrDefault(panel => panel.Kind == preferred);
+            if (preferredPanel is not null)
+            {
+                return preferredPanel;
+            }
+        }
+
+        if (current is not null)
+        {
+            DockPanelViewModel? stillVisible = panels.FirstOrDefault(panel => panel.Kind == current.Kind);
+            if (stillVisible is not null)
+            {
+                return stillVisible;
+            }
+        }
+
+        return panels.FirstOrDefault();
+    }
+
+    private SignalViewModel? FindAnySignalByName(string name) =>
+        AllSignals.FirstOrDefault(signal => string.Equals(signal.Name, name, StringComparison.OrdinalIgnoreCase))
+        ?? TraceSignals.FirstOrDefault(signal => string.Equals(signal.Name, name, StringComparison.OrdinalIgnoreCase));
 
     private void RebuildZoneCollection(ObservableCollection<DockPanelViewModel> target, DockZone zone)
     {
@@ -1047,6 +1308,11 @@ public sealed class MainWindowViewModel : ViewModelBase
         if (WaveformDockZone == zone)
         {
             yield return _waveformPanel;
+        }
+
+        if (SchematicDockZone == zone)
+        {
+            yield return _schematicPanel;
         }
     }
 
@@ -1070,5 +1336,29 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         int digits = Math.Max(1, (signal.Width + 3) / 4);
         return "0x" + parsed.ToString("X", CultureInfo.InvariantCulture).PadLeft(digits, '0');
+    }
+
+    private static HierarchyNodeViewModel? FindHierarchyNode(HierarchyNodeViewModel? current, string hierarchyPath)
+    {
+        if (current is null)
+        {
+            return null;
+        }
+
+        if (string.Equals(current.HierarchyPath, hierarchyPath, StringComparison.Ordinal))
+        {
+            return current;
+        }
+
+        foreach (HierarchyNodeViewModel child in current.Children)
+        {
+            HierarchyNodeViewModel? match = FindHierarchyNode(child, hierarchyPath);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
     }
 }
