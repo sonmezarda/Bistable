@@ -4,6 +4,8 @@ public sealed class HierarchyScopeNodeViewModel(
     string hierarchyPath,
     string instanceName,
     string moduleName,
+    int inputCount,
+    int outputCount,
     int exactSignalCount,
     int descendantSignalCount)
 {
@@ -12,6 +14,10 @@ public sealed class HierarchyScopeNodeViewModel(
     public string InstanceName { get; } = instanceName;
 
     public string ModuleName { get; } = moduleName;
+
+    public int InputCount { get; } = inputCount;
+
+    public int OutputCount { get; } = outputCount;
 
     public int ExactSignalCount { get; } = exactSignalCount;
 

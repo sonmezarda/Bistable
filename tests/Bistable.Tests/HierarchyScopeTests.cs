@@ -130,11 +130,35 @@ public sealed class HierarchyScopeTests
         Assert.Equal("system_top", viewModel.SelectedHierarchyParentScope!.HierarchyPath);
         Assert.Contains(viewModel.SelectedHierarchyChildScopes, scope => scope.HierarchyPath == "system_top.u_core.u_logic");
         Assert.Contains(viewModel.SelectedHierarchyChildScopes, scope => scope.HierarchyPath == "system_top.u_core.u_status");
+        Assert.Contains(viewModel.SelectedHierarchyChildScopes, scope => scope is { HierarchyPath: "system_top.u_core.u_logic", InputCount: 2, OutputCount: 2 });
         Assert.Contains("Click a child instance", viewModel.SelectedHierarchyScopeHint, StringComparison.OrdinalIgnoreCase);
 
         viewModel.SelectHierarchyScopeCommand.Execute("system_top.u_core.u_status");
 
         Assert.Equal("system_top.u_core.u_status", viewModel.SelectedHierarchyPath);
+    }
+
+    [Fact]
+    public async Task SelectingHierarchyNodeBuildsModulePortCatalogForScope()
+    {
+        string root = FindRepositoryRoot();
+        string samplePath = Path.Combine(root, "samples", "hierarchy", "hierarchy.bistable.json");
+        MainWindowViewModel viewModel = CreateViewModel();
+
+        await viewModel.LoadProjectFromPathAsync(samplePath, CancellationToken.None);
+        viewModel.LiveModeEnabled = false;
+        viewModel.BuildCommand.Execute(null);
+
+        await WaitUntilAsync(() => viewModel.TraceSignals.Count > 0, TimeSpan.FromSeconds(20));
+
+        viewModel.SelectedHierarchyPath = "system_top.u_core";
+
+        await WaitUntilAsync(() => viewModel.SelectedHierarchyPorts.Count > 0, TimeSpan.FromSeconds(5));
+
+        Assert.Contains(viewModel.SelectedHierarchyPorts, port => port is { Name: "clk", IsInput: true, Width: 1 });
+        Assert.Contains(viewModel.SelectedHierarchyPorts, port => port is { Name: "a", IsInput: true, Width: 8 });
+        Assert.Contains(viewModel.SelectedHierarchyPorts, port => port is { Name: "result", IsOutput: true, Width: 8 });
+        Assert.Contains(viewModel.SelectedHierarchyPorts, port => port is { Name: "valid", IsOutput: true, Width: 1 });
     }
 
     private static MainWindowViewModel CreateViewModel()

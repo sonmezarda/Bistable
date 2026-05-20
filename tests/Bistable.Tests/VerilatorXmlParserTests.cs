@@ -65,6 +65,11 @@ public sealed class VerilatorXmlParserTests
               <var name="clk" dtype_id="1" dir="input" pinIndex="1" vartype="logic" />
               <var name="valid" dtype_id="1" dir="output" pinIndex="2" vartype="logic" />
             </module>
+            <module name="core_cluster">
+              <var name="clk" dtype_id="1" dir="input" pinIndex="1" vartype="logic" />
+              <var name="rst_n" dtype_id="1" dir="input" pinIndex="2" vartype="logic" />
+              <var name="valid" dtype_id="1" dir="output" pinIndex="3" vartype="logic" />
+            </module>
             <typetable>
               <basicdtype id="1" name="logic" />
             </typetable>
@@ -83,6 +88,9 @@ public sealed class VerilatorXmlParserTests
             Assert.Equal(2, core.Children.Count);
             Assert.Contains(core.Children, static child => child.InstanceName == "u_logic");
             Assert.Contains(core.Children, static child => child.InstanceName == "u_status");
+            Assert.True(design.ModuleCatalog.TryGetValue("core_cluster", out ModuleMetadata? coreModule));
+            Assert.Equal(2, coreModule!.Inputs.Count);
+            Assert.Single(coreModule.Outputs);
         }
         finally
         {

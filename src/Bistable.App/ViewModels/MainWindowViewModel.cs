@@ -25,6 +25,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private string? _currentProjectPath;
     private ProjectConfiguration? _currentProject;
     private ModuleMetadata? _currentMetadata;
+    private ElaboratedDesign? _currentDesign;
     private string? _currentProjectDirectory;
     private SimulationWorkerClient? _worker;
     private readonly DockPanelViewModel _projectPanel = new(DockPanelKind.Project, "Project");
@@ -119,6 +120,8 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<HierarchyScopeNodeViewModel> SelectedHierarchyChildScopes { get; } = [];
 
+    public ObservableCollection<HierarchyScopePortViewModel> SelectedHierarchyPorts { get; } = [];
+
     public ObservableCollection<SampleProjectViewModel> Samples { get; } = [];
 
     public ObservableCollection<WaveformLaneViewModel> WaveformLanes { get; } = [];
@@ -154,6 +157,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                 OnPropertyChanged(nameof(SelectedHierarchyParentScope));
                 RefreshHierarchyScopeSignals();
                 RefreshSelectedHierarchyNeighborhood();
+                RefreshSelectedHierarchyPorts();
             }
         }
     }
@@ -730,6 +734,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             HierarchyScopeSignals.Clear();
             HierarchyTraceScopeSummaries.Clear();
             SelectedHierarchyChildScopes.Clear();
+            SelectedHierarchyPorts.Clear();
             WaveformLanes.Clear();
             AvailableClocks.Clear();
             UnsubscribeFromInputs();
@@ -768,6 +773,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             _currentProjectPath = path;
             _currentProject = result.Project;
             _currentMetadata = result.Metadata;
+            _currentDesign = result.Design;
             _currentProjectDirectory = result.ProjectDirectory;
 
             foreach (string clockName in ResolveAvailableClocks(result.Project, Inputs))
@@ -1561,6 +1567,29 @@ public sealed class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(SelectedHierarchyScopeHint));
     }
 
+    private void RefreshSelectedHierarchyPorts()
+    {
+        SelectedHierarchyPorts.Clear();
+        if (SelectedHierarchyNode is null || _currentDesign is null)
+        {
+            return;
+        }
+
+        if (!_currentDesign.ModuleCatalog.TryGetValue(SelectedHierarchyNode.ModuleName, out ModuleMetadata? module))
+        {
+            return;
+        }
+
+        foreach (SignalPort port in module.Ports.OrderBy(static port => port.PinIndex))
+        {
+            SelectedHierarchyPorts.Add(new HierarchyScopePortViewModel(
+                port.Name,
+                port.Direction,
+                port.Width,
+                port.IsSigned));
+        }
+    }
+
     private void RebuildHierarchyTraceScopeSummaries()
     {
         HierarchyTraceScopeSummaries.Clear();
@@ -1787,10 +1816,17 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         HierarchyTraceScopeSummaryViewModel? summary = HierarchyTraceScopeSummaries.FirstOrDefault(
             candidate => string.Equals(candidate.HierarchyPath, node.HierarchyPath, StringComparison.OrdinalIgnoreCase));
+        ModuleMetadata? module = null;
+        if (_currentDesign is not null)
+        {
+            _currentDesign.ModuleCatalog.TryGetValue(node.ModuleName, out module);
+        }
         return new HierarchyScopeNodeViewModel(
             node.HierarchyPath,
             node.InstanceName,
             node.ModuleName,
+            module?.Inputs.Count ?? 0,
+            module?.Outputs.Count ?? 0,
             summary?.ExactSignalCount ?? 0,
             summary?.DescendantSignalCount ?? 0);
     }

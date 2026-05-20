@@ -14,10 +14,10 @@ public sealed class VerilatorXmlParser
         ArgumentException.ThrowIfNullOrWhiteSpace(xmlPath);
 
         XDocument document = XDocument.Load(xmlPath, LoadOptions.None);
-        XElement module = document
-            .Descendants("module")
+        List<XElement> moduleElements = document.Descendants("module").ToList();
+        XElement module = moduleElements
             .FirstOrDefault(static e => string.Equals((string?)e.Attribute("topModule"), "1", StringComparison.Ordinal))
-            ?? document.Descendants("module").FirstOrDefault()
+            ?? moduleElements.FirstOrDefault()
             ?? throw new InvalidDataException("Verilator XML does not contain a module.");
 
         Dictionary<string, DType> dtypes = document
@@ -27,6 +27,20 @@ public sealed class VerilatorXmlParser
             .Where(static dtype => dtype.Id is not null)
             .ToDictionary(static dtype => dtype.Id!, static dtype => dtype);
 
+        Dictionary<string, ModuleMetadata> moduleCatalog = moduleElements
+            .Select(element => ParseModule(element, dtypes))
+            .ToDictionary(static metadata => metadata.Name, static metadata => metadata, StringComparer.OrdinalIgnoreCase);
+
+        string topModuleName = (string?)module.Attribute("name") ?? "unknown";
+        ModuleMetadata topModule = moduleCatalog.TryGetValue(topModuleName, out ModuleMetadata? catalogEntry)
+            ? catalogEntry
+            : ParseModule(module, dtypes);
+        DesignHierarchyNode hierarchyRoot = ParseHierarchy(document, topModule.Name);
+        return new ElaboratedDesign(topModule, hierarchyRoot, moduleCatalog);
+    }
+
+    private static ModuleMetadata ParseModule(XElement module, IReadOnlyDictionary<string, DType> dtypes)
+    {
         List<SignalPort> ports = module
             .Elements("var")
             .Where(static e => e.Attribute("dir") is not null)
@@ -40,9 +54,7 @@ public sealed class VerilatorXmlParser
             .Select(ParseParameter)
             .ToList();
 
-        ModuleMetadata topModule = new((string?)module.Attribute("name") ?? "unknown", ports, parameters);
-        DesignHierarchyNode hierarchyRoot = ParseHierarchy(document, topModule.Name);
-        return new ElaboratedDesign(topModule, hierarchyRoot);
+        return new ModuleMetadata((string?)module.Attribute("name") ?? "unknown", ports, parameters);
     }
 
     private static DesignHierarchyNode ParseHierarchy(XDocument document, string fallbackTopModuleName)

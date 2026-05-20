@@ -50,6 +50,9 @@ public sealed class SchematicPreviewControl : Control
     public static readonly StyledProperty<IEnumerable<HierarchyScopeNodeViewModel>?> ScopeChildrenProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<HierarchyScopeNodeViewModel>?>(nameof(ScopeChildren));
 
+    public static readonly StyledProperty<IEnumerable<HierarchyScopePortViewModel>?> ScopePortsProperty =
+        AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<HierarchyScopePortViewModel>?>(nameof(ScopePorts));
+
     public static readonly StyledProperty<IEnumerable<SignalViewModel>?> ScopeSignalsProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<SignalViewModel>?>(nameof(ScopeSignals));
 
@@ -75,6 +78,7 @@ public sealed class SchematicPreviewControl : Control
     private INotifyCollectionChanged? _observableSignals;
     private INotifyCollectionChanged? _observableScopeSignals;
     private INotifyCollectionChanged? _observableScopeChildren;
+    private INotifyCollectionChanged? _observableScopePorts;
 
     public event EventHandler<SignalEditorRequestedEventArgs>? SignalEditorRequested;
 
@@ -162,6 +166,12 @@ public sealed class SchematicPreviewControl : Control
         set => SetValue(ScopeSignalsProperty, value);
     }
 
+    public IEnumerable<HierarchyScopePortViewModel>? ScopePorts
+    {
+        get => GetValue(ScopePortsProperty);
+        set => SetValue(ScopePortsProperty, value);
+    }
+
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
@@ -181,6 +191,11 @@ public sealed class SchematicPreviewControl : Control
             DetachCollection(change.OldValue as INotifyCollectionChanged, ref _observableScopeChildren, OnScopeChildrenChanged);
             AttachCollection(change.NewValue as INotifyCollectionChanged, ref _observableScopeChildren, OnScopeChildrenChanged);
         }
+        else if (change.Property == ScopePortsProperty)
+        {
+            DetachCollection(change.OldValue as INotifyCollectionChanged, ref _observableScopePorts, OnScopePortsChanged);
+            AttachCollection(change.NewValue as INotifyCollectionChanged, ref _observableScopePorts, OnScopePortsChanged);
+        }
 
         InvalidateVisual();
     }
@@ -194,6 +209,7 @@ public sealed class SchematicPreviewControl : Control
         IReadOnlyList<SignalViewModel> outputs = Signals?.Where(static signal => !signal.IsInput).ToList() ?? [];
         IReadOnlyList<SignalViewModel> scopeSignals = ScopeSignals?.ToList() ?? [];
         IReadOnlyList<HierarchyScopeNodeViewModel> childScopes = ScopeChildren?.ToList() ?? [];
+        IReadOnlyList<HierarchyScopePortViewModel> scopePorts = ScopePorts?.ToList() ?? [];
         HierarchyScopeNodeViewModel? parentScope = ScopeParent;
 
         if (inputs.Count == 0 && outputs.Count == 0)
@@ -234,7 +250,7 @@ public sealed class SchematicPreviewControl : Control
 
         if (hasScopeFocus)
         {
-            DrawFocusedScopePanel(context, bounds, moduleRect, scopeCard, scopeSignals, childScopes, parentScope);
+            DrawFocusedScopePanel(context, bounds, moduleRect, scopeCard, scopeSignals, childScopes, parentScope, scopePorts);
         }
     }
 
@@ -410,10 +426,13 @@ public sealed class SchematicPreviewControl : Control
         Rect? scopeCard,
         IReadOnlyList<SignalViewModel> scopeSignals,
         IReadOnlyList<HierarchyScopeNodeViewModel> childScopes,
-        HierarchyScopeNodeViewModel? parentScope)
+        HierarchyScopeNodeViewModel? parentScope,
+        IReadOnlyList<HierarchyScopePortViewModel> scopePorts)
     {
         int visibleProbeCount = Math.Min(scopeSignals.Count, 8);
         int visibleChildCount = Math.Min(childScopes.Count, 4);
+        int visibleLeftPortCount = Math.Min(scopePorts.Count(static port => port.IsInput), 5);
+        int visibleRightPortCount = Math.Min(scopePorts.Count(static port => port.IsOutput), 5);
         bool inlineChildren = visibleChildCount > 0 && bounds.Width >= 980;
         int probeColumnCount = bounds.Width >= 900 && visibleProbeCount > 1 ? 2 : 1;
         int probeRowCount = visibleProbeCount == 0 ? 0 : (int)Math.Ceiling(visibleProbeCount / (double)probeColumnCount);
@@ -444,7 +463,15 @@ public sealed class SchematicPreviewControl : Control
             DrawText(context, Ellipsize(ActiveScopePath!, 10, panel.Width - 32), panel.X + 16, panel.Y + 52, MutedBrush, 10);
         }
 
-        Rect currentNodeRect = DrawCurrentScopeNode(context, panel, inlineChildren, parentScope is not null, visibleChildCount > 0);
+        Rect currentNodeRect = DrawCurrentScopeNode(
+            context,
+            panel,
+            inlineChildren,
+            parentScope is not null,
+            visibleChildCount > 0,
+            scopePorts,
+            visibleLeftPortCount,
+            visibleRightPortCount);
         DrawNavigationNeighborhood(context, panel, currentNodeRect, parentScope, childScopes, visibleChildCount, inlineChildren);
 
         double probesTop = inlineChildren ? currentNodeRect.Bottom + 18 : currentNodeRect.Bottom + 18 + childrenBlockHeight;
@@ -459,10 +486,18 @@ public sealed class SchematicPreviewControl : Control
         DrawText(context, Ellipsize(footer, 10, panel.Width - 32), panel.X + 16, panel.Bottom - 18, MutedBrush, 10);
     }
 
-    private Rect DrawCurrentScopeNode(DrawingContext context, Rect panel, bool inlineChildren, bool hasParent, bool hasChildren)
+    private Rect DrawCurrentScopeNode(
+        DrawingContext context,
+        Rect panel,
+        bool inlineChildren,
+        bool hasParent,
+        bool hasChildren,
+        IReadOnlyList<HierarchyScopePortViewModel> scopePorts,
+        int visibleLeftPortCount,
+        int visibleRightPortCount)
     {
-        double reservedLeft = hasParent ? 152 : 24;
-        double reservedRight = inlineChildren && hasChildren ? 244 : 24;
+        double reservedLeft = Math.Max(hasParent ? 152 : 24, visibleLeftPortCount > 0 ? 182 : 24);
+        double reservedRight = Math.Max(inlineChildren && hasChildren ? 244 : 24, visibleRightPortCount > 0 ? 182 : 24);
         double availableWidth = panel.Width - reservedLeft - reservedRight;
         double nodeWidth = Math.Clamp(availableWidth, 168, 220);
         double nodeX = panel.X + reservedLeft + Math.Max(0, (availableWidth - nodeWidth) / 2);
@@ -473,6 +508,8 @@ public sealed class SchematicPreviewControl : Control
         DrawText(context, Ellipsize(ActiveScopeTitle ?? "Scope", 12, rect.Width - 24), rect.X + 12, rect.Y + 10, TextBrush, 12);
         DrawText(context, Ellipsize(ActiveScopeModuleName ?? "module", 11, rect.Width - 24), rect.X + 12, rect.Y + 30, PinStrokeBrush, 11);
         DrawText(context, "active", rect.X + 12, rect.Bottom - 16, SelectedBrush, 10);
+
+        DrawScopePorts(context, rect, scopePorts);
         return rect;
     }
 
@@ -627,8 +664,65 @@ public sealed class SchematicPreviewControl : Control
         DrawText(context, Ellipsize(scope.InstanceName, 11, rect.Width - 24), rect.X + 10, rect.Y + 8, TextBrush, 11);
         DrawText(context, Ellipsize(scope.ModuleName, 10, rect.Width - 24), rect.X + 10, rect.Y + 24, MutedBrush, 10);
         DrawText(context, role, rect.Right - 26, rect.Y + 8, MutedBrush, 9);
+        DrawPortCountStubs(context, rect, scope.InputCount, scope.OutputCount, stroke);
         DrawMiniBadge(context, new Rect(rect.Right - 62, rect.Bottom - 20, 54, 16), scope.ScopeBadgeText, stroke);
         _scopeHitTargets.Add(new ScopeHitTarget(scope.HierarchyPath, rect));
+    }
+
+    private void DrawScopePorts(DrawingContext context, Rect nodeRect, IReadOnlyList<HierarchyScopePortViewModel> ports)
+    {
+        IReadOnlyList<HierarchyScopePortViewModel> inputs = ports.Where(static port => port.IsInput).Take(5).ToList();
+        IReadOnlyList<HierarchyScopePortViewModel> outputs = ports.Where(static port => port.IsOutput).Take(5).ToList();
+        double leftStep = nodeRect.Height / Math.Max(1, inputs.Count + 1);
+        double rightStep = nodeRect.Height / Math.Max(1, outputs.Count + 1);
+
+        for (int index = 0; index < inputs.Count; index++)
+        {
+            HierarchyScopePortViewModel port = inputs[index];
+            double y = nodeRect.Y + leftStep * (index + 1);
+            DrawPortStub(context, port, y, nodeRect.X, leftSide: true);
+        }
+
+        for (int index = 0; index < outputs.Count; index++)
+        {
+            HierarchyScopePortViewModel port = outputs[index];
+            double y = nodeRect.Y + rightStep * (index + 1);
+            DrawPortStub(context, port, y, nodeRect.Right, leftSide: false);
+        }
+    }
+
+    private void DrawPortStub(DrawingContext context, HierarchyScopePortViewModel port, double y, double edgeX, bool leftSide)
+    {
+        double lineLength = 26;
+        Rect badge = leftSide
+            ? new(edgeX - 160, y - 10, 48, 20)
+            : new(edgeX + 112, y - 10, 48, 20);
+        double lineStartX = leftSide ? edgeX - lineLength : edgeX;
+        double lineEndX = leftSide ? edgeX : edgeX + lineLength;
+        string label = Ellipsize(port.Name, 10, 78);
+        double labelX = leftSide ? badge.Right + 8 : edgeX + 34;
+
+        context.DrawLine(new Pen(PinStrokeBrush, 1.3), new Point(lineStartX, y), new Point(lineEndX, y));
+        context.FillRectangle(PinStrokeBrush, new Rect(leftSide ? edgeX - 2 : edgeX - 2, y - 2, 4, 4));
+        DrawText(context, label, leftSide ? badge.Right + 8 : labelX, y - 7, MutedBrush, 10);
+        DrawMiniBadge(context, badge, port.WidthLabel, PinStrokeBrush);
+    }
+
+    private void DrawPortCountStubs(DrawingContext context, Rect rect, int inputCount, int outputCount, IBrush stroke)
+    {
+        double leftCount = Math.Min(3, inputCount);
+        double rightCount = Math.Min(3, outputCount);
+        for (int index = 0; index < leftCount; index++)
+        {
+            double y = rect.Y + 12 + index * 10;
+            context.DrawLine(new Pen(stroke, 1.1), new Point(rect.X - 8, y), new Point(rect.X, y));
+        }
+
+        for (int index = 0; index < rightCount; index++)
+        {
+            double y = rect.Y + 12 + index * 10;
+            context.DrawLine(new Pen(stroke, 1.1), new Point(rect.Right, y), new Point(rect.Right + 8, y));
+        }
     }
 
     private void DrawScopeConnector(DrawingContext context, Rect moduleRect, Rect panelRect)
@@ -657,6 +751,8 @@ public sealed class SchematicPreviewControl : Control
     private void OnScopeSignalsChanged(object? sender, NotifyCollectionChangedEventArgs e) => OnSignalCollectionChanged(e);
 
     private void OnScopeChildrenChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateVisual();
+
+    private void OnScopePortsChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateVisual();
 
     private void OnSignalCollectionChanged(NotifyCollectionChangedEventArgs e)
     {

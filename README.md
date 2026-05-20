@@ -81,6 +81,7 @@ The current UI also supports a basic IDE-style workspace flow:
 - exact-scope internal signals are now also visible on the schematic canvas as selectable scope probes.
 - selected hierarchy instances now render as a focused scope panel on the schematic canvas instead of only a side probe strip.
 - the focused scope panel now shows parent/child instance neighborhood and lets you navigate hierarchy directly from the schematic canvas.
+- the focused scope panel now uses module port metadata from Verilator XML to draw input/output stubs for the active instance.
 - toolbar cycle count controls how many cycles `Run` advances.
 - trace-enabled projects expose internal signals under `Project > Trace Signals`.
 - internal trace signals can be added to the waveform like top-level ports.
@@ -116,5 +117,6 @@ surface. That means:
 - exact-scope internal signals can be selected directly on the schematic canvas and added to the waveform with a double-click
 - the schematic canvas now shows the selected hierarchy instance as an internal probe panel with module/path context and live probe values
 - child instances on the focused scope panel are clickable, so hierarchy navigation no longer depends on the tree view alone
+- active hierarchy instances now expose their elaborated module ports on the schematic canvas, even before full routed nets exist
 - clock edges are still explicit through `Tick` and `Run`
 - deeper net-level geometry and instance pin routing are still the next planned interaction layer

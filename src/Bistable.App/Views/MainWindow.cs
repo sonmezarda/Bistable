@@ -550,7 +550,8 @@ public sealed class MainWindow : Window
             [!SchematicPreviewControl.ActiveScopeSummaryProperty] = new Binding("SelectedHierarchyScopeSummary"),
             [!SchematicPreviewControl.ActiveScopeHintProperty] = new Binding("SelectedHierarchyScopeHint"),
             [!SchematicPreviewControl.ScopeParentProperty] = new Binding("SelectedHierarchyParentScope"),
-            [!SchematicPreviewControl.ScopeChildrenProperty] = new Binding("SelectedHierarchyChildScopes")
+            [!SchematicPreviewControl.ScopeChildrenProperty] = new Binding("SelectedHierarchyChildScopes"),
+            [!SchematicPreviewControl.ScopePortsProperty] = new Binding("SelectedHierarchyPorts")
         };
         preview.SignalEditorRequested += OnSchematicSignalEditorRequested;
         previewGrid.Children.Add(preview);
