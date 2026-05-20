@@ -120,7 +120,11 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<HierarchyScopeNodeViewModel> SelectedHierarchyChildScopes { get; } = [];
 
+    public ObservableCollection<HierarchyScopeInstanceViewModel> SelectedHierarchyChildInstances { get; } = [];
+
     public ObservableCollection<HierarchyScopePortViewModel> SelectedHierarchyPorts { get; } = [];
+
+    public ObservableCollection<HierarchyScopeLocalSignalViewModel> SelectedHierarchyLocalSignals { get; } = [];
 
     public ObservableCollection<SampleProjectViewModel> Samples { get; } = [];
 
@@ -158,6 +162,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                 RefreshHierarchyScopeSignals();
                 RefreshSelectedHierarchyNeighborhood();
                 RefreshSelectedHierarchyPorts();
+                RefreshSelectedHierarchyLocalSignals();
             }
         }
     }
@@ -734,7 +739,9 @@ public sealed class MainWindowViewModel : ViewModelBase
             HierarchyScopeSignals.Clear();
             HierarchyTraceScopeSummaries.Clear();
             SelectedHierarchyChildScopes.Clear();
+            SelectedHierarchyChildInstances.Clear();
             SelectedHierarchyPorts.Clear();
+            SelectedHierarchyLocalSignals.Clear();
             WaveformLanes.Clear();
             AvailableClocks.Clear();
             UnsubscribeFromInputs();
@@ -1550,16 +1557,24 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         OnPropertyChanged(nameof(SelectedHierarchyScopeSummary));
         OnPropertyChanged(nameof(SelectedHierarchyScopeHint));
+        RefreshSelectedHierarchyLocalSignals();
     }
 
     private void RefreshSelectedHierarchyNeighborhood()
     {
         SelectedHierarchyChildScopes.Clear();
+        SelectedHierarchyChildInstances.Clear();
         if (SelectedHierarchyNode is not null)
         {
+            Bistable.Core.Design.DesignModuleDefinition? currentDefinition = ResolveCurrentModuleDefinition();
+            Dictionary<string, Bistable.Core.Design.DesignInstanceDefinition> instancesByName = currentDefinition?.Instances
+                .ToDictionary(static instance => instance.Name, StringComparer.OrdinalIgnoreCase)
+                ?? new Dictionary<string, Bistable.Core.Design.DesignInstanceDefinition>(StringComparer.OrdinalIgnoreCase);
+
             foreach (HierarchyNodeViewModel child in SelectedHierarchyNode.Children.OrderBy(static child => child.InstanceName, StringComparer.OrdinalIgnoreCase))
             {
                 SelectedHierarchyChildScopes.Add(CreateScopeNode(child));
+                SelectedHierarchyChildInstances.Add(CreateScopeInstance(child, instancesByName));
             }
         }
 
@@ -1587,6 +1602,28 @@ public sealed class MainWindowViewModel : ViewModelBase
                 port.Direction,
                 port.Width,
                 port.IsSigned));
+        }
+    }
+
+    private void RefreshSelectedHierarchyLocalSignals()
+    {
+        SelectedHierarchyLocalSignals.Clear();
+        Bistable.Core.Design.DesignModuleDefinition? definition = ResolveCurrentModuleDefinition();
+        if (definition is null)
+        {
+            return;
+        }
+
+        foreach (Bistable.Core.Design.DesignLocalSignal local in definition.LocalSignals.OrderBy(static local => local.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            SignalViewModel? traced = HierarchyScopeSignals.FirstOrDefault(signal =>
+                string.Equals(signal.ShortName, local.Name, StringComparison.OrdinalIgnoreCase));
+            SelectedHierarchyLocalSignals.Add(new HierarchyScopeLocalSignalViewModel(
+                local.Name,
+                local.Width,
+                local.IsSigned,
+                traced is not null,
+                traced?.Value ?? "-"));
         }
     }
 
@@ -1829,6 +1866,58 @@ public sealed class MainWindowViewModel : ViewModelBase
             module?.Outputs.Count ?? 0,
             summary?.ExactSignalCount ?? 0,
             summary?.DescendantSignalCount ?? 0);
+    }
+
+    private HierarchyScopeInstanceViewModel CreateScopeInstance(
+        HierarchyNodeViewModel node,
+        IReadOnlyDictionary<string, Bistable.Core.Design.DesignInstanceDefinition> instancesByName)
+    {
+        HierarchyTraceScopeSummaryViewModel? summary = HierarchyTraceScopeSummaries.FirstOrDefault(
+            candidate => string.Equals(candidate.HierarchyPath, node.HierarchyPath, StringComparison.OrdinalIgnoreCase));
+        ModuleMetadata? module = null;
+        if (_currentDesign is not null)
+        {
+            _currentDesign.ModuleCatalog.TryGetValue(node.ModuleName, out module);
+        }
+
+        List<HierarchyScopeInstancePortConnectionViewModel> connections = [];
+        if (instancesByName.TryGetValue(node.InstanceName, out Bistable.Core.Design.DesignInstanceDefinition? instanceDefinition))
+        {
+            Dictionary<string, SignalPort> portCatalog = module?.Ports.ToDictionary(static port => port.Name, StringComparer.OrdinalIgnoreCase)
+                ?? new Dictionary<string, SignalPort>(StringComparer.OrdinalIgnoreCase);
+            foreach (Bistable.Core.Design.DesignInstancePortConnection connection in instanceDefinition.PortConnections)
+            {
+                int width = portCatalog.TryGetValue(connection.PortName, out SignalPort? port) ? port.Width : 1;
+                bool isInput = string.Equals(connection.Direction, "in", StringComparison.OrdinalIgnoreCase);
+                connections.Add(new HierarchyScopeInstancePortConnectionViewModel(
+                    connection.PortName,
+                    connection.SignalName,
+                    isInput,
+                    width));
+            }
+        }
+
+        return new HierarchyScopeInstanceViewModel(
+            node.HierarchyPath,
+            node.InstanceName,
+            node.ModuleName,
+            module?.Inputs.Count ?? 0,
+            module?.Outputs.Count ?? 0,
+            summary?.ExactSignalCount ?? 0,
+            summary?.DescendantSignalCount ?? 0,
+            connections);
+    }
+
+    private Bistable.Core.Design.DesignModuleDefinition? ResolveCurrentModuleDefinition()
+    {
+        if (SelectedHierarchyNode is null || _currentDesign is null)
+        {
+            return null;
+        }
+
+        return _currentDesign.ModuleDefinitions.TryGetValue(SelectedHierarchyNode.ModuleName, out Bistable.Core.Design.DesignModuleDefinition? definition)
+            ? definition
+            : null;
     }
 
     private void RebuildZoneCollection(ObservableCollection<DockPanelViewModel> target, DockZone zone)

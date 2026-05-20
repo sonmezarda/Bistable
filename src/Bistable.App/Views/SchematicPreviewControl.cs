@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Bistable.App.ViewModels;
 
 namespace Bistable.App.Views;
@@ -47,14 +48,20 @@ public sealed class SchematicPreviewControl : Control
     public static readonly StyledProperty<HierarchyScopeNodeViewModel?> ScopeParentProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, HierarchyScopeNodeViewModel?>(nameof(ScopeParent));
 
-    public static readonly StyledProperty<IEnumerable<HierarchyScopeNodeViewModel>?> ScopeChildrenProperty =
-        AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<HierarchyScopeNodeViewModel>?>(nameof(ScopeChildren));
+    public static readonly StyledProperty<IEnumerable<HierarchyScopeInstanceViewModel>?> ScopeChildrenProperty =
+        AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<HierarchyScopeInstanceViewModel>?>(nameof(ScopeChildren));
 
     public static readonly StyledProperty<IEnumerable<HierarchyScopePortViewModel>?> ScopePortsProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<HierarchyScopePortViewModel>?>(nameof(ScopePorts));
 
+    public static readonly StyledProperty<IEnumerable<HierarchyScopeLocalSignalViewModel>?> ScopeLocalSignalsProperty =
+        AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<HierarchyScopeLocalSignalViewModel>?>(nameof(ScopeLocalSignals));
+
     public static readonly StyledProperty<IEnumerable<SignalViewModel>?> ScopeSignalsProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<SignalViewModel>?>(nameof(ScopeSignals));
+
+    public static readonly StyledProperty<bool> CompactLayoutProperty =
+        AvaloniaProperty.Register<SchematicPreviewControl, bool>(nameof(CompactLayout), true);
 
     private static readonly IBrush BackgroundBrush = SolidColorBrush.Parse("#10141b");
     private static readonly IBrush ModuleFillBrush = SolidColorBrush.Parse("#1b2230");
@@ -72,6 +79,7 @@ public sealed class SchematicPreviewControl : Control
     private static readonly IBrush NodeSelectedFillBrush = SolidColorBrush.Parse("#25344a");
     private static readonly IBrush ConnectorBrush = SolidColorBrush.Parse("#4f6487");
     private static readonly Typeface MonoTypeface = new("monospace");
+    private const double FitMargin = 32;
 
     private readonly List<SignalHitTarget> _signalHitTargets = [];
     private readonly List<ScopeHitTarget> _scopeHitTargets = [];
@@ -79,8 +87,46 @@ public sealed class SchematicPreviewControl : Control
     private INotifyCollectionChanged? _observableScopeSignals;
     private INotifyCollectionChanged? _observableScopeChildren;
     private INotifyCollectionChanged? _observableScopePorts;
+    private INotifyCollectionChanged? _observableScopeLocalSignals;
+    private double _viewportZoom = 1;
+    private Point _viewportPan;
+    private bool _isPanningViewport;
+    private Point _lastViewportPointer;
+    private bool _fitPending = true;
+    private bool _viewportCustomized;
+    private Size _lastViewportSize;
+    private Size _lastWorldSize;
+
+    public SchematicPreviewControl()
+    {
+        ClipToBounds = true;
+        Focusable = true;
+    }
 
     public event EventHandler<SignalEditorRequestedEventArgs>? SignalEditorRequested;
+
+    public event EventHandler<ViewportChangedEventArgs>? ViewportChanged;
+
+    public void ZoomIn() => ApplyZoomDelta(1.18, new Point(Bounds.Width / 2, Bounds.Height / 2));
+
+    public void ZoomOut() => ApplyZoomDelta(1 / 1.18, new Point(Bounds.Width / 2, Bounds.Height / 2));
+
+    public void FitToView()
+    {
+        _fitPending = true;
+        _viewportCustomized = false;
+        InvalidateVisual();
+    }
+
+    public void ResetView()
+    {
+        _viewportZoom = 1;
+        _viewportPan = new Point(FitMargin, FitMargin);
+        _fitPending = false;
+        _viewportCustomized = true;
+        RaiseViewportChanged();
+        InvalidateVisual();
+    }
 
     public string ModuleName
     {
@@ -154,7 +200,7 @@ public sealed class SchematicPreviewControl : Control
         set => SetValue(ScopeParentProperty, value);
     }
 
-    public IEnumerable<HierarchyScopeNodeViewModel>? ScopeChildren
+    public IEnumerable<HierarchyScopeInstanceViewModel>? ScopeChildren
     {
         get => GetValue(ScopeChildrenProperty);
         set => SetValue(ScopeChildrenProperty, value);
@@ -166,10 +212,22 @@ public sealed class SchematicPreviewControl : Control
         set => SetValue(ScopeSignalsProperty, value);
     }
 
+    public bool CompactLayout
+    {
+        get => GetValue(CompactLayoutProperty);
+        set => SetValue(CompactLayoutProperty, value);
+    }
+
     public IEnumerable<HierarchyScopePortViewModel>? ScopePorts
     {
         get => GetValue(ScopePortsProperty);
         set => SetValue(ScopePortsProperty, value);
+    }
+
+    public IEnumerable<HierarchyScopeLocalSignalViewModel>? ScopeLocalSignals
+    {
+        get => GetValue(ScopeLocalSignalsProperty);
+        set => SetValue(ScopeLocalSignalsProperty, value);
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -196,20 +254,40 @@ public sealed class SchematicPreviewControl : Control
             DetachCollection(change.OldValue as INotifyCollectionChanged, ref _observableScopePorts, OnScopePortsChanged);
             AttachCollection(change.NewValue as INotifyCollectionChanged, ref _observableScopePorts, OnScopePortsChanged);
         }
+        else if (change.Property == ScopeLocalSignalsProperty)
+        {
+            DetachCollection(change.OldValue as INotifyCollectionChanged, ref _observableScopeLocalSignals, OnScopeLocalSignalsChanged);
+            AttachCollection(change.NewValue as INotifyCollectionChanged, ref _observableScopeLocalSignals, OnScopeLocalSignalsChanged);
+        }
+
+        if (ShouldRefitForProperty(change.Property))
+        {
+            if (change.Property == CompactLayoutProperty)
+            {
+                _viewportCustomized = false;
+                _fitPending = true;
+            }
+            else if (!_viewportCustomized)
+            {
+                _fitPending = true;
+            }
+        }
 
         InvalidateVisual();
     }
 
     public override void Render(DrawingContext context)
     {
-        Rect bounds = Bounds;
-        context.FillRectangle(BackgroundBrush, bounds);
+        Rect viewportBounds = Bounds;
+        using IDisposable? clip = context.PushClip(viewportBounds);
+        context.FillRectangle(BackgroundBrush, viewportBounds);
 
         IReadOnlyList<SignalViewModel> inputs = Signals?.Where(static signal => signal.IsInput).ToList() ?? [];
         IReadOnlyList<SignalViewModel> outputs = Signals?.Where(static signal => !signal.IsInput).ToList() ?? [];
         IReadOnlyList<SignalViewModel> scopeSignals = ScopeSignals?.ToList() ?? [];
-        IReadOnlyList<HierarchyScopeNodeViewModel> childScopes = ScopeChildren?.ToList() ?? [];
+        IReadOnlyList<HierarchyScopeInstanceViewModel> childScopes = ScopeChildren?.ToList() ?? [];
         IReadOnlyList<HierarchyScopePortViewModel> scopePorts = ScopePorts?.ToList() ?? [];
+        IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals = ScopeLocalSignals?.ToList() ?? [];
         HierarchyScopeNodeViewModel? parentScope = ScopeParent;
 
         if (inputs.Count == 0 && outputs.Count == 0)
@@ -219,38 +297,56 @@ public sealed class SchematicPreviewControl : Control
         }
 
         bool hasScopeFocus = HasScopeContext(scopeSignals, childScopes, parentScope);
-        int visibleProbeCount = Math.Min(scopeSignals.Count, 8);
-        int visibleChildCount = Math.Min(childScopes.Count, 4);
+        Size worldSize = MeasureWorldSize(inputs.Count, outputs.Count, scopeSignals.Count, childScopes.Count, scopePorts.Count, localSignals.Count, hasScopeFocus);
+        _lastWorldSize = worldSize;
+        EnsureViewport(viewportBounds, worldSize);
+
+        int visibleProbeCount = Math.Min(scopeSignals.Count, CompactLayout ? 8 : 14);
+        int visibleChildCount = Math.Min(childScopes.Count, CompactLayout ? 4 : 8);
+        int visibleLocalCount = Math.Min(localSignals.Count, CompactLayout ? 4 : 8);
         double reservedBottom = hasScopeFocus
-            ? Math.Clamp(220 + visibleProbeCount * 12 + visibleChildCount * 18, 220, 360)
+            ? Math.Clamp(
+                (CompactLayout ? 236 : 340)
+                + visibleProbeCount * (CompactLayout ? 12 : 18)
+                + visibleChildCount * (CompactLayout ? 18 : 28)
+                + visibleLocalCount * (CompactLayout ? 14 : 18),
+                CompactLayout ? 236 : 340,
+                CompactLayout ? 390 : 620)
             : 24;
-        double diagramHeight = Math.Max(180, bounds.Height - reservedBottom);
-        double moduleWidth = Math.Clamp(bounds.Width * 0.36, 280, 420);
+        Rect worldBounds = new(0, 0, worldSize.Width, worldSize.Height);
+        double diagramHeight = Math.Max(180, worldBounds.Height - reservedBottom);
+        double moduleWidth = Math.Clamp(worldBounds.Width * 0.36, 280, 520);
         double laneCount = Math.Max(inputs.Count, outputs.Count);
         double laneHeight = Math.Max(24, Math.Min(42, (diagramHeight - 112) / Math.Max(1, laneCount)));
         double moduleHeight = Math.Max(180, 70 + laneCount * laneHeight);
         Rect moduleRect = new(
-            (bounds.Width - moduleWidth) / 2,
+            (worldBounds.Width - moduleWidth) / 2,
             Math.Max(28, (diagramHeight - moduleHeight) / 2),
             moduleWidth,
             moduleHeight);
 
-        context.FillRectangle(ModuleFillBrush, moduleRect, 10);
-        context.DrawRectangle(new Pen(ModuleStrokeBrush, 1.5), moduleRect, 10);
-        DrawText(context, ModuleName, moduleRect.X + 18, moduleRect.Y + 18, TextBrush, 20);
-        DrawText(context, "Top-level symbol", moduleRect.X + 18, moduleRect.Y + 46, MutedBrush, 12);
-        DrawText(context, "Click pins to drive", moduleRect.X + 18, moduleRect.Bottom - 28, MutedBrush, 11);
-
-        Rect? scopeCard = DrawScopeCard(context, bounds);
-
-        _signalHitTargets.Clear();
-        _scopeHitTargets.Clear();
-        DrawPins(context, inputs, bounds, moduleRect, leftSide: true, laneHeight);
-        DrawPins(context, outputs, bounds, moduleRect, leftSide: false, laneHeight);
-
-        if (hasScopeFocus)
+        using (context.PushTransform(Matrix.CreateTranslation(_viewportPan.X, _viewportPan.Y)))
+        using (context.PushTransform(Matrix.CreateScale(_viewportZoom, _viewportZoom)))
         {
-            DrawFocusedScopePanel(context, bounds, moduleRect, scopeCard, scopeSignals, childScopes, parentScope, scopePorts);
+            context.FillRectangle(BackgroundBrush, worldBounds);
+
+            context.FillRectangle(ModuleFillBrush, moduleRect, 10);
+            context.DrawRectangle(new Pen(ModuleStrokeBrush, 1.5), moduleRect, 10);
+            DrawText(context, ModuleName, moduleRect.X + 18, moduleRect.Y + 18, TextBrush, 20);
+            DrawText(context, "Top-level symbol", moduleRect.X + 18, moduleRect.Y + 46, MutedBrush, 12);
+            DrawText(context, "Click pins to drive", moduleRect.X + 18, moduleRect.Bottom - 28, MutedBrush, 11);
+
+            Rect? scopeCard = DrawScopeCard(context, worldBounds);
+
+            _signalHitTargets.Clear();
+            _scopeHitTargets.Clear();
+            DrawPins(context, inputs, worldBounds, moduleRect, leftSide: true, laneHeight);
+            DrawPins(context, outputs, worldBounds, moduleRect, leftSide: false, laneHeight);
+
+            if (hasScopeFocus)
+            {
+                DrawFocusedScopePanel(context, worldBounds, moduleRect, scopeCard, scopeSignals, childScopes, parentScope, scopePorts, localSignals);
+            }
         }
     }
 
@@ -258,7 +354,16 @@ public sealed class SchematicPreviewControl : Control
     {
         base.OnPointerPressed(e);
 
-        Point point = e.GetPosition(this);
+        PointerPointProperties props = e.GetCurrentPoint(this).Properties;
+        if (props.IsMiddleButtonPressed || props.IsRightButtonPressed)
+        {
+            _isPanningViewport = true;
+            _lastViewportPointer = e.GetPosition(this);
+            e.Handled = true;
+            return;
+        }
+
+        Point point = ViewportToWorld(e.GetPosition(this));
         SignalHitTarget? signalHit = HitTestSignal(point);
         if (signalHit is not null)
         {
@@ -282,8 +387,45 @@ public sealed class SchematicPreviewControl : Control
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        bool interactive = HitTestSignal(e.GetPosition(this)) is not null || HitTestScope(e.GetPosition(this)) is not null;
+        Point viewportPoint = e.GetPosition(this);
+        if (_isPanningViewport)
+        {
+            Vector delta = viewportPoint - _lastViewportPointer;
+            _viewportPan = new Point(_viewportPan.X + delta.X, _viewportPan.Y + delta.Y);
+            ClampViewportPan(Bounds.Size, _lastWorldSize);
+            _lastViewportPointer = viewportPoint;
+            _viewportCustomized = true;
+            InvalidateVisual();
+            e.Handled = true;
+            return;
+        }
+
+        Point worldPoint = ViewportToWorld(viewportPoint);
+        bool interactive = HitTestSignal(worldPoint) is not null || HitTestScope(worldPoint) is not null;
         Cursor = interactive ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Arrow);
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+        if (_isPanningViewport)
+        {
+            _isPanningViewport = false;
+            e.Handled = true;
+        }
+    }
+
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e);
+        double delta = e.Delta.Y;
+        if (Math.Abs(delta) < double.Epsilon)
+        {
+            return;
+        }
+
+        ApplyZoomDelta(delta > 0 ? 1.12 : 1 / 1.12, e.GetPosition(this));
+        e.Handled = true;
     }
 
     private void HandleSignalHit(SignalHitTarget hit, PointerPressedEventArgs e)
@@ -316,6 +458,144 @@ public sealed class SchematicPreviewControl : Control
 
         e.Handled = true;
     }
+
+    private void EnsureViewport(Rect viewportBounds, Size worldSize)
+    {
+        if (_lastViewportSize != viewportBounds.Size)
+        {
+            _lastViewportSize = viewportBounds.Size;
+            if (!_viewportCustomized)
+            {
+                _fitPending = true;
+            }
+        }
+
+        if (!_fitPending || viewportBounds.Width <= 0 || viewportBounds.Height <= 0)
+        {
+            return;
+        }
+
+        double zoomX = Math.Max(0.05, (viewportBounds.Width - FitMargin * 2) / worldSize.Width);
+        double zoomY = Math.Max(0.05, (viewportBounds.Height - FitMargin * 2) / worldSize.Height);
+        _viewportZoom = Math.Clamp(Math.Min(zoomX, zoomY), 0.2, 3.5);
+        double contentWidth = worldSize.Width * _viewportZoom;
+        double contentHeight = worldSize.Height * _viewportZoom;
+        _viewportPan = new Point(
+            (viewportBounds.Width - contentWidth) / 2,
+            (viewportBounds.Height - contentHeight) / 2);
+        ClampViewportPan(viewportBounds.Size, worldSize);
+        _fitPending = false;
+        RaiseViewportChanged();
+    }
+
+    private void ApplyZoomDelta(double factor, Point viewportPoint)
+    {
+        if (Bounds.Width <= 0 || Bounds.Height <= 0)
+        {
+            return;
+        }
+
+        Point worldPoint = ViewportToWorld(viewportPoint);
+        double nextZoom = Math.Clamp(_viewportZoom * factor, 0.2, 4.5);
+        _viewportPan = new Point(
+            viewportPoint.X - worldPoint.X * nextZoom,
+            viewportPoint.Y - worldPoint.Y * nextZoom);
+        _viewportZoom = nextZoom;
+        ClampViewportPan(Bounds.Size, _lastWorldSize);
+        _fitPending = false;
+        _viewportCustomized = true;
+        RaiseViewportChanged();
+        InvalidateVisual();
+    }
+
+    private void ClampViewportPan(Size viewportSize, Size worldSize)
+    {
+        if (viewportSize.Width <= 0
+            || viewportSize.Height <= 0
+            || worldSize.Width <= 0
+            || worldSize.Height <= 0)
+        {
+            return;
+        }
+
+        double contentWidth = worldSize.Width * _viewportZoom;
+        double contentHeight = worldSize.Height * _viewportZoom;
+        double horizontalOverscroll = Math.Clamp(viewportSize.Width * 0.18, 48, 180);
+        double verticalOverscroll = Math.Clamp(viewportSize.Height * 0.18, 48, 160);
+
+        double clampedX = ClampAxisPan(_viewportPan.X, viewportSize.Width, contentWidth, horizontalOverscroll);
+        double clampedY = ClampAxisPan(_viewportPan.Y, viewportSize.Height, contentHeight, verticalOverscroll);
+        _viewportPan = new Point(clampedX, clampedY);
+    }
+
+    private static double ClampAxisPan(double pan, double viewportLength, double contentLength, double overscroll)
+    {
+        if (contentLength + overscroll * 2 <= viewportLength)
+        {
+            return (viewportLength - contentLength) / 2;
+        }
+
+        double min = viewportLength - contentLength - overscroll;
+        double max = overscroll;
+        return Math.Clamp(pan, min, max);
+    }
+
+    private Size MeasureWorldSize(
+        int inputCount,
+        int outputCount,
+        int scopeSignalCount,
+        int childScopeCount,
+        int scopePortCount,
+        int localSignalCount,
+        bool hasScopeFocus)
+    {
+        int topLaneCount = Math.Max(inputCount, outputCount);
+        double baseWidth = CompactLayout ? 1800 : 2500;
+        double baseHeight = CompactLayout ? 1200 : 1560;
+        double width = baseWidth + Math.Max(0, childScopeCount - 2) * (CompactLayout ? 84 : 160);
+        double height = baseHeight + Math.Max(0, topLaneCount - 4) * (CompactLayout ? 26 : 38);
+
+        if (hasScopeFocus)
+        {
+            width += Math.Max(0, scopePortCount - 6) * (CompactLayout ? 30 : 56);
+            height += Math.Max(0, childScopeCount - 2) * (CompactLayout ? 34 : 56);
+            height += Math.Max(0, scopeSignalCount - 4) * (CompactLayout ? 18 : 24);
+            height += Math.Max(0, localSignalCount - 2) * (CompactLayout ? 16 : 22);
+        }
+
+        return new Size(
+            Math.Clamp(width, CompactLayout ? 1500 : 2100, CompactLayout ? 2400 : 3600),
+            Math.Clamp(height, CompactLayout ? 1000 : 1300, CompactLayout ? 1800 : 2600));
+    }
+
+    private void RaiseViewportChanged()
+    {
+        double zoom = _viewportZoom;
+        Point pan = _viewportPan;
+        Dispatcher.UIThread.Post(
+            () => ViewportChanged?.Invoke(this, new ViewportChangedEventArgs(zoom, pan)),
+            DispatcherPriority.Background);
+    }
+
+    private static bool ShouldRefitForProperty(AvaloniaProperty property) =>
+        property == CompactLayoutProperty
+        || property == ModuleNameProperty
+        || property == SignalsProperty
+        || property == ScopeSignalsProperty
+        || property == ScopeChildrenProperty
+        || property == ScopePortsProperty
+        || property == ScopeLocalSignalsProperty
+        || property == ScopeParentProperty
+        || property == ActiveScopeTitleProperty
+        || property == ActiveScopeModuleNameProperty
+        || property == ActiveScopePathProperty
+        || property == ActiveScopeSummaryProperty
+        || property == ActiveScopeHintProperty;
+
+    private Point ViewportToWorld(Point point) =>
+        new(
+            (point.X - _viewportPan.X) / Math.Max(_viewportZoom, 0.0001),
+            (point.Y - _viewportPan.Y) / Math.Max(_viewportZoom, 0.0001));
 
     private void DrawPins(
         DrawingContext context,
@@ -425,26 +705,42 @@ public sealed class SchematicPreviewControl : Control
         Rect moduleRect,
         Rect? scopeCard,
         IReadOnlyList<SignalViewModel> scopeSignals,
-        IReadOnlyList<HierarchyScopeNodeViewModel> childScopes,
+        IReadOnlyList<HierarchyScopeInstanceViewModel> childScopes,
         HierarchyScopeNodeViewModel? parentScope,
-        IReadOnlyList<HierarchyScopePortViewModel> scopePorts)
+        IReadOnlyList<HierarchyScopePortViewModel> scopePorts,
+        IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals)
     {
-        int visibleProbeCount = Math.Min(scopeSignals.Count, 8);
-        int visibleChildCount = Math.Min(childScopes.Count, 4);
-        int visibleLeftPortCount = Math.Min(scopePorts.Count(static port => port.IsInput), 5);
-        int visibleRightPortCount = Math.Min(scopePorts.Count(static port => port.IsOutput), 5);
-        bool inlineChildren = visibleChildCount > 0 && bounds.Width >= 980;
-        int probeColumnCount = bounds.Width >= 900 && visibleProbeCount > 1 ? 2 : 1;
+        int visibleProbeCount = Math.Min(scopeSignals.Count, CompactLayout ? 8 : 14);
+        int visibleChildCount = Math.Min(childScopes.Count, CompactLayout ? 4 : 8);
+        int visibleLocalCount = Math.Min(localSignals.Count, CompactLayout ? 4 : 8);
+        int visibleLeftPortCount = Math.Min(scopePorts.Count(static port => port.IsInput), CompactLayout ? 5 : 8);
+        int visibleRightPortCount = Math.Min(scopePorts.Count(static port => port.IsOutput), CompactLayout ? 5 : 8);
+        bool inlineChildren = visibleChildCount > 0 && bounds.Width >= (CompactLayout ? 980 : 1400);
+        int probeColumnCount = bounds.Width >= (CompactLayout ? 900 : 1200) && visibleProbeCount > 1
+            ? (CompactLayout ? 2 : Math.Min(3, visibleProbeCount))
+            : 1;
         int probeRowCount = visibleProbeCount == 0 ? 0 : (int)Math.Ceiling(visibleProbeCount / (double)probeColumnCount);
         int childColumnCount = inlineChildren && visibleChildCount > 2 ? 2 : 1;
         int childRowCount = visibleChildCount == 0 ? 0 : (int)Math.Ceiling(visibleChildCount / (double)childColumnCount);
-        double panelWidth = Math.Clamp(bounds.Width * (inlineChildren ? 0.72 : 0.58), 360, inlineChildren ? 760 : 620);
-        double navigationHeight = 116 + (inlineChildren ? Math.Max(0, childRowCount - 1) * 58 : 0);
+        double panelWidth = Math.Clamp(
+            bounds.Width * (inlineChildren ? (CompactLayout ? 0.72 : 0.78) : (CompactLayout ? 0.58 : 0.66)),
+            CompactLayout ? 360 : 620,
+            inlineChildren ? (CompactLayout ? 760 : 1240) : (CompactLayout ? 620 : 980));
+        double childCardHeight = GetChildCardHeight(childScopes.Take(visibleChildCount));
+        double childRowPitch = childCardHeight + (CompactLayout ? 10 : 16);
+        double navigationHeight = (CompactLayout ? 116 : 148) + (inlineChildren ? Math.Max(0, childRowCount - 1) * childRowPitch : 0);
         double childrenBlockHeight = inlineChildren || visibleChildCount == 0
             ? 0
-            : 62 + Math.Max(0, childRowCount - 1) * 52;
-        double probeBlockHeight = visibleProbeCount == 0 ? 44 : 36 + probeRowCount * 30;
-        double panelHeight = Math.Clamp(navigationHeight + childrenBlockHeight + probeBlockHeight + 52, 210, 340);
+            : (CompactLayout ? 62 : 76) + Math.Max(0, childRowCount - 1) * childRowPitch;
+        int localColumns = !CompactLayout && panelWidth >= 900 && visibleLocalCount > 2 ? 2 : 1;
+        int localRowCount = visibleLocalCount == 0 ? 0 : (int)Math.Ceiling(visibleLocalCount / (double)localColumns);
+        double localRowPitch = CompactLayout ? 20 : 24;
+        double localBlockHeight = visibleLocalCount == 0 ? 0 : (CompactLayout ? 46 : 54) + Math.Max(0, localRowCount - 1) * localRowPitch;
+        double probeBlockHeight = visibleProbeCount == 0 ? 44 : (CompactLayout ? 36 : 42) + probeRowCount * (CompactLayout ? 30 : 34);
+        double panelHeight = Math.Clamp(
+            navigationHeight + childrenBlockHeight + localBlockHeight + probeBlockHeight + (CompactLayout ? 60 : 82),
+            CompactLayout ? 230 : 340,
+            CompactLayout ? 390 : 620);
         double panelX = Math.Clamp(GetCenterX(moduleRect) - panelWidth / 2, 16, bounds.Right - panelWidth - 16);
         double minimumTop = scopeCard is null ? 18 : scopeCard.Value.Bottom + 12;
         double targetY = moduleRect.Bottom + 38;
@@ -463,7 +759,7 @@ public sealed class SchematicPreviewControl : Control
             DrawText(context, Ellipsize(ActiveScopePath!, 10, panel.Width - 32), panel.X + 16, panel.Y + 52, MutedBrush, 10);
         }
 
-        Rect currentNodeRect = DrawCurrentScopeNode(
+        CurrentPortLayout currentPortLayout = DrawCurrentScopeNode(
             context,
             panel,
             inlineChildren,
@@ -472,21 +768,34 @@ public sealed class SchematicPreviewControl : Control
             scopePorts,
             visibleLeftPortCount,
             visibleRightPortCount);
-        DrawNavigationNeighborhood(context, panel, currentNodeRect, parentScope, childScopes, visibleChildCount, inlineChildren);
+        IReadOnlyList<ChildNodeLayout> childLayouts = DrawNavigationNeighborhood(
+            context,
+            panel,
+            currentPortLayout.Bounds,
+            parentScope,
+            childScopes,
+            visibleChildCount,
+            inlineChildren);
 
-        double probesTop = inlineChildren ? currentNodeRect.Bottom + 18 : currentNodeRect.Bottom + 18 + childrenBlockHeight;
         if (!inlineChildren && visibleChildCount > 0)
         {
-            DrawChildRowsBelow(context, panel, currentNodeRect, childScopes, visibleChildCount);
+            childLayouts = DrawChildRowsBelow(context, panel, currentPortLayout.Bounds, childScopes, visibleChildCount);
         }
 
+        double localsTop = inlineChildren
+            ? currentPortLayout.Bounds.Bottom + 18
+            : currentPortLayout.Bounds.Bottom + 18 + childrenBlockHeight;
+        IReadOnlyDictionary<string, Point> localSignalAnchors = DrawLocalSignalSection(context, panel, localSignals, visibleLocalCount, localsTop);
+        DrawConnectionRoutes(context, currentPortLayout, childLayouts, localSignalAnchors);
+
+        double probesTop = localsTop + localBlockHeight + (localBlockHeight > 0 ? (CompactLayout ? 8 : 12) : 0);
         DrawScopeProbeSection(context, panel, scopeSignals, visibleProbeCount, probesTop);
 
         string footer = BuildScopeFooter(scopeSignals.Count, visibleProbeCount, childScopes.Count);
         DrawText(context, Ellipsize(footer, 10, panel.Width - 32), panel.X + 16, panel.Bottom - 18, MutedBrush, 10);
     }
 
-    private Rect DrawCurrentScopeNode(
+    private CurrentPortLayout DrawCurrentScopeNode(
         DrawingContext context,
         Rect panel,
         bool inlineChildren,
@@ -496,12 +805,13 @@ public sealed class SchematicPreviewControl : Control
         int visibleLeftPortCount,
         int visibleRightPortCount)
     {
-        double reservedLeft = Math.Max(hasParent ? 152 : 24, visibleLeftPortCount > 0 ? 182 : 24);
-        double reservedRight = Math.Max(inlineChildren && hasChildren ? 244 : 24, visibleRightPortCount > 0 ? 182 : 24);
+        double reservedLeft = Math.Max(hasParent ? (CompactLayout ? 152 : 212) : 24, visibleLeftPortCount > 0 ? (CompactLayout ? 182 : 232) : 24);
+        double reservedRight = Math.Max(inlineChildren && hasChildren ? (CompactLayout ? 244 : 360) : 24, visibleRightPortCount > 0 ? (CompactLayout ? 182 : 232) : 24);
         double availableWidth = panel.Width - reservedLeft - reservedRight;
-        double nodeWidth = Math.Clamp(availableWidth, 168, 220);
+        double nodeWidth = Math.Clamp(availableWidth, CompactLayout ? 168 : 240, CompactLayout ? 220 : 320);
+        double nodeHeight = GetCurrentNodeHeight(visibleLeftPortCount, visibleRightPortCount);
         double nodeX = panel.X + reservedLeft + Math.Max(0, (availableWidth - nodeWidth) / 2);
-        Rect rect = new(nodeX, panel.Y + 82, nodeWidth, 64);
+        Rect rect = new(nodeX, panel.Y + (CompactLayout ? 82 : 98), nodeWidth, nodeHeight);
 
         context.FillRectangle(NodeSelectedFillBrush, rect, 8);
         context.DrawRectangle(new Pen(SelectedBrush, 1.4), rect, 8);
@@ -509,78 +819,87 @@ public sealed class SchematicPreviewControl : Control
         DrawText(context, Ellipsize(ActiveScopeModuleName ?? "module", 11, rect.Width - 24), rect.X + 12, rect.Y + 30, PinStrokeBrush, 11);
         DrawText(context, "active", rect.X + 12, rect.Bottom - 16, SelectedBrush, 10);
 
-        DrawScopePorts(context, rect, scopePorts);
-        return rect;
+        IReadOnlyDictionary<string, PortAnchor> anchors = DrawScopePorts(context, rect, scopePorts);
+        return new CurrentPortLayout(rect, anchors);
     }
 
-    private void DrawNavigationNeighborhood(
+    private IReadOnlyList<ChildNodeLayout> DrawNavigationNeighborhood(
         DrawingContext context,
         Rect panel,
         Rect currentNodeRect,
         HierarchyScopeNodeViewModel? parentScope,
-        IReadOnlyList<HierarchyScopeNodeViewModel> childScopes,
+        IReadOnlyList<HierarchyScopeInstanceViewModel> childScopes,
         int visibleChildCount,
         bool inlineChildren)
     {
+        List<ChildNodeLayout> layouts = [];
         if (parentScope is not null)
         {
             Rect parentRect = new(panel.X + 16, currentNodeRect.Y + 8, 128, 48);
             DrawScopeLink(context, new Point(parentRect.Right, parentRect.Center.Y), new Point(currentNodeRect.X, currentNodeRect.Center.Y));
-            DrawScopeNodeCard(context, parentScope, parentRect, role: "up");
+            DrawParentScopeNodeCard(context, parentScope, parentRect);
         }
 
         if (visibleChildCount == 0 || !inlineChildren)
         {
-            return;
+            return layouts;
         }
 
-        double areaX = currentNodeRect.Right + 26;
+        double areaX = currentNodeRect.Right + (CompactLayout ? 26 : 34);
         double areaWidth = panel.Right - 16 - areaX;
         int childColumnCount = visibleChildCount > 2 ? 2 : 1;
         int childRowCount = (int)Math.Ceiling(visibleChildCount / (double)childColumnCount);
         double cardWidth = childColumnCount == 1
             ? Math.Max(144, areaWidth)
-            : (areaWidth - 10) / 2;
+            : (areaWidth - (CompactLayout ? 10 : 18)) / 2;
+        double cardHeight = GetChildCardHeight(childScopes.Take(visibleChildCount));
+        double rowPitch = cardHeight + (CompactLayout ? 10 : 16);
 
         for (int index = 0; index < visibleChildCount; index++)
         {
             int row = index / childColumnCount;
             int column = index % childColumnCount;
             Rect childRect = new(
-                areaX + column * (cardWidth + 10),
-                currentNodeRect.Y + row * 58,
+                areaX + column * (cardWidth + (CompactLayout ? 10 : 18)),
+                currentNodeRect.Y + row * rowPitch,
                 cardWidth,
-                48);
+                cardHeight);
             DrawScopeLink(context, new Point(currentNodeRect.Right, currentNodeRect.Center.Y), new Point(childRect.X, childRect.Center.Y));
-            DrawScopeNodeCard(context, childScopes[index], childRect, role: "child");
+            layouts.Add(DrawScopeNodeCard(context, childScopes[index], childRect, role: "child"));
         }
+
+        return layouts;
     }
 
-    private void DrawChildRowsBelow(
+    private IReadOnlyList<ChildNodeLayout> DrawChildRowsBelow(
         DrawingContext context,
         Rect panel,
         Rect currentNodeRect,
-        IReadOnlyList<HierarchyScopeNodeViewModel> childScopes,
+        IReadOnlyList<HierarchyScopeInstanceViewModel> childScopes,
         int visibleChildCount)
     {
+        List<ChildNodeLayout> layouts = [];
         int columns = panel.Width >= 520 && visibleChildCount > 1 ? 2 : 1;
-        int rows = (int)Math.Ceiling(visibleChildCount / (double)columns);
         double availableWidth = panel.Width - 32;
-        double cardWidth = columns == 1 ? availableWidth : (availableWidth - 10) / 2;
-        double top = currentNodeRect.Bottom + 18;
+        double cardWidth = columns == 1 ? availableWidth : (availableWidth - (CompactLayout ? 10 : 18)) / 2;
+        double cardHeight = GetChildCardHeight(childScopes.Take(visibleChildCount));
+        double top = currentNodeRect.Bottom + (CompactLayout ? 18 : 28);
+        double rowPitch = cardHeight + (CompactLayout ? 10 : 16);
 
         for (int index = 0; index < visibleChildCount; index++)
         {
             int row = index / columns;
             int column = index % columns;
             Rect childRect = new(
-                panel.X + 16 + column * (cardWidth + 10),
-                top + row * 52,
+                panel.X + 16 + column * (cardWidth + (CompactLayout ? 10 : 18)),
+                top + row * rowPitch,
                 cardWidth,
-                42);
+                cardHeight);
             DrawScopeLink(context, new Point(GetCenterX(currentNodeRect), currentNodeRect.Bottom), new Point(GetCenterX(childRect), childRect.Y));
-            DrawScopeNodeCard(context, childScopes[index], childRect, role: "child");
+            layouts.Add(DrawScopeNodeCard(context, childScopes[index], childRect, role: "child"));
         }
+
+        return layouts;
     }
 
     private void DrawScopeProbeSection(
@@ -591,7 +910,7 @@ public sealed class SchematicPreviewControl : Control
         double top)
     {
         DrawText(context, "Exact-scope probes", panel.X + 16, top, TextBrush, 11);
-        DrawText(context, "local traced signals", panel.Right - 116, top, MutedBrush, 10);
+        DrawText(context, "local traced signals", panel.Right - (CompactLayout ? 116 : 134), top, MutedBrush, 10);
 
         if (visibleProbeCount == 0)
         {
@@ -604,18 +923,24 @@ public sealed class SchematicPreviewControl : Control
             return;
         }
 
-        int columns = panel.Width >= 900 && visibleProbeCount > 1 ? 2 : 1;
-        double columnGap = 14;
+        int columns = panel.Width >= (CompactLayout ? 900 : 1200) && visibleProbeCount > 1
+            ? (CompactLayout ? 2 : Math.Min(3, visibleProbeCount))
+            : 1;
+        double columnGap = CompactLayout ? 14 : 18;
         double itemWidth = columns == 1
             ? panel.Width - 32
             : (panel.Width - 32 - columnGap) / 2;
+        if (!CompactLayout && columns == 3)
+        {
+            itemWidth = (panel.Width - 32 - columnGap * 2) / 3;
+        }
 
         for (int index = 0; index < visibleProbeCount; index++)
         {
             int row = index / columns;
             int column = index % columns;
             double itemX = panel.X + 16 + column * (itemWidth + columnGap);
-            double itemY = top + 20 + row * 30;
+            double itemY = top + 20 + row * (CompactLayout ? 30 : 34);
             DrawScopeProbe(context, scopeSignals[index], new Rect(itemX, itemY, itemWidth, 24));
         }
     }
@@ -653,7 +978,7 @@ public sealed class SchematicPreviewControl : Control
         _signalHitTargets.Add(new SignalHitTarget(signal, rect));
     }
 
-    private void DrawScopeNodeCard(DrawingContext context, HierarchyScopeNodeViewModel scope, Rect rect, string role)
+    private ChildNodeLayout DrawScopeNodeCard(DrawingContext context, HierarchyScopeInstanceViewModel scope, Rect rect, string role)
     {
         bool selected = string.Equals(scope.HierarchyPath, ActiveScopePath, StringComparison.OrdinalIgnoreCase);
         IBrush fill = selected ? NodeSelectedFillBrush : NodeFillBrush;
@@ -663,49 +988,200 @@ public sealed class SchematicPreviewControl : Control
         context.DrawRectangle(new Pen(stroke, selected ? 1.4 : 1), rect, 7);
         DrawText(context, Ellipsize(scope.InstanceName, 11, rect.Width - 24), rect.X + 10, rect.Y + 8, TextBrush, 11);
         DrawText(context, Ellipsize(scope.ModuleName, 10, rect.Width - 24), rect.X + 10, rect.Y + 24, MutedBrush, 10);
-        DrawText(context, role, rect.Right - 26, rect.Y + 8, MutedBrush, 9);
+        DrawText(context, role, rect.Right - 34, rect.Y + 8, MutedBrush, 9);
         DrawPortCountStubs(context, rect, scope.InputCount, scope.OutputCount, stroke);
         DrawMiniBadge(context, new Rect(rect.Right - 62, rect.Bottom - 20, 54, 16), scope.ScopeBadgeText, stroke);
         _scopeHitTargets.Add(new ScopeHitTarget(scope.HierarchyPath, rect));
+        IReadOnlyDictionary<string, Point> anchors = DrawChildConnectionStubs(context, rect, scope.PortConnections);
+        return new ChildNodeLayout(scope, rect, anchors);
     }
 
-    private void DrawScopePorts(DrawingContext context, Rect nodeRect, IReadOnlyList<HierarchyScopePortViewModel> ports)
+    private void DrawParentScopeNodeCard(DrawingContext context, HierarchyScopeNodeViewModel scope, Rect rect)
     {
-        IReadOnlyList<HierarchyScopePortViewModel> inputs = ports.Where(static port => port.IsInput).Take(5).ToList();
-        IReadOnlyList<HierarchyScopePortViewModel> outputs = ports.Where(static port => port.IsOutput).Take(5).ToList();
-        double leftStep = nodeRect.Height / Math.Max(1, inputs.Count + 1);
-        double rightStep = nodeRect.Height / Math.Max(1, outputs.Count + 1);
+        bool selected = string.Equals(scope.HierarchyPath, ActiveScopePath, StringComparison.OrdinalIgnoreCase);
+        IBrush fill = selected ? NodeSelectedFillBrush : NodeFillBrush;
+        IBrush stroke = selected ? SelectedBrush : ModuleStrokeBrush;
+
+        context.FillRectangle(fill, rect, 7);
+        context.DrawRectangle(new Pen(stroke, selected ? 1.4 : 1), rect, 7);
+        DrawText(context, Ellipsize(scope.InstanceName, 11, rect.Width - 24), rect.X + 10, rect.Y + 8, TextBrush, 11);
+        DrawText(context, Ellipsize(scope.ModuleName, 10, rect.Width - 24), rect.X + 10, rect.Y + 24, MutedBrush, 10);
+        DrawText(context, "up", rect.Right - 18, rect.Y + 8, MutedBrush, 9);
+        _scopeHitTargets.Add(new ScopeHitTarget(scope.HierarchyPath, rect));
+    }
+
+    private IReadOnlyDictionary<string, PortAnchor> DrawScopePorts(DrawingContext context, Rect nodeRect, IReadOnlyList<HierarchyScopePortViewModel> ports)
+    {
+        Dictionary<string, PortAnchor> anchors = new(StringComparer.OrdinalIgnoreCase);
+        int maxPorts = CompactLayout ? 5 : 8;
+        IReadOnlyList<HierarchyScopePortViewModel> inputs = ports.Where(static port => port.IsInput).Take(maxPorts).ToList();
+        IReadOnlyList<HierarchyScopePortViewModel> outputs = ports.Where(static port => port.IsOutput).Take(maxPorts).ToList();
+        double topInset = CompactLayout ? 14 : 18;
+        double bottomInset = CompactLayout ? 14 : 18;
+        double usableHeight = Math.Max(24, nodeRect.Height - topInset - bottomInset);
+        double leftStep = usableHeight / Math.Max(1, inputs.Count + 1);
+        double rightStep = usableHeight / Math.Max(1, outputs.Count + 1);
 
         for (int index = 0; index < inputs.Count; index++)
         {
             HierarchyScopePortViewModel port = inputs[index];
-            double y = nodeRect.Y + leftStep * (index + 1);
-            DrawPortStub(context, port, y, nodeRect.X, leftSide: true);
+            double y = nodeRect.Y + topInset + leftStep * (index + 1);
+            anchors[port.Name] = DrawPortStub(context, port, y, nodeRect.X, leftSide: true);
         }
 
         for (int index = 0; index < outputs.Count; index++)
         {
             HierarchyScopePortViewModel port = outputs[index];
-            double y = nodeRect.Y + rightStep * (index + 1);
-            DrawPortStub(context, port, y, nodeRect.Right, leftSide: false);
+            double y = nodeRect.Y + topInset + rightStep * (index + 1);
+            anchors[port.Name] = DrawPortStub(context, port, y, nodeRect.Right, leftSide: false);
         }
+
+        return anchors;
     }
 
-    private void DrawPortStub(DrawingContext context, HierarchyScopePortViewModel port, double y, double edgeX, bool leftSide)
+    private PortAnchor DrawPortStub(DrawingContext context, HierarchyScopePortViewModel port, double y, double edgeX, bool leftSide)
     {
-        double lineLength = 26;
+        double lineLength = CompactLayout ? 26 : 34;
         Rect badge = leftSide
-            ? new(edgeX - 160, y - 10, 48, 20)
-            : new(edgeX + 112, y - 10, 48, 20);
+            ? new(edgeX - (CompactLayout ? 160 : 194), y - 10, CompactLayout ? 48 : 58, 20)
+            : new(edgeX + (CompactLayout ? 112 : 136), y - 10, CompactLayout ? 48 : 58, 20);
         double lineStartX = leftSide ? edgeX - lineLength : edgeX;
         double lineEndX = leftSide ? edgeX : edgeX + lineLength;
-        string label = Ellipsize(port.Name, 10, 78);
-        double labelX = leftSide ? badge.Right + 8 : edgeX + 34;
+        string label = Ellipsize(port.Name, 10, CompactLayout ? 78 : 104);
+        double labelX = leftSide ? badge.Right + 8 : edgeX + (CompactLayout ? 34 : 42);
 
         context.DrawLine(new Pen(PinStrokeBrush, 1.3), new Point(lineStartX, y), new Point(lineEndX, y));
         context.FillRectangle(PinStrokeBrush, new Rect(leftSide ? edgeX - 2 : edgeX - 2, y - 2, 4, 4));
         DrawText(context, label, leftSide ? badge.Right + 8 : labelX, y - 7, MutedBrush, 10);
         DrawMiniBadge(context, badge, port.WidthLabel, PinStrokeBrush);
+        Point anchor = new(leftSide ? lineStartX : lineEndX, y);
+        return new PortAnchor(port.Name, anchor, leftSide);
+    }
+
+    private IReadOnlyDictionary<string, Point> DrawChildConnectionStubs(
+        DrawingContext context,
+        Rect rect,
+        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> connections)
+    {
+        Dictionary<string, Point> anchors = new(StringComparer.OrdinalIgnoreCase);
+        int maxConnections = CompactLayout ? 3 : 5;
+        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> inputs = connections.Where(static connection => connection.IsInput).Take(maxConnections).ToList();
+        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> outputs = connections.Where(static connection => connection.IsOutput).Take(maxConnections).ToList();
+        double topInset = CompactLayout ? 16 : 22;
+        double bottomInset = CompactLayout ? 14 : 18;
+        double usableHeight = Math.Max(20, rect.Height - topInset - bottomInset);
+        double leftStep = usableHeight / Math.Max(1, inputs.Count + 1);
+        double rightStep = usableHeight / Math.Max(1, outputs.Count + 1);
+
+        for (int index = 0; index < inputs.Count; index++)
+        {
+            HierarchyScopeInstancePortConnectionViewModel connection = inputs[index];
+            double y = rect.Y + topInset + leftStep * (index + 1);
+            double stubLength = CompactLayout ? 10 : 14;
+            context.DrawLine(new Pen(PinStrokeBrush, 1.1), new Point(rect.X - stubLength, y), new Point(rect.X, y));
+            DrawText(context, Ellipsize(connection.PortName, 9, CompactLayout ? 44 : 64), rect.X + 4, y - 6, MutedBrush, 9);
+            anchors[connection.PortName] = new Point(rect.X - stubLength, y);
+        }
+
+        for (int index = 0; index < outputs.Count; index++)
+        {
+            HierarchyScopeInstancePortConnectionViewModel connection = outputs[index];
+            double y = rect.Y + topInset + rightStep * (index + 1);
+            double stubLength = CompactLayout ? 10 : 14;
+            context.DrawLine(new Pen(OutputValueBrush, 1.1), new Point(rect.Right, y), new Point(rect.Right + stubLength, y));
+            double labelWidth = CompactLayout ? 44 : 64;
+            double labelX = rect.Right - labelWidth - 8;
+            DrawText(context, Ellipsize(connection.PortName, 9, labelWidth), labelX, y - 6, MutedBrush, 9);
+            anchors[connection.PortName] = new Point(rect.Right + stubLength, y);
+        }
+
+        return anchors;
+    }
+
+    private IReadOnlyDictionary<string, Point> DrawLocalSignalSection(
+        DrawingContext context,
+        Rect panel,
+        IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals,
+        int visibleLocalCount,
+        double top)
+    {
+        Dictionary<string, Point> anchors = new(StringComparer.OrdinalIgnoreCase);
+        if (visibleLocalCount == 0)
+        {
+            return anchors;
+        }
+
+        DrawText(context, "Local nets", panel.X + 16, top, TextBrush, 11);
+        double chipY = top + 18;
+        double chipWidth = panel.Width >= 760 && visibleLocalCount > 2 ? (CompactLayout ? 150 : 190) : (CompactLayout ? 170 : 220);
+        int columns = panel.Width >= 760 && visibleLocalCount > 2 ? (!CompactLayout && visibleLocalCount > 4 ? 3 : 2) : 1;
+        for (int index = 0; index < visibleLocalCount; index++)
+        {
+            int row = index / columns;
+            int column = index % columns;
+            HierarchyScopeLocalSignalViewModel signal = localSignals[index];
+            Rect chip = new(
+                panel.X + 16 + column * (chipWidth + (CompactLayout ? 12 : 14)),
+                chipY + row * (CompactLayout ? 20 : 24),
+                chipWidth,
+                CompactLayout ? 16 : 18);
+            IBrush stroke = signal.IsTraced ? PinStrokeBrush : ModuleStrokeBrush;
+            context.FillRectangle(ValueFillBrush, chip, 4);
+            context.DrawRectangle(new Pen(stroke, 1), chip, 4);
+            DrawText(context, Ellipsize(signal.Name, 10, chip.Width - 62), chip.X + 6, chip.Y + 2, TextBrush, 10);
+            DrawText(context, signal.WidthLabel, chip.Right - 28, chip.Y + 2, stroke, 10);
+            anchors[signal.Name] = new Point(chip.Right, chip.Y + chip.Height / 2);
+        }
+
+        return anchors;
+    }
+
+    private void DrawConnectionRoutes(
+        DrawingContext context,
+        CurrentPortLayout currentPortLayout,
+        IReadOnlyList<ChildNodeLayout> childLayouts,
+        IReadOnlyDictionary<string, Point> localSignalAnchors)
+    {
+        foreach (ChildNodeLayout child in childLayouts)
+        {
+            foreach (HierarchyScopeInstancePortConnectionViewModel connection in child.Instance.PortConnections)
+            {
+                if (!child.PortAnchors.TryGetValue(connection.PortName, out Point childAnchor))
+                {
+                    continue;
+                }
+
+                Point? source = null;
+                if (currentPortLayout.PortAnchors.TryGetValue(connection.SignalName, out PortAnchor? currentPort) && currentPort is not null)
+                {
+                    source = currentPort.Point;
+                }
+                else if (localSignalAnchors.TryGetValue(connection.SignalName, out Point localAnchor))
+                {
+                    source = localAnchor;
+                }
+
+                if (source is null)
+                {
+                    continue;
+                }
+
+                DrawScopedConnectionRoute(
+                    context,
+                    source.Value,
+                    childAnchor,
+                    connection.IsInput ? ConnectorBrush : OutputValueBrush);
+            }
+        }
+    }
+
+    private void DrawScopedConnectionRoute(DrawingContext context, Point start, Point end, IBrush brush)
+    {
+        double midX = start.X + (end.X - start.X) / 2;
+        Pen pen = new(brush, 1.1);
+        context.DrawLine(pen, start, new Point(midX, start.Y));
+        context.DrawLine(pen, new Point(midX, start.Y), new Point(midX, end.Y));
+        context.DrawLine(pen, new Point(midX, end.Y), end);
     }
 
     private void DrawPortCountStubs(DrawingContext context, Rect rect, int inputCount, int outputCount, IBrush stroke)
@@ -753,6 +1229,8 @@ public sealed class SchematicPreviewControl : Control
     private void OnScopeChildrenChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateVisual();
 
     private void OnScopePortsChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateVisual();
+
+    private void OnScopeLocalSignalsChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateVisual();
 
     private void OnSignalCollectionChanged(NotifyCollectionChangedEventArgs e)
     {
@@ -862,7 +1340,7 @@ public sealed class SchematicPreviewControl : Control
 
     private bool HasScopeContext(
         IReadOnlyCollection<SignalViewModel> scopeSignals,
-        IReadOnlyCollection<HierarchyScopeNodeViewModel> childScopes,
+        IReadOnlyCollection<HierarchyScopeInstanceViewModel> childScopes,
         HierarchyScopeNodeViewModel? parentScope)
     {
         if (scopeSignals.Count > 0 || childScopes.Count > 0 || parentScope is not null)
@@ -897,6 +1375,28 @@ public sealed class SchematicPreviewControl : Control
         }
 
         return ActiveScopeSummary ?? string.Empty;
+    }
+
+    private double GetCurrentNodeHeight(int inputCount, int outputCount)
+    {
+        int portCount = Math.Max(inputCount, outputCount);
+        return CompactLayout
+            ? Math.Clamp(58 + portCount * 9, 64, 108)
+            : Math.Clamp(72 + portCount * 12, 84, 156);
+    }
+
+    private double GetChildCardHeight(IEnumerable<HierarchyScopeInstanceViewModel> scopes)
+    {
+        int maxRows = scopes
+            .Select(scope => Math.Max(
+                scope.PortConnections.Count(static connection => connection.IsInput),
+                scope.PortConnections.Count(static connection => connection.IsOutput)))
+            .DefaultIfEmpty(0)
+            .Max();
+
+        return CompactLayout
+            ? Math.Clamp(48 + maxRows * 10, 52, 90)
+            : Math.Clamp(64 + maxRows * 14, 76, 144);
     }
 
     private static void DrawValueBadge(DrawingContext context, string value, Rect rect, IBrush strokeBrush, IBrush fillBrush)
@@ -980,8 +1480,24 @@ public sealed class SchematicPreviewControl : Control
 
     private sealed record ScopeHitTarget(string HierarchyPath, Rect Bounds);
 
+    private sealed record PortAnchor(string Name, Point Point, bool IsInput);
+
+    private sealed record CurrentPortLayout(Rect Bounds, IReadOnlyDictionary<string, PortAnchor> PortAnchors);
+
+    private sealed record ChildNodeLayout(
+        HierarchyScopeInstanceViewModel Instance,
+        Rect Bounds,
+        IReadOnlyDictionary<string, Point> PortAnchors);
+
     public sealed class SignalEditorRequestedEventArgs(SignalViewModel signal) : EventArgs
     {
         public SignalViewModel Signal { get; } = signal;
+    }
+
+    public sealed class ViewportChangedEventArgs(double zoom, Point pan) : EventArgs
+    {
+        public double Zoom { get; } = zoom;
+
+        public Point Pan { get; } = pan;
     }
 }

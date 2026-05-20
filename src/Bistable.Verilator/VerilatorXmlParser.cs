@@ -28,18 +28,21 @@ public sealed class VerilatorXmlParser
             .ToDictionary(static dtype => dtype.Id!, static dtype => dtype);
 
         Dictionary<string, ModuleMetadata> moduleCatalog = moduleElements
-            .Select(element => ParseModule(element, dtypes))
+            .Select(element => ParseModuleMetadata(element, dtypes))
             .ToDictionary(static metadata => metadata.Name, static metadata => metadata, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, DesignModuleDefinition> moduleDefinitions = moduleElements
+            .Select(element => ParseModuleDefinition(element, dtypes, moduleCatalog))
+            .ToDictionary(static definition => definition.Metadata.Name, static definition => definition, StringComparer.OrdinalIgnoreCase);
 
         string topModuleName = (string?)module.Attribute("name") ?? "unknown";
         ModuleMetadata topModule = moduleCatalog.TryGetValue(topModuleName, out ModuleMetadata? catalogEntry)
             ? catalogEntry
-            : ParseModule(module, dtypes);
+            : ParseModuleMetadata(module, dtypes);
         DesignHierarchyNode hierarchyRoot = ParseHierarchy(document, topModule.Name);
-        return new ElaboratedDesign(topModule, hierarchyRoot, moduleCatalog);
+        return new ElaboratedDesign(topModule, hierarchyRoot, moduleCatalog, moduleDefinitions);
     }
 
-    private static ModuleMetadata ParseModule(XElement module, IReadOnlyDictionary<string, DType> dtypes)
+    private static ModuleMetadata ParseModuleMetadata(XElement module, IReadOnlyDictionary<string, DType> dtypes)
     {
         List<SignalPort> ports = module
             .Elements("var")
@@ -55,6 +58,30 @@ public sealed class VerilatorXmlParser
             .ToList();
 
         return new ModuleMetadata((string?)module.Attribute("name") ?? "unknown", ports, parameters);
+    }
+
+    private static DesignModuleDefinition ParseModuleDefinition(
+        XElement module,
+        IReadOnlyDictionary<string, DType> dtypes,
+        IReadOnlyDictionary<string, ModuleMetadata> moduleCatalog)
+    {
+        string moduleName = (string?)module.Attribute("name") ?? "unknown";
+        ModuleMetadata metadata = moduleCatalog.TryGetValue(moduleName, out ModuleMetadata? existing)
+            ? existing
+            : ParseModuleMetadata(module, dtypes);
+
+        List<DesignLocalSignal> locals = module
+            .Elements("var")
+            .Where(static e => e.Attribute("dir") is null && !string.Equals((string?)e.Attribute("param"), "true", StringComparison.Ordinal))
+            .Select(e => ParseLocalSignal(e, dtypes))
+            .ToList();
+
+        List<DesignInstanceDefinition> instances = module
+            .Elements("instance")
+            .Select(ParseInstanceDefinition)
+            .ToList();
+
+        return new DesignModuleDefinition(metadata, locals, instances);
     }
 
     private static DesignHierarchyNode ParseHierarchy(XDocument document, string fallbackTopModuleName)
@@ -161,6 +188,38 @@ public sealed class VerilatorXmlParser
         XElement? constant = element.Element("const");
         string value = (string?)constant?.Attribute("name") ?? string.Empty;
         return new DesignParameter(name, value);
+    }
+
+    private static DesignLocalSignal ParseLocalSignal(XElement element, IReadOnlyDictionary<string, DType> dtypes)
+    {
+        string name = RequiredAttribute(element, "name");
+        string dtypeId = RequiredAttribute(element, "dtype_id");
+        DType dtype = dtypes.TryGetValue(dtypeId, out DType? value) ? value : DType.Scalar(dtypeId);
+        return new DesignLocalSignal(name, dtype.Width, dtype.IsSigned);
+    }
+
+    private static DesignInstanceDefinition ParseInstanceDefinition(XElement element)
+    {
+        string name = RequiredAttribute(element, "name");
+        string moduleName = RequiredAttribute(element, "defName");
+        List<DesignInstancePortConnection> connections = element
+            .Elements("port")
+            .Select(ParseInstancePortConnection)
+            .OrderBy(static connection => connection.PortIndex)
+            .ToList();
+        return new DesignInstanceDefinition(name, moduleName, connections);
+    }
+
+    private static DesignInstancePortConnection ParseInstancePortConnection(XElement element)
+    {
+        string signalName = (string?)element.Element("varref")?.Attribute("name")
+            ?? (string?)element.Element("const")?.Attribute("name")
+            ?? "?";
+        return new DesignInstancePortConnection(
+            RequiredAttribute(element, "name"),
+            signalName,
+            (string?)element.Attribute("direction") ?? string.Empty,
+            ParseInt((string?)element.Attribute("portIndex"), 0));
     }
 
     private static DType ParseDType(XElement element)

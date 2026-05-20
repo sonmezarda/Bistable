@@ -161,6 +161,33 @@ public sealed class HierarchyScopeTests
         Assert.Contains(viewModel.SelectedHierarchyPorts, port => port is { Name: "valid", IsOutput: true, Width: 1 });
     }
 
+    [Fact]
+    public async Task SelectingHierarchyNodeBuildsLocalSignalsAndChildConnections()
+    {
+        string root = FindRepositoryRoot();
+        string samplePath = Path.Combine(root, "samples", "hierarchy", "hierarchy.bistable.json");
+        MainWindowViewModel viewModel = CreateViewModel();
+
+        await viewModel.LoadProjectFromPathAsync(samplePath, CancellationToken.None);
+        viewModel.LiveModeEnabled = false;
+        viewModel.BuildCommand.Execute(null);
+
+        await WaitUntilAsync(() => viewModel.TraceSignals.Count > 0, TimeSpan.FromSeconds(20));
+
+        viewModel.SelectedHierarchyPath = "system_top.u_core";
+
+        await WaitUntilAsync(() => viewModel.SelectedHierarchyChildInstances.Count == 2, TimeSpan.FromSeconds(5));
+
+        Assert.Contains(viewModel.SelectedHierarchyLocalSignals, signal => signal is { Name: "parity_i", Width: 1, IsTraced: true });
+
+        HierarchyScopeInstanceViewModel logic = Assert.Single(
+            viewModel.SelectedHierarchyChildInstances,
+            instance => instance.HierarchyPath == "system_top.u_core.u_logic");
+        Assert.Contains(logic.PortConnections, connection => connection is { PortName: "a", SignalName: "a", IsInput: true, Width: 8 });
+        Assert.Contains(logic.PortConnections, connection => connection is { PortName: "sum", SignalName: "result", IsOutput: true, Width: 8 });
+        Assert.Contains(logic.PortConnections, connection => connection is { PortName: "parity", SignalName: "parity_i", IsOutput: true, Width: 1 });
+    }
+
     private static MainWindowViewModel CreateViewModel()
     {
         string layoutPath = Path.Combine(Path.GetTempPath(), "bistable-tests", Guid.NewGuid().ToString("N"), "layout.json");

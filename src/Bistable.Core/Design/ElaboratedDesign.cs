@@ -3,4 +3,5 @@ namespace Bistable.Core.Design;
 public sealed record ElaboratedDesign(
     ModuleMetadata TopModule,
     DesignHierarchyNode HierarchyRoot,
-    IReadOnlyDictionary<string, ModuleMetadata> ModuleCatalog);
+    IReadOnlyDictionary<string, ModuleMetadata> ModuleCatalog,
+    IReadOnlyDictionary<string, DesignModuleDefinition> ModuleDefinitions);

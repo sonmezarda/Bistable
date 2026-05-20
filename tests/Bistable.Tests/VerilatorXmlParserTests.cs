@@ -68,10 +68,29 @@ public sealed class VerilatorXmlParserTests
             <module name="core_cluster">
               <var name="clk" dtype_id="1" dir="input" pinIndex="1" vartype="logic" />
               <var name="rst_n" dtype_id="1" dir="input" pinIndex="2" vartype="logic" />
+              <var name="a" dtype_id="2" dir="input" pinIndex="3" vartype="logic" />
+              <var name="b" dtype_id="2" dir="input" pinIndex="4" vartype="logic" />
+              <var name="result" dtype_id="2" dir="output" pinIndex="5" vartype="logic" />
               <var name="valid" dtype_id="1" dir="output" pinIndex="3" vartype="logic" />
+              <var name="parity_i" dtype_id="1" vartype="logic" />
+              <instance name="u_logic" defName="logic_unit">
+                <port name="a" direction="in" portIndex="1">
+                  <varref name="a" dtype_id="2" />
+                </port>
+                <port name="b" direction="in" portIndex="2">
+                  <varref name="b" dtype_id="2" />
+                </port>
+                <port name="sum" direction="out" portIndex="3">
+                  <varref name="result" dtype_id="2" />
+                </port>
+                <port name="parity" direction="out" portIndex="4">
+                  <varref name="parity_i" dtype_id="1" />
+                </port>
+              </instance>
             </module>
             <typetable>
               <basicdtype id="1" name="logic" />
+              <basicdtype id="2" name="logic" left="7" right="0" />
             </typetable>
           </netlist>
         </verilator_xml>
@@ -89,8 +108,13 @@ public sealed class VerilatorXmlParserTests
             Assert.Contains(core.Children, static child => child.InstanceName == "u_logic");
             Assert.Contains(core.Children, static child => child.InstanceName == "u_status");
             Assert.True(design.ModuleCatalog.TryGetValue("core_cluster", out ModuleMetadata? coreModule));
-            Assert.Equal(2, coreModule!.Inputs.Count);
-            Assert.Single(coreModule.Outputs);
+            Assert.Equal(4, coreModule!.Inputs.Count);
+            Assert.Equal(2, coreModule.Outputs.Count);
+            Assert.True(design.ModuleDefinitions.TryGetValue("core_cluster", out DesignModuleDefinition? coreDefinition));
+            Assert.Contains(coreDefinition!.LocalSignals, static signal => signal.Name == "parity_i");
+            DesignInstanceDefinition logic = Assert.Single(coreDefinition.Instances, instance => instance.Name == "u_logic");
+            Assert.Contains(logic.PortConnections, static connection => connection is { PortName: "sum", SignalName: "result" });
+            Assert.Contains(logic.PortConnections, static connection => connection is { PortName: "parity", SignalName: "parity_i" });
         }
         finally
         {

@@ -6,6 +6,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Controls.Templates;
 using Avalonia.Data;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Bistable.App.Infrastructure;
@@ -30,6 +31,8 @@ public sealed class MainWindow : Window
     private TabControl? _leftDockTabs;
     private TabControl? _rightDockTabs;
     private TabControl? _bottomDockTabs;
+    private SchematicStudioWindow? _schematicStudioWindow;
+    private WaveformStudioWindow? _waveformStudioWindow;
 
     private static readonly IBrush BackgroundBrush = SolidColorBrush.Parse("#0e1116");
     private static readonly IBrush SurfaceBrush = SolidColorBrush.Parse("#151922");
@@ -190,7 +193,18 @@ public sealed class MainWindow : Window
                         DockPanelKind.Waveform),
                     DockMenu("Schematic Pane",
                         "IsSchematicPaneVisible",
-                        DockPanelKind.Schematic)
+                        DockPanelKind.Schematic),
+                    new Separator(),
+                    new MenuItem
+                    {
+                        Header = "Open Schematic Studio",
+                        Command = new RelayCommand(OpenSchematicStudio)
+                    },
+                    new MenuItem
+                    {
+                        Header = "Open Waveform Studio",
+                        Command = new RelayCommand(OpenWaveformStudio)
+                    }
                 })
             }
         };
@@ -535,26 +549,10 @@ public sealed class MainWindow : Window
             Margin = new Thickness(0, 12, 0, 0)
         };
 
-        SchematicPreviewControl preview = new()
-        {
-            [!SchematicPreviewControl.ModuleNameProperty] = new Binding("SchematicModuleName"),
-            [!SchematicPreviewControl.SignalsProperty] = new Binding("AllSignals"),
-            [!SchematicPreviewControl.ScopeSignalsProperty] = new Binding("HierarchyScopeSignals"),
-            [!SchematicPreviewControl.SelectedSignalNameProperty] = new Binding("SelectedSchematicSignalName", BindingMode.TwoWay),
-            [!SchematicPreviewControl.ToggleInputCommandProperty] = new Binding("ToggleInputSignalCommand"),
-            [!SchematicPreviewControl.AddSelectedWaveformCommandProperty] = new Binding("AddSelectedWaveformSignalCommand"),
-            [!SchematicPreviewControl.SelectScopeCommandProperty] = new Binding("SelectHierarchyScopeCommand"),
-            [!SchematicPreviewControl.ActiveScopeTitleProperty] = new Binding("SelectedHierarchyScopeTitle"),
-            [!SchematicPreviewControl.ActiveScopeModuleNameProperty] = new Binding("SelectedHierarchyScopeModuleName"),
-            [!SchematicPreviewControl.ActiveScopePathProperty] = new Binding("SelectedHierarchyScopePath"),
-            [!SchematicPreviewControl.ActiveScopeSummaryProperty] = new Binding("SelectedHierarchyScopeSummary"),
-            [!SchematicPreviewControl.ActiveScopeHintProperty] = new Binding("SelectedHierarchyScopeHint"),
-            [!SchematicPreviewControl.ScopeParentProperty] = new Binding("SelectedHierarchyParentScope"),
-            [!SchematicPreviewControl.ScopeChildrenProperty] = new Binding("SelectedHierarchyChildScopes"),
-            [!SchematicPreviewControl.ScopePortsProperty] = new Binding("SelectedHierarchyPorts")
-        };
-        preview.SignalEditorRequested += OnSchematicSignalEditorRequested;
+        SchematicPreviewControl preview = CreateBoundSchematicPreview(compactLayout: true);
         previewGrid.Children.Add(preview);
+
+        grid.Children.Add(BuildSchematicViewportToolbar(preview, includeStudioButton: true));
 
         Border liveProbeBorder = PanelBorder();
         liveProbeBorder.Child = BuildSchematicProbePanel();
@@ -817,7 +815,7 @@ public sealed class MainWindow : Window
         return grid;
     }
 
-    private static Control BuildWaveformToolbar()
+    private Control BuildWaveformToolbar()
     {
         DockPanel toolbar = new()
         {
@@ -840,6 +838,7 @@ public sealed class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             Children =
             {
+                ClickButton("Studio", (_, _) => OpenWaveformStudio(), 68),
                 SmallButton("Up", "MoveWaveformSignalUpCommand"),
                 SmallButton("Down", "MoveWaveformSignalDownCommand"),
                 SmallButton("<", "PanWaveformLeftCommand"),
@@ -852,6 +851,42 @@ public sealed class MainWindow : Window
         DockPanel.SetDock(actions, Dock.Right);
         toolbar.Children.Add(actions);
         return toolbar;
+    }
+
+    private Control BuildSchematicViewportToolbar(SchematicPreviewControl preview, bool includeStudioButton)
+    {
+        TextBlock zoomText = new()
+        {
+            Text = "Fit",
+            Foreground = MutedBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            MinWidth = 52,
+            TextAlignment = TextAlignment.Right
+        };
+        preview.ViewportChanged += (_, args) => zoomText.Text = $"{args.Zoom * 100:0}%";
+
+        StackPanel buttons = new()
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 4, 0, 0),
+            Children =
+            {
+                zoomText,
+                ClickButton("Fit", (_, _) => preview.FitToView()),
+                ClickButton("1:1", (_, _) => preview.ResetView()),
+                ClickButton("+", (_, _) => preview.ZoomIn(), 34),
+                ClickButton("-", (_, _) => preview.ZoomOut(), 34)
+            }
+        };
+
+        if (includeStudioButton)
+        {
+            buttons.Children.Insert(1, ClickButton("Studio", (_, _) => OpenSchematicStudio(), 68));
+        }
+
+        return buttons;
     }
 
     private Control BuildPanelSurface(DockPanelKind kind)
@@ -1175,6 +1210,48 @@ public sealed class MainWindow : Window
         [!Button.CommandProperty] = new Binding(commandPath)
     };
 
+    private static Button ClickButton(string text, EventHandler<RoutedEventArgs> onClick, double minWidth = 56)
+    {
+        Button button = new()
+        {
+            Content = text,
+            MinWidth = minWidth,
+            Height = 28,
+            FontSize = 12,
+            Background = SurfaceAltBrush,
+            Foreground = TextBrush,
+            BorderBrush = StrokeBrush
+        };
+        button.Click += onClick;
+        return button;
+    }
+
+    private SchematicPreviewControl CreateBoundSchematicPreview(bool compactLayout)
+    {
+        SchematicPreviewControl preview = new()
+        {
+            CompactLayout = compactLayout,
+            [!SchematicPreviewControl.ModuleNameProperty] = new Binding("SchematicModuleName"),
+            [!SchematicPreviewControl.SignalsProperty] = new Binding("AllSignals"),
+            [!SchematicPreviewControl.ScopeSignalsProperty] = new Binding("HierarchyScopeSignals"),
+            [!SchematicPreviewControl.SelectedSignalNameProperty] = new Binding("SelectedSchematicSignalName", BindingMode.TwoWay),
+            [!SchematicPreviewControl.ToggleInputCommandProperty] = new Binding("ToggleInputSignalCommand"),
+            [!SchematicPreviewControl.AddSelectedWaveformCommandProperty] = new Binding("AddSelectedWaveformSignalCommand"),
+            [!SchematicPreviewControl.SelectScopeCommandProperty] = new Binding("SelectHierarchyScopeCommand"),
+            [!SchematicPreviewControl.ActiveScopeTitleProperty] = new Binding("SelectedHierarchyScopeTitle"),
+            [!SchematicPreviewControl.ActiveScopeModuleNameProperty] = new Binding("SelectedHierarchyScopeModuleName"),
+            [!SchematicPreviewControl.ActiveScopePathProperty] = new Binding("SelectedHierarchyScopePath"),
+            [!SchematicPreviewControl.ActiveScopeSummaryProperty] = new Binding("SelectedHierarchyScopeSummary"),
+            [!SchematicPreviewControl.ActiveScopeHintProperty] = new Binding("SelectedHierarchyScopeHint"),
+            [!SchematicPreviewControl.ScopeParentProperty] = new Binding("SelectedHierarchyParentScope"),
+            [!SchematicPreviewControl.ScopeChildrenProperty] = new Binding("SelectedHierarchyChildInstances"),
+            [!SchematicPreviewControl.ScopePortsProperty] = new Binding("SelectedHierarchyPorts"),
+            [!SchematicPreviewControl.ScopeLocalSignalsProperty] = new Binding("SelectedHierarchyLocalSignals")
+        };
+        preview.SignalEditorRequested += OnSchematicSignalEditorRequested;
+        return preview;
+    }
+
     private static Button TinyButton(string text, string commandPath) => new()
     {
         Content = text,
@@ -1202,6 +1279,60 @@ public sealed class MainWindow : Window
         if (viewModel.DockPanelCommand.CanExecute(parameter))
         {
             viewModel.DockPanelCommand.Execute(parameter);
+        }
+    }
+
+    private void OpenSchematicStudio()
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        if (_schematicStudioWindow is { IsVisible: true } window)
+        {
+            window.Activate();
+            return;
+        }
+
+        _schematicStudioWindow = new SchematicStudioWindow(viewModel);
+        _schematicStudioWindow.Closed += OnSchematicStudioClosed;
+        _schematicStudioWindow.Show(this);
+    }
+
+    private void OpenWaveformStudio()
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        if (_waveformStudioWindow is { IsVisible: true } window)
+        {
+            window.Activate();
+            return;
+        }
+
+        _waveformStudioWindow = new WaveformStudioWindow(viewModel);
+        _waveformStudioWindow.Closed += OnWaveformStudioClosed;
+        _waveformStudioWindow.Show(this);
+    }
+
+    private void OnSchematicStudioClosed(object? sender, EventArgs e)
+    {
+        if (_schematicStudioWindow is not null)
+        {
+            _schematicStudioWindow.Closed -= OnSchematicStudioClosed;
+            _schematicStudioWindow = null;
+        }
+    }
+
+    private void OnWaveformStudioClosed(object? sender, EventArgs e)
+    {
+        if (_waveformStudioWindow is not null)
+        {
+            _waveformStudioWindow.Closed -= OnWaveformStudioClosed;
+            _waveformStudioWindow = null;
         }
     }
 
@@ -1293,7 +1424,8 @@ public sealed class MainWindow : Window
         Background = SurfaceBrush,
         BorderBrush = StrokeBrush,
         BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(6)
+        CornerRadius = new CornerRadius(6),
+        ClipToBounds = true
     };
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -1313,6 +1445,15 @@ public sealed class MainWindow : Window
         {
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
             SyncDockLayout(viewModel);
+            if (_schematicStudioWindow is not null)
+            {
+                _schematicStudioWindow.DataContext = viewModel;
+            }
+
+            if (_waveformStudioWindow is not null)
+            {
+                _waveformStudioWindow.DataContext = viewModel;
+            }
         }
     }
 
@@ -1451,5 +1592,7 @@ public sealed class MainWindow : Window
         double rightWidth = _rightDockPane?.Bounds.Width > 0 ? _rightDockPane.Bounds.Width : viewModel.RightDockWidth;
         double bottomHeight = _bottomDockPane?.Bounds.Height > 0 ? _bottomDockPane.Bounds.Height : viewModel.BottomDockHeight;
         viewModel.UpdateLayoutMetrics(leftWidth, rightWidth, bottomHeight);
+        _schematicStudioWindow?.Close();
+        _waveformStudioWindow?.Close();
     }
 }

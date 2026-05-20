@@ -82,6 +82,12 @@ The current UI also supports a basic IDE-style workspace flow:
 - selected hierarchy instances now render as a focused scope panel on the schematic canvas instead of only a side probe strip.
 - the focused scope panel now shows parent/child instance neighborhood and lets you navigate hierarchy directly from the schematic canvas.
 - the focused scope panel now uses module port metadata from Verilator XML to draw input/output stubs for the active instance.
+- child instance cards now use elaborated instance-port connections from Verilator XML, and the schematic routes those connections through current-scope ports and local nets.
+- the schematic canvas now has an inspect-style viewport with wheel zoom, drag pan, fit, and 1:1 reset controls so dense hierarchy views remain navigable.
+- the main schematic pane now exposes zoom percentage and a direct `Studio` action for opening a larger schematic inspector window.
+- the dedicated `Schematic Studio` window runs the same live schematic surface in a non-compact layout, so port stubs, child instance cards, and routed nets get more space for inspection.
+- the schematic viewport now keeps user zoom/pan stable across live updates and clips strictly to its own pane instead of bleeding into neighboring docks.
+- waveform also has a dedicated `Waveform Studio` window, so the two densest surfaces can be inspected outside the dock constraints.
 - toolbar cycle count controls how many cycles `Run` advances.
 - trace-enabled projects expose internal signals under `Project > Trace Signals`.
 - internal trace signals can be added to the waveform like top-level ports.
@@ -118,5 +124,9 @@ surface. That means:
 - the schematic canvas now shows the selected hierarchy instance as an internal probe panel with module/path context and live probe values
 - child instances on the focused scope panel are clickable, so hierarchy navigation no longer depends on the tree view alone
 - active hierarchy instances now expose their elaborated module ports on the schematic canvas, even before full routed nets exist
+- current-scope local signals now appear as named nets, and child instance connections route against those nets or the selected scope ports
+- schematic inspection no longer assumes a fixed fitted view; you can zoom and pan through dense hierarchy layouts directly in the pane
+- dense hierarchy inspection can now move into a dedicated `Schematic Studio` window with a larger world canvas and a less compact placement mode
+- waveform inspection can now move into a dedicated `Waveform Studio` window instead of competing with docked pane width
 - clock edges are still explicit through `Tick` and `Run`
-- deeper net-level geometry and instance pin routing are still the next planned interaction layer
+- richer instance-aware geometry, net probing directly on routed connections, and eventual Vivado-style presentation polish are still the next planned interaction layers
