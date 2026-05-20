@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
+using Dock.Avalonia.Themes.Fluent;
 using Bistable.App.Services;
 using Bistable.App.ViewModels;
 using Bistable.App.Views;
@@ -14,6 +15,7 @@ public sealed class BistableApplication : Application
     {
         RequestedThemeVariant = ThemeVariant.Dark;
         Styles.Add(new FluentTheme());
+        Styles.Add(new DockFluentTheme(null));
     }
 
     public override void OnFrameworkInitializationCompleted()

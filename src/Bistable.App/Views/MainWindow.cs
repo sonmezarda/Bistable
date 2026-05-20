@@ -11,11 +11,24 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Bistable.App.Infrastructure;
 using Bistable.App.ViewModels;
+using Dock.Avalonia.Controls;
+using Dock.Model.Mvvm;
+using Dock.Model.Mvvm.Controls;
+using DockCore = Dock.Model.Core;
+using DockModelOrientation = Dock.Model.Core.Orientation;
 
 namespace Bistable.App.Views;
 
 public sealed class MainWindow : Window
 {
+    private DockControl? _dockWorkspaceControl;
+    private RootDock? _dockRoot;
+    private DocumentDock? _documentDock;
+    private ToolDock? _leftToolDock;
+    private BistableToolDockable? _projectDockable;
+    private BistableDocumentDockable? _inspectorDockable;
+    private BistableDocumentDockable? _waveformDockable;
+    private BistableDocumentDockable? _schematicDockable;
     private readonly ColumnDefinition _leftDockColumn = new(new GridLength(260));
     private readonly ColumnDefinition _leftDockSplitterColumn = new(new GridLength(4));
     private readonly ColumnDefinition _rightDockSplitterColumn = new(new GridLength(4));
@@ -31,8 +44,11 @@ public sealed class MainWindow : Window
     private TabControl? _leftDockTabs;
     private TabControl? _rightDockTabs;
     private TabControl? _bottomDockTabs;
+    private Border? _centerWorkspacePane;
+    private TabControl? _centerWorkspaceTabs;
     private SchematicStudioWindow? _schematicStudioWindow;
     private WaveformStudioWindow? _waveformStudioWindow;
+    private readonly Dictionary<DockPanelKind, ToolPanelWindow> _floatingToolWindows = [];
 
     private static readonly IBrush BackgroundBrush = SolidColorBrush.Parse("#0e1116");
     private static readonly IBrush SurfaceBrush = SolidColorBrush.Parse("#151922");
@@ -65,9 +81,155 @@ public sealed class MainWindow : Window
 
         root.Children.Add(BuildToolbar());
         root.Children.Add(BuildStatusBar());
-        root.Children.Add(BuildWorkspace());
+        root.Children.Add(BuildDockWorkspace());
 
         return root;
+    }
+
+    private Control BuildDockWorkspace()
+    {
+        _dockWorkspaceControl = new DockControl
+        {
+            Margin = new Thickness(10, 12, 10, 8),
+            IsDockingEnabled = true,
+            AutoCreateDataTemplates = false
+        };
+
+        _dockWorkspaceControl.DataTemplates.Add(CreateDockableTemplate<BistableToolDockable>());
+        _dockWorkspaceControl.DataTemplates.Add(CreateDockableTemplate<BistableDocumentDockable>());
+
+        InitializeDockWorkspaceModel();
+        return _dockWorkspaceControl;
+    }
+
+    private FuncDataTemplate<TDockable> CreateDockableTemplate<TDockable>()
+        where TDockable : class
+    {
+        return new FuncDataTemplate<TDockable>((dockable, _) =>
+        {
+            if (dockable is null)
+            {
+                return new TextBlock();
+            }
+
+            Control? content = dockable switch
+            {
+                BistableToolDockable tool => tool.GetOrCreateContent(),
+                BistableDocumentDockable document => document.GetOrCreateContent(),
+                _ => null
+            };
+
+            if (content is null)
+            {
+                return new TextBlock();
+            }
+
+            content.DataContext = DataContext;
+            return content;
+        });
+    }
+
+    private void InitializeDockWorkspaceModel()
+    {
+        if (_dockWorkspaceControl is null)
+        {
+            return;
+        }
+
+        Factory factory = new();
+
+        _projectDockable = new BistableToolDockable(
+            DockPanelKind.Project,
+            "project",
+            "Project",
+            () => WrapDockContent(BuildProjectPanelContent(showHeader: false)));
+        _inspectorDockable = new BistableDocumentDockable(
+            DockPanelKind.Project,
+            "inspector",
+            "Inspector",
+            () => WrapDockContent(BuildInspectorSurface()));
+        _waveformDockable = new BistableDocumentDockable(
+            DockPanelKind.Waveform,
+            "waveform",
+            "Waveform",
+            () => WrapDockContent(BuildWaveformPanelContent(showHeader: false)));
+        _schematicDockable = new BistableDocumentDockable(
+            DockPanelKind.Schematic,
+            "schematic",
+            "Schematic",
+            () => WrapDockContent(BuildSchematicPanelContent(showHeader: false)));
+
+        _leftToolDock = new ToolDock
+        {
+            Id = "tools-left",
+            Title = "Tools",
+            Proportion = 0.22,
+            ActiveDockable = _projectDockable,
+            DefaultDockable = _projectDockable,
+            VisibleDockables = new List<DockCore.IDockable> { _projectDockable }
+        };
+
+        _documentDock = new DocumentDock
+        {
+            Id = "documents",
+            Title = "Workspace",
+            Proportion = 0.78,
+            ActiveDockable = _inspectorDockable,
+            DefaultDockable = _inspectorDockable,
+            VisibleDockables = new List<DockCore.IDockable>
+            {
+                _inspectorDockable,
+                _waveformDockable,
+                _schematicDockable
+            }
+        };
+
+        ProportionalDock main = new()
+        {
+            Id = "main",
+            Orientation = DockModelOrientation.Horizontal,
+            ActiveDockable = _documentDock,
+            DefaultDockable = _documentDock,
+            VisibleDockables = new List<DockCore.IDockable>
+            {
+                _leftToolDock,
+                new ProportionalDockSplitter(),
+                _documentDock
+            }
+        };
+
+        _dockRoot = new RootDock
+        {
+            Id = "root",
+            IsFocusableRoot = true,
+            EnableAdaptiveGlobalDockTargets = true,
+            ActiveDockable = main,
+            DefaultDockable = main,
+            VisibleDockables = new List<DockCore.IDockable> { main },
+            HiddenDockables = new List<DockCore.IDockable>(),
+            LeftPinnedDockables = new List<DockCore.IDockable>(),
+            RightPinnedDockables = new List<DockCore.IDockable>(),
+            TopPinnedDockables = new List<DockCore.IDockable>(),
+            BottomPinnedDockables = new List<DockCore.IDockable>(),
+            Windows = new List<DockCore.IDockWindow>()
+        };
+
+        _dockWorkspaceControl.Factory = factory;
+        _dockWorkspaceControl.Layout = _dockRoot;
+    }
+
+    private static Control WrapDockContent(Control control)
+    {
+        Border border = new()
+        {
+            Background = SurfaceBrush,
+            BorderBrush = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            ClipToBounds = true,
+            Padding = new Thickness(0),
+            Child = control
+        };
+        return border;
     }
 
     private Control BuildWorkspace()
@@ -102,9 +264,9 @@ public sealed class MainWindow : Window
         };
         grid.Children.Add(_leftDockSplitter);
 
-        Control inspector = BuildInspectorSurface();
-        Grid.SetColumn(inspector, 2);
-        grid.Children.Add(inspector);
+        _centerWorkspacePane = BuildDockHost();
+        Grid.SetColumn(_centerWorkspacePane, 2);
+        grid.Children.Add(_centerWorkspacePane);
 
         _rightDockSplitter = new GridSplitter
         {
@@ -141,7 +303,7 @@ public sealed class MainWindow : Window
     private Control BuildToolbar()
     {
         Border border = PanelBorder();
-        DockPanel.SetDock(border, Dock.Top);
+        DockPanel.SetDock(border, Avalonia.Controls.Dock.Top);
 
         Grid grid = new()
         {
@@ -185,15 +347,26 @@ public sealed class MainWindow : Window
                 }),
                 TopMenu("View", new Control[]
                 {
-                    DockMenu("Project Pane",
-                        "IsProjectPaneVisible",
-                        DockPanelKind.Project),
-                    DockMenu("Waveform Pane",
-                        "IsWaveformPaneVisible",
-                        DockPanelKind.Waveform),
-                    DockMenu("Schematic Pane",
-                        "IsSchematicPaneVisible",
-                        DockPanelKind.Schematic),
+                    new MenuItem
+                    {
+                        Header = "Project",
+                        Command = new RelayCommand(() => ActivateDockable(DockPanelKind.Project))
+                    },
+                    new MenuItem
+                    {
+                        Header = "Inspector",
+                        Command = new RelayCommand(ActivateInspectorDocument)
+                    },
+                    new MenuItem
+                    {
+                        Header = "Waveform",
+                        Command = new RelayCommand(() => ActivateDockable(DockPanelKind.Waveform))
+                    },
+                    new MenuItem
+                    {
+                        Header = "Schematic",
+                        Command = new RelayCommand(() => ActivateDockable(DockPanelKind.Schematic))
+                    },
                     new Separator(),
                     new MenuItem
                     {
@@ -204,6 +377,12 @@ public sealed class MainWindow : Window
                     {
                         Header = "Open Waveform Studio",
                         Command = new RelayCommand(OpenWaveformStudio)
+                    },
+                    new Separator(),
+                    new MenuItem
+                    {
+                        Header = "Reset Tool Layout",
+                        Command = new RelayCommand(ResetToolLayout)
                     }
                 })
             }
@@ -251,7 +430,7 @@ public sealed class MainWindow : Window
     private static Control BuildStatusBar()
     {
         Border border = PanelBorder();
-        DockPanel.SetDock(border, Dock.Bottom);
+        DockPanel.SetDock(border, Avalonia.Controls.Dock.Bottom);
         border.Child = new Grid
         {
             ColumnDefinitions =
@@ -355,7 +534,7 @@ public sealed class MainWindow : Window
         return border;
     }
 
-    private Control BuildProjectPanelContent()
+    private Control BuildProjectPanelContent(bool showHeader = true)
     {
         StackPanel panel = new()
         {
@@ -363,9 +542,12 @@ public sealed class MainWindow : Window
             Margin = new Thickness(12)
         };
 
-        panel.Children.Add(DockPanelHeader(
-            "Project",
-            DockPanelKind.Project));
+        if (showHeader)
+        {
+            panel.Children.Add(DockPanelHeader(
+                "Project",
+                DockPanelKind.Project));
+        }
         panel.Children.Add(BoundLabel("ProjectName", 15, TextBrush));
         panel.Children.Add(MetadataLine("Top", "TopModule"));
         panel.Children.Add(MetadataLine("Tool", "VerilatorVersion"));
@@ -406,22 +588,25 @@ public sealed class MainWindow : Window
         return panel;
     }
 
-    private Control BuildWaveformPanelContent()
+    private Control BuildWaveformPanelContent(bool showHeader = true)
     {
         Grid waveform = new()
         {
             RowDefinitions =
             {
-                new RowDefinition(GridLength.Auto),
+                new RowDefinition(showHeader ? GridLength.Auto : new GridLength(0)),
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Star)
             },
             Margin = new Thickness(12)
         };
 
-        waveform.Children.Add(DockPanelHeader(
-            "Waveform",
-            DockPanelKind.Waveform));
+        if (showHeader)
+        {
+            waveform.Children.Add(DockPanelHeader(
+                "Waveform",
+                DockPanelKind.Waveform));
+        }
 
         Control toolbar = BuildWaveformToolbar();
         Grid.SetRow(toolbar, 1);
@@ -521,22 +706,25 @@ public sealed class MainWindow : Window
         return grid;
     }
 
-    private Control BuildSchematicPanelContent()
+    private Control BuildSchematicPanelContent(bool showHeader = true)
     {
         Grid grid = new()
         {
             RowDefinitions =
             {
-                new RowDefinition(GridLength.Auto),
+                new RowDefinition(showHeader ? GridLength.Auto : new GridLength(0)),
                 new RowDefinition(new GridLength(0.46, GridUnitType.Star)),
                 new RowDefinition(new GridLength(0.54, GridUnitType.Star))
             },
             Margin = new Thickness(12)
         };
 
-        grid.Children.Add(DockPanelHeader(
-            "Schematic",
-            DockPanelKind.Schematic));
+        if (showHeader)
+        {
+            grid.Children.Add(DockPanelHeader(
+                "Schematic",
+                DockPanelKind.Schematic));
+        }
 
         Grid previewGrid = new()
         {
@@ -848,7 +1036,7 @@ public sealed class MainWindow : Window
                 SmallButton("Fit", "FitWaveformCommand")
             }
         };
-        DockPanel.SetDock(actions, Dock.Right);
+        DockPanel.SetDock(actions, Avalonia.Controls.Dock.Right);
         toolbar.Children.Add(actions);
         return toolbar;
     }
@@ -929,10 +1117,12 @@ public sealed class MainWindow : Window
                 DockButton("L", panelKind, DockZone.Left),
                 DockButton("R", panelKind, DockZone.Right),
                 DockButton("B", panelKind, DockZone.Bottom),
+                DockButton("C", panelKind, DockZone.Center),
+                DockButton("F", panelKind, DockZone.Floating),
                 DockButton("X", panelKind, DockZone.Hidden)
             }
         };
-        DockPanel.SetDock(actions, Dock.Right);
+        DockPanel.SetDock(actions, Avalonia.Controls.Dock.Right);
         row.Children.Add(actions);
         return row;
     }
@@ -967,6 +1157,16 @@ public sealed class MainWindow : Window
                 {
                     Header = "Dock Bottom",
                     Command = CreateDockCommand(panelKind, DockZone.Bottom)
+                },
+                new MenuItem
+                {
+                    Header = "Dock Center",
+                    Command = CreateDockCommand(panelKind, DockZone.Center)
+                },
+                new MenuItem
+                {
+                    Header = "Float",
+                    Command = CreateDockCommand(panelKind, DockZone.Floating)
                 },
                 new Separator(),
                 new MenuItem
@@ -1282,6 +1482,57 @@ public sealed class MainWindow : Window
         }
     }
 
+    private void ActivateInspectorDocument()
+    {
+        if (_inspectorDockable is null || _documentDock is null)
+        {
+            return;
+        }
+
+        _documentDock.ActiveDockable = _inspectorDockable;
+        _documentDock.DefaultDockable = _inspectorDockable;
+        _dockWorkspaceControl?.InvalidateVisual();
+    }
+
+    private void ActivateDockable(DockPanelKind kind)
+    {
+        switch (kind)
+        {
+            case DockPanelKind.Project:
+                if (_projectDockable is not null && _leftToolDock is not null)
+                {
+                    _leftToolDock.ActiveDockable = _projectDockable;
+                }
+
+                break;
+            case DockPanelKind.Waveform:
+                if (_waveformDockable is not null && _documentDock is not null)
+                {
+                    _documentDock.ActiveDockable = _waveformDockable;
+                }
+
+                break;
+            case DockPanelKind.Schematic:
+                if (_schematicDockable is not null && _documentDock is not null)
+                {
+                    _documentDock.ActiveDockable = _schematicDockable;
+                }
+
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+        }
+
+        _dockWorkspaceControl?.InvalidateVisual();
+    }
+
+    private void ResetToolLayout()
+    {
+        ExecuteDockCommand(DockPanelKind.Project, DockZone.Left);
+        ExecuteDockCommand(DockPanelKind.Waveform, DockZone.Bottom);
+        ExecuteDockCommand(DockPanelKind.Schematic, DockZone.Right);
+    }
+
     private void OpenSchematicStudio()
     {
         if (DataContext is not MainWindowViewModel viewModel)
@@ -1467,6 +1718,7 @@ public sealed class MainWindow : Window
         if (e.PropertyName is nameof(MainWindowViewModel.ProjectDockZone)
             or nameof(MainWindowViewModel.WaveformDockZone)
             or nameof(MainWindowViewModel.SchematicDockZone)
+            or nameof(MainWindowViewModel.SelectedCenterDockPanel)
             or nameof(MainWindowViewModel.LeftDockWidth)
             or nameof(MainWindowViewModel.RightDockWidth)
             or nameof(MainWindowViewModel.BottomDockHeight))
@@ -1478,6 +1730,8 @@ public sealed class MainWindow : Window
     private void SyncDockLayout(MainWindowViewModel viewModel)
     {
         RefreshDockHosts(viewModel);
+        RefreshCenterWorkspace(viewModel);
+        RefreshFloatingToolWindows(viewModel);
 
         bool hasLeftDock = viewModel.LeftDockPanels.Count > 0;
         bool hasRightDock = viewModel.RightDockPanels.Count > 0;
@@ -1527,6 +1781,166 @@ public sealed class MainWindow : Window
         _rightDockTabs = PopulateDockHost(_rightDockPane, viewModel.RightDockPanels, viewModel.SelectedRightDockPanel);
         _bottomDockTabs = PopulateDockHost(_bottomDockPane, viewModel.BottomDockPanels, viewModel.SelectedBottomDockPanel);
     }
+
+    private void RefreshCenterWorkspace(MainWindowViewModel viewModel)
+    {
+        if (_centerWorkspacePane is null)
+        {
+            return;
+        }
+
+        if (viewModel.CenterDockPanels.Count == 0)
+        {
+            Control inspector = BuildInspectorSurface();
+            inspector.DataContext = DataContext;
+            _centerWorkspacePane.Child = inspector;
+            _centerWorkspaceTabs = null;
+            return;
+        }
+
+        TabControl tabControl = new()
+        {
+            Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
+            Margin = new Thickness(0)
+        };
+
+        List<TabItem> items =
+        [
+            new()
+            {
+                Header = new TextBlock
+                {
+                    Text = "Inspector",
+                    Foreground = TextBrush,
+                    FontSize = 12
+                },
+                Content = BindCenterContent(BuildInspectorSurface())
+            }
+        ];
+
+        foreach (DockPanelViewModel panel in viewModel.CenterDockPanels)
+        {
+            TabItem item = new()
+            {
+                Header = new TextBlock
+                {
+                    Text = panel.Title,
+                    Foreground = TextBrush,
+                    FontSize = 12
+                },
+                Content = BindCenterContent(BuildPanelSurface(panel.Kind)),
+                DataContext = panel
+            };
+            items.Add(item);
+
+            if (viewModel.SelectedCenterDockPanel?.Kind == panel.Kind)
+            {
+                tabControl.SelectedItem = item;
+            }
+        }
+
+        if (tabControl.SelectedItem is null)
+        {
+            tabControl.SelectedIndex = Math.Clamp(items.Count - 1, 0, items.Count - 1);
+        }
+
+        tabControl.SelectionChanged += (_, _) =>
+        {
+            if (DataContext is not MainWindowViewModel currentViewModel)
+            {
+                return;
+            }
+
+            currentViewModel.SelectedCenterDockPanel = (tabControl.SelectedItem as TabItem)?.DataContext as DockPanelViewModel;
+        };
+
+        tabControl.ItemsSource = items;
+        _centerWorkspacePane.Child = tabControl;
+        _centerWorkspaceTabs = tabControl;
+    }
+
+    private Control BindCenterContent(Control control)
+    {
+        control.DataContext = DataContext;
+        return control;
+    }
+
+    private void RefreshFloatingToolWindows(MainWindowViewModel viewModel)
+    {
+        DockPanelKind[] allPanels = [DockPanelKind.Project, DockPanelKind.Waveform, DockPanelKind.Schematic];
+        foreach (DockPanelKind kind in allPanels)
+        {
+            DockZone zone = GetDockZone(viewModel, kind);
+            if (zone == DockZone.Floating)
+            {
+                EnsureFloatingToolWindow(viewModel, kind);
+            }
+            else if (_floatingToolWindows.TryGetValue(kind, out ToolPanelWindow? window))
+            {
+                _floatingToolWindows.Remove(kind);
+                window.Close();
+            }
+        }
+    }
+
+    private void EnsureFloatingToolWindow(MainWindowViewModel viewModel, DockPanelKind kind)
+    {
+        if (_floatingToolWindows.TryGetValue(kind, out ToolPanelWindow? existing))
+        {
+            existing.DataContext = DataContext;
+            if (!existing.IsVisible)
+            {
+                existing.Show(this);
+            }
+
+            return;
+        }
+
+        Control content = BuildPanelSurface(kind);
+        content.DataContext = DataContext;
+        ToolPanelWindow window = new(kind, GetPanelTitle(kind), content)
+        {
+            DataContext = DataContext
+        };
+        window.Closed += OnFloatingToolWindowClosed;
+        _floatingToolWindows[kind] = window;
+        window.Show(this);
+    }
+
+    private static string GetPanelTitle(DockPanelKind kind) =>
+        kind switch
+        {
+            DockPanelKind.Project => "Project",
+            DockPanelKind.Waveform => "Waveform",
+            DockPanelKind.Schematic => "Schematic",
+            _ => kind.ToString()
+        };
+
+    private void OnFloatingToolWindowClosed(object? sender, EventArgs e)
+    {
+        if (sender is not ToolPanelWindow window)
+        {
+            return;
+        }
+
+        window.Closed -= OnFloatingToolWindowClosed;
+        _floatingToolWindows.Remove(window.PanelKind);
+
+        if (DataContext is MainWindowViewModel viewModel && GetDockZone(viewModel, window.PanelKind) == DockZone.Floating)
+        {
+            ExecuteDockCommand(window.PanelKind, DockZone.Hidden);
+        }
+    }
+
+    private static DockZone GetDockZone(MainWindowViewModel viewModel, DockPanelKind kind) =>
+        kind switch
+        {
+            DockPanelKind.Project => viewModel.ProjectDockZone,
+            DockPanelKind.Waveform => viewModel.WaveformDockZone,
+            DockPanelKind.Schematic => viewModel.SchematicDockZone,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
+        };
 
     private TabControl? PopulateDockHost(Border? host, IReadOnlyList<DockPanelViewModel> panels, DockPanelViewModel? selectedPanel)
     {
@@ -1592,6 +2006,12 @@ public sealed class MainWindow : Window
         double rightWidth = _rightDockPane?.Bounds.Width > 0 ? _rightDockPane.Bounds.Width : viewModel.RightDockWidth;
         double bottomHeight = _bottomDockPane?.Bounds.Height > 0 ? _bottomDockPane.Bounds.Height : viewModel.BottomDockHeight;
         viewModel.UpdateLayoutMetrics(leftWidth, rightWidth, bottomHeight);
+        foreach (ToolPanelWindow floatingWindow in _floatingToolWindows.Values.ToArray())
+        {
+            floatingWindow.Close();
+        }
+
+        _floatingToolWindows.Clear();
         _schematicStudioWindow?.Close();
         _waveformStudioWindow?.Close();
     }

@@ -10,6 +10,9 @@
     <PackageReference Include="Avalonia" Version="11.3.15" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.15" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.15" />
+    <PackageReference Include="Dock.Avalonia" Version="11.3.12.1" />
+    <PackageReference Include="Dock.Avalonia.Themes.Fluent" Version="11.3.12.1" />
+    <PackageReference Include="Dock.Model.Mvvm" Version="11.3.12.1" />
   </ItemGroup>
 
   <PropertyGroup>

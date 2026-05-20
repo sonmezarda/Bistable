@@ -39,6 +39,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private DockPanelViewModel? _selectedLeftDockPanel;
     private DockPanelViewModel? _selectedRightDockPanel;
     private DockPanelViewModel? _selectedBottomDockPanel;
+    private DockPanelViewModel? _selectedCenterDockPanel;
     private DockZone _projectDockZone = DockZone.Left;
     private DockZone _waveformDockZone = DockZone.Bottom;
     private DockZone _schematicDockZone = DockZone.Right;
@@ -137,6 +138,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ObservableCollection<DockPanelViewModel> RightDockPanels { get; } = [];
 
     public ObservableCollection<DockPanelViewModel> BottomDockPanels { get; } = [];
+
+    public ObservableCollection<DockPanelViewModel> CenterDockPanels { get; } = [];
 
     public HierarchyNodeViewModel? HierarchyRoot
     {
@@ -526,6 +529,12 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         get => _selectedBottomDockPanel;
         set => SetProperty(ref _selectedBottomDockPanel, value);
+    }
+
+    public DockPanelViewModel? SelectedCenterDockPanel
+    {
+        get => _selectedCenterDockPanel;
+        set => SetProperty(ref _selectedCenterDockPanel, value);
     }
 
     public string Status
@@ -1814,10 +1823,12 @@ public sealed class MainWindowViewModel : ViewModelBase
         RebuildZoneCollection(LeftDockPanels, DockZone.Left);
         RebuildZoneCollection(RightDockPanels, DockZone.Right);
         RebuildZoneCollection(BottomDockPanels, DockZone.Bottom);
+        RebuildZoneCollection(CenterDockPanels, DockZone.Center);
 
         SelectedLeftDockPanel = SelectDockPanelForZone(LeftDockPanels, SelectedLeftDockPanel);
         SelectedRightDockPanel = SelectDockPanelForZone(RightDockPanels, SelectedRightDockPanel);
         SelectedBottomDockPanel = SelectDockPanelForZone(BottomDockPanels, SelectedBottomDockPanel);
+        SelectedCenterDockPanel = SelectDockPanelForZone(CenterDockPanels, SelectedCenterDockPanel);
     }
 
     private DockPanelViewModel? SelectDockPanelForZone(

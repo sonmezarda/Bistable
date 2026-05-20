@@ -178,7 +178,7 @@ public sealed class SchematicStudioWindow : Window
             Spacing = 6,
             HorizontalAlignment = HorizontalAlignment.Right
         };
-        DockPanel.SetDock(actions, Dock.Right);
+        DockPanel.SetDock(actions, Avalonia.Controls.Dock.Right);
         actions.Children.Add(SmallButton("Add Selected", "AddSelectedWaveformSignalCommand"));
         actions.Children.Add(SmallButton("Add Scope", "AddHierarchyScopeSignalsToWaveformCommand"));
         toolbar.Children.Add(actions);

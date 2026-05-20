@@ -10,14 +10,20 @@ public sealed class DockingCommandTests
     [InlineData(DockPanelKind.Project, DockZone.Left)]
     [InlineData(DockPanelKind.Project, DockZone.Right)]
     [InlineData(DockPanelKind.Project, DockZone.Bottom)]
+    [InlineData(DockPanelKind.Project, DockZone.Center)]
+    [InlineData(DockPanelKind.Project, DockZone.Floating)]
     [InlineData(DockPanelKind.Project, DockZone.Hidden)]
     [InlineData(DockPanelKind.Waveform, DockZone.Left)]
     [InlineData(DockPanelKind.Waveform, DockZone.Right)]
     [InlineData(DockPanelKind.Waveform, DockZone.Bottom)]
+    [InlineData(DockPanelKind.Waveform, DockZone.Center)]
+    [InlineData(DockPanelKind.Waveform, DockZone.Floating)]
     [InlineData(DockPanelKind.Waveform, DockZone.Hidden)]
     [InlineData(DockPanelKind.Schematic, DockZone.Left)]
     [InlineData(DockPanelKind.Schematic, DockZone.Right)]
     [InlineData(DockPanelKind.Schematic, DockZone.Bottom)]
+    [InlineData(DockPanelKind.Schematic, DockZone.Center)]
+    [InlineData(DockPanelKind.Schematic, DockZone.Floating)]
     [InlineData(DockPanelKind.Schematic, DockZone.Hidden)]
     public void DockPanelCommandMovesRequestedPanelToRequestedZone(DockPanelKind panelKind, DockZone zone)
     {
@@ -26,11 +32,12 @@ public sealed class DockingCommandTests
         viewModel.DockPanelCommand.Execute(new DockCommandParameter(panelKind, zone));
 
         Assert.Equal(zone, GetZone(viewModel, panelKind));
-        if (zone == DockZone.Hidden)
+        if (zone is DockZone.Hidden or DockZone.Floating)
         {
             Assert.DoesNotContain(viewModel.LeftDockPanels, panel => panel.Kind == panelKind);
             Assert.DoesNotContain(viewModel.RightDockPanels, panel => panel.Kind == panelKind);
             Assert.DoesNotContain(viewModel.BottomDockPanels, panel => panel.Kind == panelKind);
+            Assert.DoesNotContain(viewModel.CenterDockPanels, panel => panel.Kind == panelKind);
         }
         else
         {
@@ -50,6 +57,18 @@ public sealed class DockingCommandTests
         Assert.Equal(DockZone.Right, viewModel.SchematicDockZone);
         Assert.DoesNotContain(viewModel.LeftDockPanels, panel => panel.Kind == DockPanelKind.Waveform);
         Assert.Contains(viewModel.RightDockPanels, panel => panel.Kind == DockPanelKind.Waveform);
+    }
+
+    [Fact]
+    public void CenterDockSelectionTracksMovedPanel()
+    {
+        MainWindowViewModel viewModel = CreateViewModel();
+
+        viewModel.DockPanelCommand.Execute(new DockCommandParameter(DockPanelKind.Schematic, DockZone.Center));
+
+        Assert.Equal(DockZone.Center, viewModel.SchematicDockZone);
+        Assert.Contains(viewModel.CenterDockPanels, panel => panel.Kind == DockPanelKind.Schematic);
+        Assert.Equal(DockPanelKind.Schematic, viewModel.SelectedCenterDockPanel?.Kind);
     }
 
     [Fact]
@@ -102,6 +121,8 @@ public sealed class DockingCommandTests
             DockZone.Left => viewModel.LeftDockPanels,
             DockZone.Right => viewModel.RightDockPanels,
             DockZone.Bottom => viewModel.BottomDockPanels,
+            DockZone.Center => viewModel.CenterDockPanels,
+            DockZone.Floating => Array.Empty<DockPanelViewModel>(),
             DockZone.Hidden => Array.Empty<DockPanelViewModel>(),
             _ => throw new ArgumentOutOfRangeException(nameof(zone), zone, null)
         };

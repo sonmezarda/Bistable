@@ -5,5 +5,7 @@ public enum DockZone
     Hidden,
     Left,
     Right,
-    Bottom
+    Bottom,
+    Center,
+    Floating
 }
