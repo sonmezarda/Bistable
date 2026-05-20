@@ -51,12 +51,42 @@ public sealed class SchematicConnectionRouter
             double laneX = request.TargetIsInput
                 ? inputLanes[request.Id]
                 : outputLanes[request.Id];
-            Point elbow1 = new(laneX, request.Source.Y);
-            Point elbow2 = new(laneX, request.Target.Y);
-            routes.Add(new SchematicConnectionRoute(request.Id, [request.Source, elbow1, elbow2, request.Target]));
+            if (request.TargetIsInput)
+            {
+                Point elbow1 = new(laneX, request.Source.Y);
+                Point elbow2 = new(laneX, request.Target.Y);
+                IReadOnlyList<Point> points = [request.Source, elbow1, elbow2, request.Target];
+                routes.Add(new SchematicConnectionRoute(
+                    request.Id,
+                    points,
+                    BuildLabelBounds(new Point(laneX, (request.Source.Y + request.Target.Y) / 2), request.LabelWidth),
+                    new Point(laneX, (request.Source.Y + request.Target.Y) / 2)));
+                continue;
+            }
+
+            double bridgeY = request.SourceFromLocalSignal
+                ? Math.Max(
+                    input.Layout.ChildNodeRects.Count == 0 ? request.Source.Y : input.Layout.ChildNodeRects.Max(static rect => rect.Bottom) + (input.CompactLayout ? 16 : 22),
+                    request.Source.Y)
+                : Math.Min(input.Layout.CurrentNodeRect.Y, input.Layout.ChildNodeRects.Count == 0 ? input.Layout.CurrentNodeRect.Y : input.Layout.ChildNodeRects.Min(static rect => rect.Y)) - (input.CompactLayout ? 18 : 24);
+            double corridorX = Math.Min(laneX - laneMargin, input.Layout.CurrentNodeRect.Right + input.Layout.RouteCorridorWidth * 0.38);
+            IReadOnlyList<Point> outputPoints =
+            [
+                    request.Source,
+                    new Point(corridorX, request.Source.Y),
+                    new Point(corridorX, bridgeY),
+                    new Point(laneX, bridgeY),
+                    new Point(laneX, request.Target.Y),
+                    request.Target
+            ];
+            routes.Add(new SchematicConnectionRoute(
+                request.Id,
+                outputPoints,
+                BuildLabelBounds(new Point(laneX, bridgeY), request.LabelWidth),
+                new Point(laneX, bridgeY)));
         }
 
-        return routes;
+        return PlaceLabels(routes, input.Layout.PanelRect, input.CompactLayout);
     }
 
     private static IReadOnlyList<SchematicConnectionRoute> ComputeStackedRoutes(SchematicConnectionRoutingInput input)
@@ -95,10 +125,15 @@ public sealed class SchematicConnectionRouter
                 : currentLanes[request.Id];
             Point elbow1 = new(request.Source.X, laneY);
             Point elbow2 = new(request.Target.X, laneY);
-            routes.Add(new SchematicConnectionRoute(request.Id, [request.Source, elbow1, elbow2, request.Target]));
+            IReadOnlyList<Point> points = [request.Source, elbow1, elbow2, request.Target];
+            routes.Add(new SchematicConnectionRoute(
+                request.Id,
+                points,
+                BuildLabelBounds(new Point((request.Source.X + request.Target.X) / 2, laneY), request.LabelWidth),
+                new Point((request.Source.X + request.Target.X) / 2, laneY)));
         }
 
-        return routes;
+        return PlaceLabels(routes, input.Layout.PanelRect, input.CompactLayout);
     }
 
     private static Dictionary<string, double> AssignLanes(
@@ -131,6 +166,63 @@ public sealed class SchematicConnectionRouter
 
         return lanes;
     }
+
+    private static Rect BuildLabelBounds(Point anchor, int width)
+    {
+        double labelWidth = width <= 1 ? 30 : Math.Clamp(24 + width * 2.4, 36, 72);
+        return new Rect(anchor.X - labelWidth / 2, anchor.Y - 9, labelWidth, 18);
+    }
+
+    private static IReadOnlyList<SchematicConnectionRoute> PlaceLabels(
+        IReadOnlyList<SchematicConnectionRoute> routes,
+        Rect bounds,
+        bool compactLayout)
+    {
+        if (routes.Count <= 1)
+        {
+            return routes;
+        }
+
+        double margin = compactLayout ? 10 : 14;
+        double verticalStep = compactLayout ? 20 : 22;
+        double minX = bounds.X + margin;
+        double maxX = Math.Max(minX, bounds.Right - margin);
+        double minY = bounds.Y + margin;
+        double maxY = Math.Max(minY, bounds.Bottom - margin);
+        List<Rect> placed = [];
+        Dictionary<string, Rect> labels = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (SchematicConnectionRoute route in routes.OrderBy(static route => route.LabelBounds.Y).ThenBy(static route => route.LabelBounds.X))
+        {
+            Rect label = ClampLabel(route.LabelBounds, minX, maxX, minY, maxY);
+            int guard = 0;
+            while (placed.Any(candidate => candidate.Inflate(2).Intersects(label)) && guard < 24)
+            {
+                double nextY = label.Y + verticalStep;
+                if (nextY + label.Height > maxY)
+                {
+                    nextY = minY + guard * 3;
+                }
+
+                label = ClampLabel(new Rect(label.X, nextY, label.Width, label.Height), minX, maxX, minY, maxY);
+                guard++;
+            }
+
+            placed.Add(label);
+            labels[route.Id] = label;
+        }
+
+        return routes
+            .Select(route => route with { LabelBounds = labels.TryGetValue(route.Id, out Rect label) ? label : route.LabelBounds })
+            .ToList();
+    }
+
+    private static Rect ClampLabel(Rect label, double minX, double maxX, double minY, double maxY)
+    {
+        double x = Math.Clamp(label.X, minX, Math.Max(minX, maxX - label.Width));
+        double y = Math.Clamp(label.Y, minY, Math.Max(minY, maxY - label.Height));
+        return new Rect(x, y, label.Width, label.Height);
+    }
 }
 
 public sealed record SchematicConnectionRoutingInput(
@@ -140,6 +232,9 @@ public sealed record SchematicConnectionRoutingInput(
 
 public sealed record SchematicConnectionRouteRequest(
     string Id,
+    string SignalName,
+    string? SelectionSignalName,
+    int LabelWidth,
     Point Source,
     Point Target,
     bool SourceFromLocalSignal,
@@ -147,4 +242,6 @@ public sealed record SchematicConnectionRouteRequest(
 
 public sealed record SchematicConnectionRoute(
     string Id,
-    IReadOnlyList<Point> Points);
+    IReadOnlyList<Point> Points,
+    Rect LabelBounds,
+    Point LabelAnchor);

@@ -92,7 +92,7 @@ public sealed class MainWindow : Window
         {
             Margin = new Thickness(10, 12, 10, 8),
             IsDockingEnabled = true,
-            AutoCreateDataTemplates = false
+            AutoCreateDataTemplates = true
         };
 
         _dockWorkspaceControl.DataTemplates.Add(CreateDockableTemplate<BistableToolDockable>());
@@ -713,8 +713,10 @@ public sealed class MainWindow : Window
             RowDefinitions =
             {
                 new RowDefinition(showHeader ? GridLength.Auto : new GridLength(0)),
-                new RowDefinition(new GridLength(0.46, GridUnitType.Star)),
-                new RowDefinition(new GridLength(0.54, GridUnitType.Star))
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(new GridLength(0.56, GridUnitType.Star)) { MinHeight = 220 },
+                new RowDefinition(new GridLength(5)),
+                new RowDefinition(new GridLength(0.44, GridUnitType.Star)) { MinHeight = 180 }
             },
             Margin = new Thickness(12)
         };
@@ -731,33 +733,58 @@ public sealed class MainWindow : Window
             ColumnDefinitions =
             {
                 new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(new GridLength(300))
+                new ColumnDefinition(new GridLength(5)),
+                new ColumnDefinition(new GridLength(300)) { MinWidth = 240, MaxWidth = 460 }
             },
-            ColumnSpacing = 10,
             Margin = new Thickness(0, 12, 0, 0)
         };
 
         SchematicPreviewControl preview = CreateBoundSchematicPreview(compactLayout: true);
         previewGrid.Children.Add(preview);
 
-        grid.Children.Add(BuildSchematicViewportToolbar(preview, includeStudioButton: true));
+        Control toolbar = BuildSchematicViewportToolbar(preview, includeStudioButton: true);
+        Grid.SetRow(toolbar, 1);
+        grid.Children.Add(toolbar);
+
+        GridSplitter probeSplitter = new()
+        {
+            Width = 5,
+            Background = StrokeBrush,
+            ResizeDirection = GridResizeDirection.Columns,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        Grid.SetColumn(probeSplitter, 1);
+        previewGrid.Children.Add(probeSplitter);
 
         Border liveProbeBorder = PanelBorder();
         liveProbeBorder.Child = BuildSchematicProbePanel();
-        Grid.SetColumn(liveProbeBorder, 1);
+        Grid.SetColumn(liveProbeBorder, 2);
         previewGrid.Children.Add(liveProbeBorder);
 
-        Grid.SetRow(previewGrid, 1);
+        Grid.SetRow(previewGrid, 2);
         grid.Children.Add(previewGrid);
+
+        GridSplitter verticalSplitter = new()
+        {
+            Height = 5,
+            Background = StrokeBrush,
+            ResizeDirection = GridResizeDirection.Rows,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        Grid.SetRow(verticalSplitter, 3);
+        grid.Children.Add(verticalSplitter);
 
         Grid hierarchyGrid = new()
         {
             ColumnDefinitions =
             {
-                new ColumnDefinition(new GridLength(240)),
+                new ColumnDefinition(new GridLength(260)) { MinWidth = 220, MaxWidth = 420 },
+                new ColumnDefinition(new GridLength(5)),
                 new ColumnDefinition(GridLength.Star)
             },
-            ColumnSpacing = 10,
             Margin = new Thickness(0, 12, 0, 0)
         };
 
@@ -862,6 +889,17 @@ public sealed class MainWindow : Window
         treeBorder.Child = treePanel;
         hierarchyGrid.Children.Add(treeBorder);
 
+        GridSplitter hierarchySplitter = new()
+        {
+            Width = 5,
+            Background = StrokeBrush,
+            ResizeDirection = GridResizeDirection.Columns,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        Grid.SetColumn(hierarchySplitter, 1);
+        hierarchyGrid.Children.Add(hierarchySplitter);
+
         Border graphBorder = PanelBorder();
         HierarchyGraphControl graph = new()
         {
@@ -870,10 +908,10 @@ public sealed class MainWindow : Window
             [!HierarchyGraphControl.ScopeSummariesProperty] = new Binding("HierarchyTraceScopeSummaries")
         };
         graphBorder.Child = graph;
-        Grid.SetColumn(graphBorder, 1);
+        Grid.SetColumn(graphBorder, 2);
         hierarchyGrid.Children.Add(graphBorder);
 
-        Grid.SetRow(hierarchyGrid, 2);
+        Grid.SetRow(hierarchyGrid, 4);
         grid.Children.Add(hierarchyGrid);
         return grid;
     }
@@ -1185,6 +1223,7 @@ public sealed class MainWindow : Window
                 Text = signal.BrowseLabel,
                 Foreground = TextBrush,
                 FontFamily = FontFamily.Parse("monospace"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 4)
             });
 

@@ -83,8 +83,10 @@ public sealed class SchematicPreviewControl : Control
     private const double FitMargin = 32;
     private static readonly SchematicScopeLayoutEngine ScopeLayoutEngine = new();
     private static readonly SchematicConnectionRouter ConnectionRouter = new();
+    private static readonly SchematicNodeCardLayoutEngine NodeCardLayoutEngine = new();
 
     private readonly List<SignalHitTarget> _signalHitTargets = [];
+    private readonly List<SignalReferenceHitTarget> _signalReferenceHitTargets = [];
     private readonly List<ScopeHitTarget> _scopeHitTargets = [];
     private INotifyCollectionChanged? _observableSignals;
     private INotifyCollectionChanged? _observableScopeSignals;
@@ -99,6 +101,8 @@ public sealed class SchematicPreviewControl : Control
     private bool _viewportCustomized;
     private Size _lastViewportSize;
     private Size _lastWorldSize;
+    private Rect? _lastModuleRect;
+    private Rect? _lastFocusedScopePanelRect;
 
     public SchematicPreviewControl()
     {
@@ -129,6 +133,18 @@ public sealed class SchematicPreviewControl : Control
         _viewportCustomized = true;
         RaiseViewportChanged();
         InvalidateVisual();
+    }
+
+    public void FrameActiveScope()
+    {
+        Rect? target = _lastFocusedScopePanelRect ?? _lastModuleRect;
+        if (target is null || Bounds.Width <= 0 || Bounds.Height <= 0 || _lastWorldSize.Width <= 0 || _lastWorldSize.Height <= 0)
+        {
+            FitToView();
+            return;
+        }
+
+        FrameWorldRect(target.Value);
     }
 
     public string ModuleName
@@ -327,6 +343,8 @@ public sealed class SchematicPreviewControl : Control
             Math.Max(28, (diagramHeight - moduleHeight) / 2),
             moduleWidth,
             moduleHeight);
+        _lastModuleRect = moduleRect;
+        _lastFocusedScopePanelRect = null;
 
         using (context.PushTransform(Matrix.CreateTranslation(_viewportPan.X, _viewportPan.Y)))
         using (context.PushTransform(Matrix.CreateScale(_viewportZoom, _viewportZoom)))
@@ -342,6 +360,7 @@ public sealed class SchematicPreviewControl : Control
             Rect? scopeCard = DrawScopeCard(context, worldBounds);
 
             _signalHitTargets.Clear();
+            _signalReferenceHitTargets.Clear();
             _scopeHitTargets.Clear();
             DrawPins(context, inputs, worldBounds, moduleRect, leftSide: true, laneHeight);
             DrawPins(context, outputs, worldBounds, moduleRect, leftSide: false, laneHeight);
@@ -371,6 +390,13 @@ public sealed class SchematicPreviewControl : Control
         if (signalHit is not null)
         {
             HandleSignalHit(signalHit, e);
+            return;
+        }
+
+        SignalReferenceHitTarget? signalReferenceHit = HitTestSignalReference(point);
+        if (signalReferenceHit is not null)
+        {
+            HandleSignalReferenceHit(signalReferenceHit, e);
             return;
         }
 
@@ -404,7 +430,9 @@ public sealed class SchematicPreviewControl : Control
         }
 
         Point worldPoint = ViewportToWorld(viewportPoint);
-        bool interactive = HitTestSignal(worldPoint) is not null || HitTestScope(worldPoint) is not null;
+        bool interactive = HitTestSignal(worldPoint) is not null
+            || HitTestSignalReference(worldPoint) is not null
+            || HitTestScope(worldPoint) is not null;
         Cursor = interactive ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Arrow);
     }
 
@@ -489,6 +517,23 @@ public sealed class SchematicPreviewControl : Control
         ClampViewportPan(viewportBounds.Size, worldSize);
         _fitPending = false;
         RaiseViewportChanged();
+    }
+
+    private void FrameWorldRect(Rect target)
+    {
+        double paddedWidth = Math.Max(60, target.Width + FitMargin * 1.25);
+        double paddedHeight = Math.Max(60, target.Height + FitMargin * 1.25);
+        double zoomX = Math.Max(0.05, Bounds.Width / paddedWidth);
+        double zoomY = Math.Max(0.05, Bounds.Height / paddedHeight);
+        _viewportZoom = Math.Clamp(Math.Min(zoomX, zoomY), 0.25, 4.5);
+        _viewportPan = new Point(
+            Bounds.Width / 2 - (target.X + target.Width / 2) * _viewportZoom,
+            Bounds.Height / 2 - (target.Y + target.Height / 2) * _viewportZoom);
+        ClampViewportPan(Bounds.Size, _lastWorldSize);
+        _fitPending = false;
+        _viewportCustomized = true;
+        RaiseViewportChanged();
+        InvalidateVisual();
     }
 
     private void ApplyZoomDelta(double factor, Point viewportPoint)
@@ -662,6 +707,19 @@ public sealed class SchematicPreviewControl : Control
         }
     }
 
+    private void HandleSignalReferenceHit(SignalReferenceHitTarget hit, PointerPressedEventArgs e)
+    {
+        SelectedSignalName = hit.SignalName;
+        if (e.ClickCount >= 2)
+        {
+            ICommand? command = AddSelectedWaveformCommand;
+            if (command?.CanExecute(null) == true)
+            {
+                command.Execute(null);
+            }
+        }
+    }
+
     private Rect? DrawScopeCard(DrawingContext context, Rect bounds)
     {
         if (!HasScopeCardContent())
@@ -732,6 +790,7 @@ public sealed class SchematicPreviewControl : Control
             scopePorts.Count(static port => port.IsOutput),
             maxChildConnectionRows));
         Rect panel = layout.PanelRect;
+        _lastFocusedScopePanelRect = panel;
         int visibleProbeCount = Math.Min(scopeSignals.Count, CompactLayout ? 8 : 14);
         int visibleChildCount = Math.Min(childScopes.Count, CompactLayout ? 4 : 8);
         int visibleLocalCount = Math.Min(localSignals.Count, CompactLayout ? 4 : 8);
@@ -760,8 +819,15 @@ public sealed class SchematicPreviewControl : Control
             visibleChildCount);
 
         double localsTop = layout.LocalSectionRect?.Y ?? (currentPortLayout.Bounds.Bottom + 24);
-        IReadOnlyDictionary<string, Point> localSignalAnchors = DrawLocalSignalSection(context, layout, localSignals, visibleLocalCount, localsTop);
+        IReadOnlyDictionary<string, LocalSignalAnchor> localSignalAnchors = DrawLocalSignalSection(context, layout, localSignals, visibleLocalCount, localsTop);
         DrawConnectionRoutes(context, currentPortLayout, childLayouts, localSignalAnchors);
+        DrawCurrentScopeNode(context, layout, scopePorts);
+        for (int index = 0; index < visibleChildCount; index++)
+        {
+            DrawScopeNodeCard(context, childScopes[index], layout.ChildNodeRects[index], role: "child");
+        }
+
+        DrawLocalSignalSection(context, layout, localSignals, visibleLocalCount, localsTop);
 
         DrawScopeProbeSection(context, layout, scopeSignals, visibleProbeCount);
 
@@ -881,16 +947,17 @@ public sealed class SchematicPreviewControl : Control
 
         context.DrawRectangle(new Pen(isSelected ? SelectedBrush : ModuleStrokeBrush, isSelected ? 1.2 : 1), rect, 5);
         context.FillRectangle(stroke, lineRect);
-        context.DrawLine(new Pen(stroke, 1.4), new Point(lineRect.Right + 2, centerY), new Point(badge.X - 8, centerY));
 
         double labelStart = rect.X + 16;
+        double labelEndReserve = badge.X - 12;
         if (signal.IsInWaveform)
         {
             Rect waveformBadge = new(badge.X - 28, rect.Y + 2, 20, 20);
             DrawMiniBadge(context, waveformBadge, "W", OutputValueBrush);
+            labelEndReserve = waveformBadge.X - 8;
         }
 
-        string label = Ellipsize(signal.ShortName, 11, Math.Max(60, badge.X - labelStart - 32));
+        string label = Ellipsize(signal.ShortName, 11, Math.Max(48, labelEndReserve - labelStart));
         DrawText(context, label, labelStart, rect.Y + 4, labelBrush, 11);
         DrawValueBadge(context, signal.Value, badge, stroke, ValueFillBrush);
 
@@ -902,16 +969,27 @@ public sealed class SchematicPreviewControl : Control
         bool selected = string.Equals(scope.HierarchyPath, ActiveScopePath, StringComparison.OrdinalIgnoreCase);
         IBrush fill = selected ? NodeSelectedFillBrush : NodeFillBrush;
         IBrush stroke = selected ? SelectedBrush : (scope.HasTraceActivity ? PinStrokeBrush : ModuleStrokeBrush);
+        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> inputConnections = scope.PortConnections.Where(static connection => connection.IsInput).Take(CompactLayout ? 3 : 5).ToList();
+        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> outputConnections = scope.PortConnections.Where(static connection => connection.IsOutput).Take(CompactLayout ? 3 : 5).ToList();
+        SchematicNodeCardLayout layout = NodeCardLayoutEngine.Compute(new SchematicNodeCardLayoutInput(
+            rect,
+            CompactLayout,
+            inputConnections.Count,
+            outputConnections.Count,
+            scope.InputCount,
+            scope.OutputCount));
 
         context.FillRectangle(fill, rect, 7);
         context.DrawRectangle(new Pen(stroke, selected ? 1.4 : 1), rect, 7);
-        DrawText(context, Ellipsize(scope.InstanceName, 11, rect.Width - 24), rect.X + 10, rect.Y + 8, TextBrush, 11);
-        DrawText(context, Ellipsize(scope.ModuleName, 10, rect.Width - 24), rect.X + 10, rect.Y + 24, MutedBrush, 10);
-        DrawText(context, role, rect.Right - 34, rect.Y + 8, MutedBrush, 9);
+        context.DrawLine(new Pen(ModuleStrokeBrush, 1), new Point(layout.HeaderRect.X + 8, layout.HeaderRect.Bottom), new Point(layout.HeaderRect.Right - 8, layout.HeaderRect.Bottom));
+        context.DrawLine(new Pen(ModuleStrokeBrush, 1), new Point(layout.FooterRect.X + 8, layout.FooterRect.Y), new Point(layout.FooterRect.Right - 8, layout.FooterRect.Y));
+        DrawText(context, Ellipsize(scope.InstanceName, 11, rect.Width - 84), rect.X + 10, rect.Y + 8, TextBrush, 11);
+        DrawText(context, Ellipsize(scope.ModuleName, 10, rect.Width - 84), rect.X + 10, rect.Y + 24, MutedBrush, 10);
+        DrawMiniBadge(context, new Rect(rect.Right - 34, rect.Y + 7, 24, 14), role[..1].ToUpperInvariant(), MutedBrush);
+        DrawMiniBadge(context, new Rect(rect.Right - 72, rect.Bottom - 20, 64, 16), scope.ScopeBadgeText, stroke);
         DrawPortCountStubs(context, rect, scope.InputCount, scope.OutputCount, stroke);
-        DrawMiniBadge(context, new Rect(rect.Right - 62, rect.Bottom - 20, 54, 16), scope.ScopeBadgeText, stroke);
         _scopeHitTargets.Add(new ScopeHitTarget(scope.HierarchyPath, rect));
-        IReadOnlyDictionary<string, Point> anchors = DrawChildConnectionStubs(context, rect, scope.PortConnections);
+        IReadOnlyDictionary<string, Point> anchors = DrawChildConnectionStubs(context, scope, layout, inputConnections, outputConnections);
         return new ChildNodeLayout(scope, rect, anchors);
     }
 
@@ -979,45 +1057,79 @@ public sealed class SchematicPreviewControl : Control
 
     private IReadOnlyDictionary<string, Point> DrawChildConnectionStubs(
         DrawingContext context,
-        Rect rect,
-        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> connections)
+        HierarchyScopeInstanceViewModel scope,
+        SchematicNodeCardLayout layout,
+        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> inputs,
+        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> outputs)
     {
         Dictionary<string, Point> anchors = new(StringComparer.OrdinalIgnoreCase);
-        int maxConnections = CompactLayout ? 3 : 5;
-        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> inputs = connections.Where(static connection => connection.IsInput).Take(maxConnections).ToList();
-        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> outputs = connections.Where(static connection => connection.IsOutput).Take(maxConnections).ToList();
-        double topInset = CompactLayout ? 16 : 22;
-        double bottomInset = CompactLayout ? 14 : 18;
-        double usableHeight = Math.Max(20, rect.Height - topInset - bottomInset);
-        double leftStep = usableHeight / Math.Max(1, inputs.Count + 1);
-        double rightStep = usableHeight / Math.Max(1, outputs.Count + 1);
-
-        for (int index = 0; index < inputs.Count; index++)
+        for (int index = 0; index < inputs.Count && index < layout.InputRows.Count; index++)
         {
             HierarchyScopeInstancePortConnectionViewModel connection = inputs[index];
-            double y = rect.Y + topInset + leftStep * (index + 1);
-            double stubLength = CompactLayout ? 10 : 14;
-            context.DrawLine(new Pen(PinStrokeBrush, 1.1), new Point(rect.X - stubLength, y), new Point(rect.X, y));
-            DrawText(context, Ellipsize(connection.PortName, 9, CompactLayout ? 44 : 64), rect.X + 4, y - 6, MutedBrush, 9);
-            anchors[connection.PortName] = new Point(rect.X, y);
+            SchematicNodeCardRowLayout row = layout.InputRows[index];
+            DrawNodeConnectionRow(context, row, connection.PortName, connection.WidthLabel, PinStrokeBrush, TextBrush, leftToRight: true);
+            anchors[connection.PortName] = row.RouteAnchor;
         }
 
-        for (int index = 0; index < outputs.Count; index++)
+        for (int index = 0; index < outputs.Count && index < layout.OutputRows.Count; index++)
         {
             HierarchyScopeInstancePortConnectionViewModel connection = outputs[index];
-            double y = rect.Y + topInset + rightStep * (index + 1);
-            double stubLength = CompactLayout ? 10 : 14;
-            context.DrawLine(new Pen(OutputValueBrush, 1.1), new Point(rect.Right, y), new Point(rect.Right + stubLength, y));
-            double labelWidth = CompactLayout ? 44 : 64;
-            double labelX = rect.Right - labelWidth - 8;
-            DrawText(context, Ellipsize(connection.PortName, 9, labelWidth), labelX, y - 6, MutedBrush, 9);
-            anchors[connection.PortName] = new Point(rect.Right, y);
+            SchematicNodeCardRowLayout row = layout.OutputRows[index];
+            DrawNodeConnectionRow(context, row, connection.PortName, connection.WidthLabel, OutputValueBrush, TextBrush, leftToRight: false);
+            anchors[connection.PortName] = row.RouteAnchor;
+        }
+
+        if (layout.HiddenInputCount > 0)
+        {
+            DrawText(context, $"+{layout.HiddenInputCount} in", layout.FooterRect.X + 8, layout.FooterRect.Y + 3, MutedBrush, 9);
+        }
+
+        if (layout.HiddenOutputCount > 0)
+        {
+            string hiddenText = $"+{layout.HiddenOutputCount} out";
+            DrawText(
+                context,
+                hiddenText,
+                layout.FooterRect.Right - MeasureWidth(hiddenText, 9) - 8,
+                layout.FooterRect.Y + 3,
+                MutedBrush,
+                9);
         }
 
         return anchors;
     }
 
-    private IReadOnlyDictionary<string, Point> DrawLocalSignalSection(
+    private void DrawNodeConnectionRow(
+        DrawingContext context,
+        SchematicNodeCardRowLayout row,
+        string label,
+        string widthLabel,
+        IBrush stroke,
+        IBrush textBrush,
+        bool leftToRight)
+    {
+        context.DrawLine(new Pen(stroke, 1.1), row.StubStart, row.StubEnd);
+        context.FillRectangle(ValueFillBrush, row.TextBandRect, 4);
+        context.DrawRectangle(new Pen(stroke, 1), row.TextBandRect, 4);
+        DrawMiniBadge(context, row.WidthBadgeRect, widthLabel, stroke);
+        DrawText(
+            context,
+            Ellipsize(label, 9, row.LabelRect.Width),
+            row.LabelRect.X,
+            row.LabelRect.Y + 1,
+            textBrush,
+            9);
+        if (leftToRight)
+        {
+            context.DrawLine(new Pen(stroke, 1), row.StubEnd, new Point(row.TextBandRect.X - 4, row.StubEnd.Y));
+        }
+        else
+        {
+            context.DrawLine(new Pen(stroke, 1), new Point(row.TextBandRect.Right + 4, row.StubEnd.Y), row.StubEnd);
+        }
+    }
+
+    private IReadOnlyDictionary<string, LocalSignalAnchor> DrawLocalSignalSection(
         DrawingContext context,
         SchematicScopePanelLayout layout,
         IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals,
@@ -1025,7 +1137,7 @@ public sealed class SchematicPreviewControl : Control
         double top)
     {
         Rect panel = layout.PanelRect;
-        Dictionary<string, Point> anchors = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, LocalSignalAnchor> anchors = new(StringComparer.OrdinalIgnoreCase);
         if (visibleLocalCount == 0)
         {
             return anchors;
@@ -1050,7 +1162,18 @@ public sealed class SchematicPreviewControl : Control
             context.DrawRectangle(new Pen(stroke, 1), chip, 4);
             DrawText(context, Ellipsize(signal.Name, 10, chip.Width - 62), chip.X + 6, chip.Y + 2, TextBrush, 10);
             DrawText(context, signal.WidthLabel, chip.Right - 28, chip.Y + 2, stroke, 10);
-            anchors[signal.Name] = new Point(chip.Right, chip.Y + chip.Height / 2);
+            if (!string.IsNullOrWhiteSpace(signal.ResolvedSignalName))
+            {
+                bool selected = string.Equals(SelectedSignalName, signal.ResolvedSignalName, StringComparison.OrdinalIgnoreCase);
+                if (selected)
+                {
+                    context.DrawRectangle(new Pen(SelectedBrush, 1.2), chip.Inflate(1), 4);
+                }
+
+                _signalReferenceHitTargets.Add(new SignalReferenceHitTarget(signal.ResolvedSignalName!, chip, null));
+            }
+
+            anchors[signal.Name] = new LocalSignalAnchor(new Point(chip.Right, chip.Y + chip.Height / 2), signal.ResolvedSignalName);
         }
 
         return anchors;
@@ -1060,7 +1183,7 @@ public sealed class SchematicPreviewControl : Control
         DrawingContext context,
         CurrentPortLayout currentPortLayout,
         IReadOnlyList<ChildNodeLayout> childLayouts,
-        IReadOnlyDictionary<string, Point> localSignalAnchors)
+        IReadOnlyDictionary<string, LocalSignalAnchor> localSignalAnchors)
     {
         List<SchematicConnectionRouteRequest> requests = [];
         foreach (ChildNodeLayout child in childLayouts)
@@ -1077,9 +1200,9 @@ public sealed class SchematicPreviewControl : Control
                 {
                     source = currentPort.Point;
                 }
-                else if (localSignalAnchors.TryGetValue(connection.SignalName, out Point localAnchor))
+                else if (localSignalAnchors.TryGetValue(connection.SignalName, out LocalSignalAnchor? localAnchor))
                 {
-                    source = localAnchor;
+                    source = localAnchor.Point;
                 }
 
                 if (source is null)
@@ -1087,8 +1210,17 @@ public sealed class SchematicPreviewControl : Control
                     continue;
                 }
 
+                string? selectionSignalName = currentPortLayout.PortAnchors.TryGetValue(connection.SignalName, out PortAnchor? portAnchor) && portAnchor is not null
+                    ? connection.SignalName
+                    : localSignalAnchors.TryGetValue(connection.SignalName, out LocalSignalAnchor? localSelection)
+                        ? localSelection.ResolvedSignalName
+                        : null;
+
                 requests.Add(new SchematicConnectionRouteRequest(
                     $"{child.Instance.HierarchyPath}:{connection.PortName}:{connection.SignalName}:{(connection.IsInput ? "i" : "o")}",
+                    connection.SignalName,
+                    selectionSignalName,
+                    connection.Width,
                     source.Value,
                     childAnchor,
                     SourceFromLocalSignal: localSignalAnchors.ContainsKey(connection.SignalName),
@@ -1108,20 +1240,69 @@ public sealed class SchematicPreviewControl : Control
                 CompactLayout,
                 requests));
 
+        HashSet<string> drawnLabels = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, int> signalRouteCounts = requests
+            .GroupBy(static request => request.SelectionSignalName ?? request.SignalName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.OrdinalIgnoreCase);
+
         foreach (SchematicConnectionRoute route in routes)
         {
             SchematicConnectionRouteRequest request = requestIndex[route.Id];
-            DrawScopedConnectionRoute(context, route.Points, request.TargetIsInput ? ConnectorBrush : OutputValueBrush);
+            bool selected = !string.IsNullOrWhiteSpace(request.SelectionSignalName)
+                && string.Equals(SelectedSignalName, request.SelectionSignalName, StringComparison.OrdinalIgnoreCase);
+            DrawScopedConnectionRoute(context, route.Points, request.TargetIsInput ? ConnectorBrush : OutputValueBrush, selected, request.LabelWidth);
+            string signalKey = request.SelectionSignalName ?? request.SignalName;
+            bool sharedSignal = signalRouteCounts.TryGetValue(signalKey, out int routeCount) && routeCount > 1;
+            bool shouldDrawLabel = selected
+                || request.LabelWidth > 1 && (!sharedSignal || drawnLabels.Add(signalKey));
+            if (shouldDrawLabel)
+            {
+                DrawConnectionRouteLabel(context, request, route, selected, sharedSignal ? routeCount : 1);
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.SelectionSignalName))
+            {
+                _signalReferenceHitTargets.Add(new SignalReferenceHitTarget(request.SelectionSignalName!, route.LabelBounds, route.Points));
+            }
         }
     }
 
-    private void DrawScopedConnectionRoute(DrawingContext context, IReadOnlyList<Point> points, IBrush brush)
+    private void DrawScopedConnectionRoute(DrawingContext context, IReadOnlyList<Point> points, IBrush brush, bool selected, int width)
     {
-        Pen pen = new(brush, 1.1);
+        if (selected)
+        {
+            Pen highlight = new(SelectedBrush, CompactLayout ? 2.8 : 3.2);
+            for (int index = 0; index < points.Count - 1; index++)
+            {
+                context.DrawLine(highlight, points[index], points[index + 1]);
+            }
+        }
+
+        double thickness = width > 1 ? (CompactLayout ? 1.8 : 2.1) : 1.1;
+        Pen pen = new(brush, selected ? Math.Max(thickness, 2.1) : thickness);
         for (int index = 0; index < points.Count - 1; index++)
         {
             context.DrawLine(pen, points[index], points[index + 1]);
         }
+    }
+
+    private void DrawConnectionRouteLabel(
+        DrawingContext context,
+        SchematicConnectionRouteRequest request,
+        SchematicConnectionRoute route,
+        bool selected,
+        int routeCount)
+    {
+        string text = request.LabelWidth <= 1
+            ? request.SignalName
+            : routeCount > 1
+                ? $"{request.SignalName} [{request.LabelWidth}b] x{routeCount}"
+                : $"{request.SignalName} [{request.LabelWidth}b]";
+        string label = Ellipsize(text, 9, route.LabelBounds.Width - 8);
+        IBrush stroke = selected ? SelectedBrush : (request.TargetIsInput ? PinStrokeBrush : OutputValueBrush);
+        context.FillRectangle(ValueFillBrush, route.LabelBounds, 4);
+        context.DrawRectangle(new Pen(stroke, selected ? 1.2 : 1), route.LabelBounds, 4);
+        DrawText(context, label, route.LabelBounds.X + 4, route.LabelBounds.Y + 3, stroke, 9);
     }
 
     private void DrawPortCountStubs(DrawingContext context, Rect rect, int inputCount, int outputCount, IBrush stroke)
@@ -1159,6 +1340,9 @@ public sealed class SchematicPreviewControl : Control
     }
 
     private SignalHitTarget? HitTestSignal(Point point) => _signalHitTargets.FirstOrDefault(hit => hit.Bounds.Contains(point));
+
+    private SignalReferenceHitTarget? HitTestSignalReference(Point point) =>
+        _signalReferenceHitTargets.FirstOrDefault(hit => hit.Contains(point, CompactLayout ? 5 : 6));
 
     private ScopeHitTarget? HitTestScope(Point point) => _scopeHitTargets.FirstOrDefault(hit => hit.Bounds.Contains(point));
 
@@ -1396,9 +1580,37 @@ public sealed class SchematicPreviewControl : Control
 
     private sealed record SignalHitTarget(SignalViewModel Signal, Rect Bounds);
 
+    private sealed record SignalReferenceHitTarget(string SignalName, Rect? Bounds, IReadOnlyList<Point>? RoutePoints)
+    {
+        public bool Contains(Point point, double tolerance)
+        {
+            if (Bounds is Rect bounds && bounds.Contains(point))
+            {
+                return true;
+            }
+
+            if (RoutePoints is null || RoutePoints.Count < 2)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < RoutePoints.Count - 1; index++)
+            {
+                if (DistanceToSegment(point, RoutePoints[index], RoutePoints[index + 1]) <= tolerance)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
     private sealed record ScopeHitTarget(string HierarchyPath, Rect Bounds);
 
     private sealed record PortAnchor(string Name, Point Point, bool IsInput);
+
+    private sealed record LocalSignalAnchor(Point Point, string? ResolvedSignalName);
 
     private sealed record CurrentPortLayout(
         SchematicScopePanelLayout Layout,
@@ -1420,5 +1632,23 @@ public sealed class SchematicPreviewControl : Control
         public double Zoom { get; } = zoom;
 
         public Point Pan { get; } = pan;
+    }
+
+    private static double DistanceToSegment(Point point, Point start, Point end)
+    {
+        double dx = end.X - start.X;
+        double dy = end.Y - start.Y;
+        if (Math.Abs(dx) < double.Epsilon && Math.Abs(dy) < double.Epsilon)
+        {
+            return Math.Sqrt(Math.Pow(point.X - start.X, 2) + Math.Pow(point.Y - start.Y, 2));
+        }
+
+        double t = ((point.X - start.X) * dx + (point.Y - start.Y) * dy) / (dx * dx + dy * dy);
+        t = Math.Clamp(t, 0, 1);
+        double projectionX = start.X + t * dx;
+        double projectionY = start.Y + t * dy;
+        double distanceX = point.X - projectionX;
+        double distanceY = point.Y - projectionY;
+        return Math.Sqrt(distanceX * distanceX + distanceY * distanceY);
     }
 }

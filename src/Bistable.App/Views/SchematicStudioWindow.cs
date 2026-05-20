@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Data;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -32,6 +33,7 @@ public sealed class SchematicStudioWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         DataContext = viewModel;
         Content = BuildLayout();
+        KeyDown += OnStudioKeyDown;
     }
 
     private Control BuildLayout()
@@ -116,14 +118,7 @@ public sealed class SchematicStudioWindow : Window
                     FontWeight = FontWeight.SemiBold,
                     VerticalAlignment = VerticalAlignment.Center
                 },
-                new TextBlock
-                {
-                    Foreground = MutedBrush,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(16, 0, 0, 0),
-                    [!TextBlock.TextProperty] = new Binding("SelectedHierarchyScopePath"),
-                    [Grid.ColumnProperty] = 1
-                },
+                BuildBreadcrumbBar(),
                 BuildHeaderActions(preview)
             }
         };
@@ -151,6 +146,7 @@ public sealed class SchematicStudioWindow : Window
             [Grid.ColumnProperty] = 2
         };
         actions.Children.Add(zoomText);
+        actions.Children.Add(ClickButton("Scope", (_, _) => preview.FrameActiveScope(), 68));
         actions.Children.Add(ClickButton("Fit", (_, _) => preview.FitToView()));
         actions.Children.Add(ClickButton("1:1", (_, _) => preview.ResetView()));
         actions.Children.Add(ClickButton("+", (_, _) => preview.ZoomIn(), 34));
@@ -181,8 +177,82 @@ public sealed class SchematicStudioWindow : Window
         DockPanel.SetDock(actions, Avalonia.Controls.Dock.Right);
         actions.Children.Add(SmallButton("Add Selected", "AddSelectedWaveformSignalCommand"));
         actions.Children.Add(SmallButton("Add Scope", "AddHierarchyScopeSignalsToWaveformCommand"));
+        actions.Children.Add(ClickButton("Focus Scope", (_, _) => preview.FrameActiveScope(), 94));
         toolbar.Children.Add(actions);
         return toolbar;
+    }
+
+    private Control BuildBreadcrumbBar()
+    {
+        ItemsControl items = new()
+        {
+            [!ItemsControl.ItemsSourceProperty] = new Binding("SelectedHierarchyBreadcrumbs")
+        };
+
+        items.ItemsPanel = new FuncTemplate<Panel?>(() => new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6
+        });
+        items.ItemTemplate = new FuncDataTemplate<HierarchyBreadcrumbItemViewModel>((item, _) =>
+        {
+            Border border = new()
+            {
+                Background = item.IsCurrent ? SurfaceAltBrush : Brushes.Transparent,
+                BorderBrush = item.IsCurrent ? AccentBrush : StrokeBrush,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(8, 4)
+            };
+
+            Button button = new()
+            {
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0),
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Content = new StackPanel
+                {
+                    Spacing = 0,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = item.Title,
+                            Foreground = TextBrush,
+                            FontSize = 11,
+                            FontWeight = item.IsCurrent ? FontWeight.SemiBold : FontWeight.Medium
+                        },
+                        new TextBlock
+                        {
+                            Text = item.ModuleName,
+                            Foreground = MutedBrush,
+                            FontSize = 9
+                        }
+                    }
+                }
+            };
+            button.Bind(Button.CommandProperty, new Binding("DataContext.SelectHierarchyScopeCommand")
+            {
+                RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor)
+                {
+                    AncestorType = typeof(Window)
+                }
+            });
+            button.CommandParameter = item.HierarchyPath;
+            border.Child = button;
+            return border;
+        });
+
+        return new ScrollViewer
+        {
+            Margin = new Thickness(16, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = items,
+            [Grid.ColumnProperty] = 1
+        };
     }
 
     private Control BuildScopeSidebar()
@@ -444,6 +514,7 @@ public sealed class SchematicStudioWindow : Window
                 Text = signal.BrowseLabel,
                 Foreground = TextBrush,
                 FontFamily = FontFamily.Parse("monospace"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 4)
             });
 
@@ -498,5 +569,78 @@ public sealed class SchematicStudioWindow : Window
         };
         button.Click += onClick;
         return button;
+    }
+
+    private void OnStudioKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (Content is not Control root)
+        {
+            return;
+        }
+
+        SchematicPreviewControl? preview = FindPreview(root);
+        if (preview is null)
+        {
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case Key.F:
+                preview.FitToView();
+                e.Handled = true;
+                break;
+            case Key.S:
+                preview.FrameActiveScope();
+                e.Handled = true;
+                break;
+            case Key.D1:
+            case Key.NumPad1:
+                preview.ResetView();
+                e.Handled = true;
+                break;
+            case Key.OemPlus:
+            case Key.Add:
+                preview.ZoomIn();
+                e.Handled = true;
+                break;
+            case Key.OemMinus:
+            case Key.Subtract:
+                preview.ZoomOut();
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private static SchematicPreviewControl? FindPreview(Control root)
+    {
+        if (root is SchematicPreviewControl preview)
+        {
+            return preview;
+        }
+
+        if (root is Panel panel)
+        {
+            foreach (Control child in panel.Children.OfType<Control>())
+            {
+                SchematicPreviewControl? nested = FindPreview(child);
+                if (nested is not null)
+                {
+                    return nested;
+                }
+            }
+        }
+
+        if (root is Decorator decorator && decorator.Child is Control childControl)
+        {
+            return FindPreview(childControl);
+        }
+
+        if (root is ContentControl contentControl && contentControl.Content is Control content)
+        {
+            return FindPreview(content);
+        }
+
+        return null;
     }
 }

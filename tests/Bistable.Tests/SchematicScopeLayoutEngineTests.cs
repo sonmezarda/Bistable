@@ -45,7 +45,7 @@ public sealed class SchematicScopeLayoutEngineTests
     public void CompactLayoutFallsBackToBelowChildRowsWithoutOverlap()
     {
         SchematicScopePanelLayout layout = _engine.Compute(new SchematicScopeLayoutInput(
-            new Rect(0, 0, 920, 1200),
+            new Rect(0, 0, 840, 1200),
             new Rect(260, 120, 400, 260),
             96,
             CompactLayout: true,

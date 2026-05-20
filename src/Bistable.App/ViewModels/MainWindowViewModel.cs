@@ -162,6 +162,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                 OnPropertyChanged(nameof(SelectedHierarchyScopeSummary));
                 OnPropertyChanged(nameof(SelectedHierarchyScopeHint));
                 OnPropertyChanged(nameof(SelectedHierarchyParentScope));
+                OnPropertyChanged(nameof(SelectedHierarchyBreadcrumbs));
                 RefreshHierarchyScopeSignals();
                 RefreshSelectedHierarchyNeighborhood();
                 RefreshSelectedHierarchyPorts();
@@ -613,6 +614,9 @@ public sealed class MainWindowViewModel : ViewModelBase
                 : $"{exactCount} exact-scope traced signals, {descendantCount} nested below.";
         }
     }
+
+    public IReadOnlyList<HierarchyBreadcrumbItemViewModel> SelectedHierarchyBreadcrumbs =>
+        BuildHierarchyBreadcrumbs();
 
     public string SelectedHierarchyScopeHint
     {
@@ -1632,7 +1636,8 @@ public sealed class MainWindowViewModel : ViewModelBase
                 local.Width,
                 local.IsSigned,
                 traced is not null,
-                traced?.Value ?? "-"));
+                traced?.Value ?? "-",
+                traced?.Name));
         }
     }
 
@@ -1859,6 +1864,48 @@ public sealed class MainWindowViewModel : ViewModelBase
     private SignalViewModel? FindAnySignalByName(string name) =>
         AllSignals.FirstOrDefault(signal => string.Equals(signal.Name, name, StringComparison.OrdinalIgnoreCase))
         ?? TraceSignals.FirstOrDefault(signal => string.Equals(signal.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private IReadOnlyList<HierarchyBreadcrumbItemViewModel> BuildHierarchyBreadcrumbs()
+    {
+        if (HierarchyRoot is null)
+        {
+            return [];
+        }
+
+        List<HierarchyBreadcrumbItemViewModel> breadcrumbs = [];
+        string? selectedPath = SelectedHierarchyNode?.HierarchyPath ?? HierarchyRoot.HierarchyPath;
+        string[] pathSegments = selectedPath.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        string currentPath = string.Empty;
+        HierarchyNodeViewModel? currentNode = HierarchyRoot;
+
+        for (int index = 0; index < pathSegments.Length; index++)
+        {
+            string segment = pathSegments[index];
+            currentPath = index == 0 ? segment : $"{currentPath}.{segment}";
+            if (index == 0)
+            {
+                currentNode = HierarchyRoot;
+            }
+            else
+            {
+                currentNode = currentNode?.Children.FirstOrDefault(child =>
+                    string.Equals(child.HierarchyPath, currentPath, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (currentNode is null)
+            {
+                break;
+            }
+
+            breadcrumbs.Add(new HierarchyBreadcrumbItemViewModel(
+                currentNode.HierarchyPath,
+                currentNode.InstanceName,
+                currentNode.ModuleName,
+                string.Equals(currentNode.HierarchyPath, selectedPath, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        return breadcrumbs;
+    }
 
     private HierarchyScopeNodeViewModel CreateScopeNode(HierarchyNodeViewModel node)
     {

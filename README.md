@@ -72,6 +72,7 @@ The current UI also supports a basic IDE-style workspace flow:
 - tool panes are tabbed inside dock zones, so project, waveform, and schematic can share the same side.
 - tool panes can now also move to `Center` or `Floating`, so the workspace no longer assumes everything must live on the left/right/bottom rails.
 - the main workspace now runs on `Dock.Avalonia`, so tabs can be dragged, split, and floated with real docking targets instead of letter-based pane buttons.
+- the main Dock workspace now keeps Dock's built-in root/layout templates enabled, so the app renders panes instead of showing raw Dock model type names.
 - left, right, and bottom dock sizes persist across runs.
 - toolbar clock selection chooses which 1-bit signal `Tick` and `Run` will pulse.
 - `Live` enables immediate combinational/native re-evaluation from the input panel.
@@ -87,6 +88,7 @@ The current UI also supports a basic IDE-style workspace flow:
 - child instance cards now use elaborated instance-port connections from Verilator XML, and the schematic routes those connections through current-scope ports and local nets.
 - the schematic canvas now has an inspect-style viewport with wheel zoom, drag pan, fit, and 1:1 reset controls so dense hierarchy views remain navigable.
 - the main schematic pane now exposes zoom percentage and a direct `Studio` action for opening a larger schematic inspector window.
+- the main schematic pane now has splitters between schematic/probe, schematic/hierarchy, and hierarchy/graph areas so dense views can be resized in-place.
 - the dedicated `Schematic Studio` window runs the same live schematic surface in a non-compact layout, so port stubs, child instance cards, and routed nets get more space for inspection.
 - the schematic viewport now keeps user zoom/pan stable across live updates and clips strictly to its own pane instead of bleeding into neighboring docks.
 - waveform also has a dedicated `Waveform Studio` window, so the two densest surfaces can be inspected outside the dock constraints.
@@ -94,6 +96,16 @@ The current UI also supports a basic IDE-style workspace flow:
 - the center workspace is now a real document host: `Inspector`, `Waveform`, and `Schematic` start as draggable documents, while `Project` opens as a tool pane.
 - schematic scope layout is now driven by a dedicated layout engine, so current node, child instances, local nets, and probe sections use explicit non-overlap regions instead of ad-hoc drawing math.
 - schematic connection routing is now driven by a dedicated route planner, so inline and stacked hierarchy views use deterministic lane assignment instead of simple midpoint elbows.
+- compact schematic scope layout now reserves wider port zones, route corridors, and child cards to keep labels and stubs out of each other.
+- child output routes now avoid crossing through child instance cards by using exterior bridge lanes.
+- bus routes now render with stronger strokes and compact inline labels, while selected routes expose a label hit target for easier inspection.
+- route labels are now clamped inside the scope panel and spaced apart by the router to avoid obvious label collisions.
+- repeated routes for the same bus now draw one grouped label with a fanout count instead of repeating the same label on every branch.
+- schematic split panes now keep practical minimum sizes during resize so the probe and hierarchy regions do not collapse into unusable strips.
+- child instance cards now use an internal card layout engine, with explicit header/body/footer regions and bounded port rows so dense cards stay readable.
+- local net chips and routed schematic connections are now selectable inspection surfaces, not only passive drawing primitives.
+- `Schematic Studio` now exposes breadcrumb scope navigation, active-scope framing, and keyboard viewport controls for faster hierarchy inspection.
+- `Schematic Studio` header breadcrumbs now stay in their own grid column, long signal lists trim cleanly, and scope probe rows no longer draw connector lines through labels.
 - toolbar cycle count controls how many cycles `Run` advances.
 - trace-enabled projects expose internal signals under `Project > Trace Signals`.
 - internal trace signals can be added to the waveform like top-level ports.
@@ -135,5 +147,8 @@ surface. That means:
 - dense hierarchy inspection can now move into a dedicated `Schematic Studio` window with a larger world canvas and a less compact placement mode
 - waveform inspection can now move into a dedicated `Waveform Studio` window instead of competing with docked pane width
 - dense scope routing now uses explicit lane planning for current-port, child-port, and local-net connections, which reduces line overlap in wider hierarchy views
+- child instance cards now compress their internal port rows to stay within the card body instead of spilling into footer space
+- local net chips and routed connections can now be clicked to select the matching traced signal and double-clicked to push it into the waveform
+- `Schematic Studio` now supports scope breadcrumbs, `Scope` framing, and keyboard navigation (`F`, `S`, `1`, `+`, `-`)
 - clock edges are still explicit through `Tick` and `Run`
 - richer instance-aware geometry, net probing directly on routed connections, and eventual Vivado-style presentation polish are still the next planned interaction layers

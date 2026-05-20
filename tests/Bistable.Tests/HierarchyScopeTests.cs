@@ -131,6 +131,7 @@ public sealed class HierarchyScopeTests
         Assert.Contains(viewModel.SelectedHierarchyChildScopes, scope => scope.HierarchyPath == "system_top.u_core.u_logic");
         Assert.Contains(viewModel.SelectedHierarchyChildScopes, scope => scope.HierarchyPath == "system_top.u_core.u_status");
         Assert.Contains(viewModel.SelectedHierarchyChildScopes, scope => scope is { HierarchyPath: "system_top.u_core.u_logic", InputCount: 2, OutputCount: 2 });
+        Assert.Equal(["system_top", "u_core"], viewModel.SelectedHierarchyBreadcrumbs.Select(breadcrumb => breadcrumb.Title).ToArray());
         Assert.Contains("Click a child instance", viewModel.SelectedHierarchyScopeHint, StringComparison.OrdinalIgnoreCase);
 
         viewModel.SelectHierarchyScopeCommand.Execute("system_top.u_core.u_status");
@@ -179,6 +180,8 @@ public sealed class HierarchyScopeTests
         await WaitUntilAsync(() => viewModel.SelectedHierarchyChildInstances.Count == 2, TimeSpan.FromSeconds(5));
 
         Assert.Contains(viewModel.SelectedHierarchyLocalSignals, signal => signal is { Name: "parity_i", Width: 1, IsTraced: true });
+        Assert.Contains(viewModel.SelectedHierarchyLocalSignals, signal =>
+            signal is { Name: "parity_i", IsTraced: true, ResolvedSignalName: "system_top.u_core.parity_i" });
 
         HierarchyScopeInstanceViewModel logic = Assert.Single(
             viewModel.SelectedHierarchyChildInstances,
