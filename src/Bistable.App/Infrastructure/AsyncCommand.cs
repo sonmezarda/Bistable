@@ -24,6 +24,10 @@ public sealed class AsyncCommand(Func<CancellationToken, Task> execute, Func<boo
         {
             await execute(CancellationToken.None);
         }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // async void must not throw; callers observe the result through the ViewModel's Status property
+        }
         finally
         {
             _isRunning = false;

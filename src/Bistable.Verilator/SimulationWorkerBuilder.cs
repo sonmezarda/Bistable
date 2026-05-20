@@ -36,6 +36,16 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         {
             Directory.CreateDirectory(buildDirectory);
 
+            // On Windows, running executables cannot be overwritten. Delete the old binary
+            // before building so the linker can create a fresh file.
+            string executableNameEarly = OperatingSystem.IsWindows() ? "bistable-worker.exe" : "bistable-worker";
+            string oldExecutablePath = Path.Combine(buildDirectory, executableNameEarly);
+            if (OperatingSystem.IsWindows() && File.Exists(oldExecutablePath))
+            {
+                try { File.Delete(oldExecutablePath); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+
             string wrapperPath = Path.Combine(buildDirectory, "bistable_worker.cpp");
             string? traceFilePath = configuration.Trace.Enabled
                 ? Path.Combine(buildDirectory, "bistable-trace.vcd")
@@ -88,7 +98,8 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
 
             await _verilator.RunAsync(arguments, projectDirectory, cancellationToken);
 
-            string executablePath = Path.Combine(buildDirectory, "bistable-worker");
+            string executableName = OperatingSystem.IsWindows() ? "bistable-worker.exe" : "bistable-worker";
+            string executablePath = Path.Combine(buildDirectory, executableName);
             if (!File.Exists(executablePath))
             {
                 throw new InvalidOperationException($"Worker build completed but executable was not found: {executablePath}");
@@ -123,6 +134,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         StringBuilder builder = new();
         builder.AppendLine("#include <cstdint>");
         builder.AppendLine("#include <cstdlib>");
+        builder.AppendLine("#include <cstdio>");
         builder.AppendLine("#include <iostream>");
         builder.AppendLine("#include <memory>");
         builder.AppendLine("#include <regex>");
@@ -130,12 +142,17 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("#include <string>");
         builder.AppendLine("#include <tuple>");
         builder.AppendLine("#include <vector>");
+        // Redirect Verilator runtime diagnostics (%Error, %Warning) to stderr so they
+        // never appear on stdout and corrupt the JSON protocol stream.
+        builder.AppendLine("#define VL_PRINTF(...) fprintf(stderr, __VA_ARGS__)");
         builder.AppendLine("#include \"verilated.h\"");
         if (options.TraceEnabled)
         {
             builder.AppendLine("#include \"verilated_vcd_c.h\"");
         }
         builder.AppendLine($"#include \"{modelType}.h\"");
+        // Verilator 5.x requires sc_time_stamp() when not linking against SystemC.
+        builder.AppendLine("double sc_time_stamp() { return 0; }");
         builder.AppendLine();
         builder.AppendLine("namespace {");
         builder.AppendLine("using trace_entry = std::tuple<std::string, std::string, std::uint64_t>;");

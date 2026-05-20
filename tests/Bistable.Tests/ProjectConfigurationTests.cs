@@ -37,7 +37,7 @@ public sealed class ProjectConfigurationTests
             Sources = ["missing.sv"]
         };
 
-        IReadOnlyList<string> errors = new ProjectConfigurationValidator().Validate(configuration, "/tmp");
+        IReadOnlyList<string> errors = new ProjectConfigurationValidator().Validate(configuration, Path.GetTempPath());
 
         Assert.Contains(errors, static error => error.Contains("Source file does not exist", StringComparison.Ordinal));
     }

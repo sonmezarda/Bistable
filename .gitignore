@@ -6,9 +6,9 @@ obj/
 *.suo
 *.log
 
-# Local planning and scratch notes for Codex sessions.
 .codex-notes/
 .codex/
+.claude/
 
 *.AppImage
 # Generated simulation/build artifacts.

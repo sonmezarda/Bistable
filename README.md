@@ -21,7 +21,12 @@ evaluator, so `Eval` still gives feedback before a worker is built.
 
 - .NET SDK 10
 - Verilator 5.x
-- Linux desktop session for the Avalonia UI
+- Windows, Linux, or macOS desktop
+
+**Windows**: Install Verilator via [MSYS2](https://www.msys2.org/) (`pacman -S mingw-w64-ucrt-x86_64-verilator`).
+Make sure the MSYS2 `ucrt64/bin` directory (which contains `verilator`, `g++`, and `make`) is on your `PATH`.
+
+**Linux/macOS**: Install Verilator from your package manager or build from source.
 
 ## Try the sample
 

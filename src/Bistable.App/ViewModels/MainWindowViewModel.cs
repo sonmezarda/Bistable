@@ -847,6 +847,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         await LoadProjectFromPathAsync(_currentProjectPath, cancellationToken);
 
+        await DisposeWorkerAsync();
         Status = "Building native Verilator worker...";
         SimulationWorkerBuildResult build = await _workspace.WorkerBuilder.BuildAsync(
             _currentProject!,
@@ -854,7 +855,6 @@ public sealed class MainWindowViewModel : ViewModelBase
             _currentProjectDirectory!,
             cancellationToken);
 
-        await DisposeWorkerAsync();
         _worker = new SimulationWorkerClient(build.ExecutablePath);
         _traceFilePath = build.TraceFilePath;
         await PushInputsAsync(cancellationToken);
