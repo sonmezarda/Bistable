@@ -220,6 +220,36 @@ public sealed class VerilatorIntegrationTests
     }
 
     [Fact]
+    public async Task GeneratesHierarchyForTinyCpuSample()
+    {
+        string root = FindRepositoryRoot();
+        string sampleDirectory = Path.Combine(root, "samples", "tiny_cpu");
+
+        ProjectConfiguration configuration = await ProjectConfiguration.LoadAsync(
+            Path.Combine(sampleDirectory, "tiny_cpu.bistable.json"),
+            CancellationToken.None);
+
+        string outputXml = Path.Combine(Path.GetTempPath(), $"bistable-tiny-cpu-{Guid.NewGuid():N}.xml");
+        VerilatorTool tool = new();
+        await tool.GenerateXmlAsync(configuration, sampleDirectory, outputXml, CancellationToken.None);
+
+        try
+        {
+            Bistable.Core.Design.ElaboratedDesign design = new VerilatorXmlParser().ParseDesign(outputXml);
+
+            Assert.Equal("tiny_cpu_top", design.TopModule.Name);
+            Assert.Contains(design.HierarchyRoot.Children, static child => child.InstanceName == "u_control");
+            Assert.Contains(design.HierarchyRoot.Children, static child => child.InstanceName == "u_registers");
+            Assert.Contains(design.HierarchyRoot.Children, static child => child.InstanceName == "u_alu");
+            Assert.Contains(design.HierarchyRoot.Children, static child => child.InstanceName == "u_status");
+        }
+        finally
+        {
+            File.Delete(outputXml);
+        }
+    }
+
+    [Fact]
     public async Task NativeWorkerProducesTraceCatalogForHierarchicalSample()
     {
         string root = FindRepositoryRoot();

@@ -39,7 +39,7 @@ public sealed class HierarchyScopeTests
     }
 
     [Fact]
-    public async Task SelectingInternalSignalSyncsHierarchyAndBuildsScopeSummaries()
+    public async Task SelectingInternalSignalKeepsHierarchyContextAndBuildsScopeSummaries()
     {
         string root = FindRepositoryRoot();
         string samplePath = Path.Combine(root, "samples", "hierarchy", "hierarchy.bistable.json");
@@ -55,7 +55,7 @@ public sealed class HierarchyScopeTests
         SignalViewModel sum = viewModel.TraceSignals.Single(signal => signal.Name == "system_top.u_core.u_logic.sum");
         viewModel.SelectedSignal = sum;
 
-        Assert.Equal("system_top.u_core.u_logic", viewModel.SelectedHierarchyPath);
+        Assert.Equal("system_top", viewModel.SelectedHierarchyPath);
 
         HierarchyTraceScopeSummaryViewModel logicSummary = viewModel.HierarchyTraceScopeSummaries
             .Single(summary => summary.HierarchyPath == "system_top.u_core.u_logic");
@@ -84,7 +84,7 @@ public sealed class HierarchyScopeTests
 
         Assert.NotNull(viewModel.SelectedSignal);
         Assert.Equal("system_top.u_core.u_logic.parity", viewModel.SelectedSignal!.Name);
-        Assert.Equal("system_top.u_core.u_logic", viewModel.SelectedHierarchyPath);
+        Assert.Equal("system_top", viewModel.SelectedHierarchyPath);
     }
 
     [Fact]

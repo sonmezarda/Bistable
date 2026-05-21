@@ -1,0 +1,21 @@
+{
+  "topModule": "fabric_top",
+  "sources": [
+    "fabric_top.sv",
+    "address_decoder.sv",
+    "gpio_peripheral.sv",
+    "timer_peripheral.sv",
+    "response_mux.sv"
+  ],
+  "clocks": [
+    { "name": "clk", "defaultPeriodNs": 10 }
+  ],
+  "resets": [
+    { "name": "rst_n", "activeLevel": 0 }
+  ],
+  "trace": {
+    "enabled": true,
+    "format": "vcd",
+    "depth": 4
+  }
+}

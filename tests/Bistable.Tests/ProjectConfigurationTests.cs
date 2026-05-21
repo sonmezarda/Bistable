@@ -56,4 +56,43 @@ public sealed class ProjectConfigurationTests
 
         Assert.Contains(errors, static error => error.Contains("Trace format", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task BundledSampleConfigurationsValidate()
+    {
+        string root = FindRepositoryRoot();
+        string samplesRoot = Path.Combine(root, "samples");
+        string[] sampleConfigs = Directory.GetFiles(samplesRoot, "*.bistable.json", SearchOption.AllDirectories);
+
+        Assert.NotEmpty(sampleConfigs);
+        foreach (string sampleConfig in sampleConfigs)
+        {
+            ProjectConfiguration configuration = await ProjectConfiguration.LoadAsync(sampleConfig, CancellationToken.None);
+            IReadOnlyList<string> errors = new ProjectConfigurationValidator().Validate(configuration, Path.GetDirectoryName(sampleConfig));
+
+            Assert.True(errors.Count == 0, $"{sampleConfig}: {string.Join(", ", errors)}");
+        }
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        string directory = AppContext.BaseDirectory;
+        while (!string.IsNullOrWhiteSpace(directory))
+        {
+            if (File.Exists(Path.Combine(directory, "Bistable.slnx")))
+            {
+                return directory;
+            }
+
+            DirectoryInfo? parent = Directory.GetParent(directory);
+            if (parent is null)
+            {
+                break;
+            }
+
+            directory = parent.FullName;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate Bistable.slnx.");
+    }
 }

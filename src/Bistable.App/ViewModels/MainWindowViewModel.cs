@@ -249,7 +249,6 @@ public sealed class MainWindowViewModel : ViewModelBase
                 }
 
                 SyncSelectedWaveformLaneFromSignal();
-                SyncHierarchySelectionFromSignal();
                 OnPropertyChanged(nameof(SelectedSchematicSignalDisplayName));
                 OnPropertyChanged(nameof(SelectedSchematicSignalDirection));
                 OnPropertyChanged(nameof(SelectedSchematicSignalWidth));
@@ -861,11 +860,19 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         await DisposeWorkerAsync();
         Status = "Building native Verilator worker...";
+        Progress<SimulationWorkerBuildProgress> progress = new(report =>
+        {
+            if (!string.IsNullOrWhiteSpace(report.Message))
+            {
+                Status = $"Build {report.Stage}: {TrimBuildStatus(report.Message)}";
+            }
+        });
         SimulationWorkerBuildResult build = await _workspace.WorkerBuilder.BuildAsync(
             _currentProject!,
             _currentMetadata!,
             _currentProjectDirectory!,
-            cancellationToken);
+            cancellationToken,
+            progress);
 
         _worker = new SimulationWorkerClient(build.ExecutablePath);
         _traceFilePath = build.TraceFilePath;
@@ -874,6 +881,12 @@ public sealed class MainWindowViewModel : ViewModelBase
         ApplySnapshot(snapshot);
         RefreshTraceState();
         Status = $"Worker ready: {Path.GetFileName(build.ExecutablePath)}";
+    }
+
+    private static string TrimBuildStatus(string message)
+    {
+        string compact = message.ReplaceLineEndings(" ").Trim();
+        return compact.Length <= 140 ? compact : compact[..137] + "...";
     }
 
     private async Task EvaluateAsync(CancellationToken cancellationToken)
@@ -1708,16 +1721,6 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             SelectedWaveformLane = lane;
         }
-    }
-
-    private void SyncHierarchySelectionFromSignal()
-    {
-        if (_selectedSignal is null || string.IsNullOrWhiteSpace(_selectedSignal.ScopePath))
-        {
-            return;
-        }
-
-        SelectedHierarchyPath = _selectedSignal.ScopePath;
     }
 
     private void SyncSelectedSignalFromWaveformLane()

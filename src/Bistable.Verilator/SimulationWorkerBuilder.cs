@@ -16,7 +16,8 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         ProjectConfiguration configuration,
         ModuleMetadata metadata,
         string projectDirectory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IProgress<SimulationWorkerBuildProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(metadata);
@@ -57,6 +58,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
                 configuration.Trace.Enabled,
                 configuration.Trace.Depth,
                 traceFilePath is null ? string.Empty : Path.GetFileName(traceFilePath));
+            progress?.Report(new SimulationWorkerBuildProgress("generate", "Generating C++ simulation wrapper..."));
             await File.WriteAllTextAsync(wrapperPath, GenerateWorkerSource(configuration.TopModule, metadata, options), cancellationToken);
 
             List<string> arguments =
@@ -96,7 +98,21 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             arguments.AddRange(configuration.Sources.Select(source => ResolvePath(projectDirectory, source)));
             arguments.Add(wrapperPath);
 
-            await _verilator.RunAsync(arguments, projectDirectory, cancellationToken);
+            progress?.Report(new SimulationWorkerBuildProgress("verilator", "Running Verilator C++ generation/build..."));
+            using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromMinutes(5));
+            try
+            {
+                await _verilator.RunAsync(
+                    arguments,
+                    projectDirectory,
+                    timeout.Token,
+                    line => progress?.Report(new SimulationWorkerBuildProgress("verilator", line)));
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException("Native worker build exceeded the 5 minute timeout. Check the project sources and Verilator options.");
+            }
 
             string executableName = OperatingSystem.IsWindows() ? "bistable-worker.exe" : "bistable-worker";
             string executablePath = Path.Combine(buildDirectory, executableName);
@@ -105,6 +121,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
                 throw new InvalidOperationException($"Worker build completed but executable was not found: {executablePath}");
             }
 
+            progress?.Report(new SimulationWorkerBuildProgress("ready", "Native worker executable built."));
             EnsureExecutablePermissions(executablePath);
             return new SimulationWorkerBuildResult(executablePath, buildDirectory, traceFilePath);
         }

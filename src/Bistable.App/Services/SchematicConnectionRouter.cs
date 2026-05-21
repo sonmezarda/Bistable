@@ -4,59 +4,80 @@ namespace Bistable.App.Services;
 
 public sealed class SchematicConnectionRouter
 {
+    private readonly ISchematicRouter _router = new GridSchematicRouter();
+
     public IReadOnlyList<SchematicConnectionRoute> Compute(SchematicConnectionRoutingInput input)
     {
-        if (input.Requests.Count == 0)
-        {
-            return [];
-        }
-
-        return input.Layout.InlineChildren
-            ? ComputeInlineRoutes(input)
-            : ComputeStackedRoutes(input);
+        return _router.Compute(input);
     }
 
     private static IReadOnlyList<SchematicConnectionRoute> ComputeInlineRoutes(SchematicConnectionRoutingInput input)
     {
         double laneMargin = input.CompactLayout ? 10 : 14;
-        double leftLaneStart = input.Layout.CurrentNodeRect.Right + laneMargin;
+        double childLeft = input.Layout.ChildNodeRects.Count == 0
+            ? input.Layout.CurrentNodeRect.Right + input.Layout.RouteCorridorWidth
+            : input.Layout.ChildNodeRects.Min(static rect => rect.X);
+        double childRight = input.Layout.ChildNodeRects.Count == 0
+            ? childLeft
+            : input.Layout.ChildNodeRects.Max(static rect => rect.Right);
         double leftLaneEnd = input.Layout.ChildNodeRects.Count == 0
-            ? leftLaneStart + input.Layout.RouteCorridorWidth
-            : input.Layout.ChildNodeRects.Min(static rect => rect.X) - laneMargin;
+            ? childLeft - laneMargin
+            : childLeft - laneMargin;
         double rightLaneStart = input.Layout.ChildNodeRects.Count == 0
             ? leftLaneEnd + laneMargin
-            : input.Layout.ChildNodeRects.Max(static rect => rect.Right) + laneMargin;
+            : childRight + laneMargin;
         double rightLaneEnd = input.Layout.PanelRect.Right - (input.CompactLayout ? 18 : 24);
 
         List<SchematicConnectionRouteRequest> inputRoutes = input.Requests
-            .Where(static route => route.TargetIsInput)
+            .Where(static route => route.Kind == SchematicConnectionRouteKind.BoundaryToChildInput)
             .OrderBy(static route => route.Target.Y)
             .ThenBy(static route => route.Source.Y)
             .ToList();
+        double inputSourceRight = inputRoutes
+            .Select(static route => route.Source.X)
+            .DefaultIfEmpty(input.Layout.CurrentNodeRect.Right)
+            .Max();
+        double leftLaneStart = Math.Min(inputSourceRight + laneMargin, leftLaneEnd);
         List<SchematicConnectionRouteRequest> outputRoutes = input.Requests
-            .Where(static route => !route.TargetIsInput)
-            .OrderBy(static route => route.Target.Y)
-            .ThenBy(static route => route.Source.Y)
+            .Where(static route => route.Kind == SchematicConnectionRouteKind.ChildOutputToBoundary)
+            .OrderBy(static route => route.Source.Y)
+            .ThenBy(static route => route.Target.Y)
             .ToList();
 
-        Dictionary<string, double> inputLanes = AssignBundleLanes(inputRoutes, leftLaneStart, leftLaneEnd);
+        Dictionary<string, double> inputLanes = AssignBundleLanes(inputRoutes, Math.Min(leftLaneStart, leftLaneEnd), Math.Max(leftLaneStart, leftLaneEnd));
         Dictionary<string, double> outputLanes = AssignBundleLanes(
             outputRoutes,
-            Math.Max(rightLaneStart, leftLaneEnd + laneMargin),
-            Math.Max(rightLaneStart, rightLaneEnd));
+            Math.Min(Math.Max(rightLaneStart, leftLaneEnd + laneMargin), rightLaneEnd),
+            Math.Max(Math.Max(rightLaneStart, leftLaneEnd + laneMargin), rightLaneEnd));
         Dictionary<string, SchematicConnectionBundle> bundles = BuildBundles(input.Requests);
 
         List<SchematicConnectionRoute> routes = [];
         foreach (SchematicConnectionRouteRequest request in input.Requests)
         {
-            double laneX = request.TargetIsInput
-                ? inputLanes[request.BundleKey]
-                : outputLanes[request.BundleKey];
             SchematicConnectionBundle bundle = bundles[request.BundleKey];
-            if (request.TargetIsInput)
+            if (request.RoutesToChildInput)
             {
-                Point elbow1 = new(laneX, request.Source.Y);
-                Point elbow2 = new(laneX, request.Target.Y);
+                if (request.UsesLocalNet)
+                {
+                    double laneY = GetLowerInlineLaneY(input, request, bundle);
+                    IReadOnlyList<Point> localInputPoints = AvoidObstacles(
+                        BuildLocalInlineRoutePoints(request, laneY, input.CompactLayout),
+                        input,
+                        request);
+                    routes.Add(new SchematicConnectionRoute(
+                        request.Id,
+                        request.BundleKey,
+                        bundle.Size,
+                        string.Equals(bundle.PrimaryRequestId, request.Id, StringComparison.OrdinalIgnoreCase),
+                        localInputPoints,
+                        BuildLabelBounds(new Point((request.Source.X + request.Target.X) / 2, laneY), request.LabelWidth),
+                        new Point((request.Source.X + request.Target.X) / 2, laneY)));
+                    continue;
+                }
+
+                double inputLaneX = inputLanes[request.BundleKey];
+                Point elbow1 = new(inputLaneX, request.Source.Y);
+                Point elbow2 = new(inputLaneX, request.Target.Y);
                 IReadOnlyList<Point> points = AvoidObstacles(
                     [request.Source, elbow1, elbow2, request.Target],
                     input,
@@ -67,24 +88,34 @@ public sealed class SchematicConnectionRouter
                     bundle.Size,
                     string.Equals(bundle.PrimaryRequestId, request.Id, StringComparison.OrdinalIgnoreCase),
                     points,
-                    BuildLabelBounds(new Point(laneX, bundle.CenterY), request.LabelWidth),
-                    new Point(laneX, (request.Source.Y + request.Target.Y) / 2)));
+                    BuildLabelBounds(new Point(inputLaneX, bundle.CenterY), request.LabelWidth),
+                    new Point(inputLaneX, (request.Source.Y + request.Target.Y) / 2)));
                 continue;
             }
 
-            double bridgeY = request.SourceFromLocalSignal
-                ? Math.Max(
-                    input.Layout.ChildNodeRects.Count == 0 ? request.Source.Y : input.Layout.ChildNodeRects.Max(static rect => rect.Bottom) + (input.CompactLayout ? 16 : 22),
-                    request.Source.Y)
-                : Math.Min(input.Layout.CurrentNodeRect.Y, input.Layout.ChildNodeRects.Count == 0 ? input.Layout.CurrentNodeRect.Y : input.Layout.ChildNodeRects.Min(static rect => rect.Y)) - (input.CompactLayout ? 18 : 24);
-            bridgeY += bundle.LaneOffset;
-            double corridorX = Math.Min(laneX - laneMargin, input.Layout.CurrentNodeRect.Right + input.Layout.RouteCorridorWidth * 0.38);
+            if (request.RoutesToLocalNet)
+            {
+                double laneY = GetLowerInlineLaneY(input, request, bundle);
+                IReadOnlyList<Point> localOutputPoints = AvoidObstacles(
+                    BuildLocalInlineRoutePoints(request, laneY, input.CompactLayout),
+                    input,
+                    request);
+                routes.Add(new SchematicConnectionRoute(
+                    request.Id,
+                    request.BundleKey,
+                    bundle.Size,
+                    string.Equals(bundle.PrimaryRequestId, request.Id, StringComparison.OrdinalIgnoreCase),
+                    localOutputPoints,
+                    BuildLabelBounds(new Point((request.Source.X + request.Target.X) / 2, laneY), request.LabelWidth),
+                    new Point((request.Source.X + request.Target.X) / 2, laneY)));
+                continue;
+            }
+
+            double laneX = outputLanes[request.BundleKey];
             IReadOnlyList<Point> outputPoints = AvoidObstacles(
                 [
                     request.Source,
-                    new Point(corridorX, request.Source.Y),
-                    new Point(corridorX, bridgeY),
-                    new Point(laneX, bridgeY),
+                    new Point(laneX, request.Source.Y),
                     new Point(laneX, request.Target.Y),
                     request.Target
                 ],
@@ -96,11 +127,44 @@ public sealed class SchematicConnectionRouter
                 bundle.Size,
                 string.Equals(bundle.PrimaryRequestId, request.Id, StringComparison.OrdinalIgnoreCase),
                 outputPoints,
-                BuildLabelBounds(new Point(laneX, bridgeY), request.LabelWidth),
-                new Point(laneX, bridgeY)));
+                BuildLabelBounds(new Point(laneX, (request.Source.Y + request.Target.Y) / 2), request.LabelWidth),
+                new Point(laneX, (request.Source.Y + request.Target.Y) / 2)));
         }
 
         return PlaceLabels(routes, input.Layout.PanelRect, input.CompactLayout, input.Obstacles ?? []);
+    }
+
+    private static double GetLowerInlineLaneY(
+        SchematicConnectionRoutingInput input,
+        SchematicConnectionRouteRequest request,
+        SchematicConnectionBundle bundle)
+    {
+        double childBottom = input.Layout.ChildNodeRects.Count == 0
+            ? input.Layout.CurrentNodeRect.Bottom
+            : input.Layout.ChildNodeRects.Max(static rect => rect.Bottom);
+        double localTop = input.Layout.LocalSectionRect?.Y ?? input.Layout.PanelRect.Bottom - (input.CompactLayout ? 46 : 58);
+        double preferred = Math.Max(childBottom + (input.CompactLayout ? 16 : 22), Math.Min(request.Source.Y, request.Target.Y));
+        double max = Math.Max(preferred, localTop - (input.CompactLayout ? 10 : 14));
+        return Math.Clamp(preferred + bundle.LaneOffset, childBottom + 8, max);
+    }
+
+    private static IReadOnlyList<Point> BuildLocalInlineRoutePoints(
+        SchematicConnectionRouteRequest request,
+        double laneY,
+        bool compactLayout)
+    {
+        double stub = compactLayout ? 28 : 36;
+        Point sourceExit = new(request.Source.X + stub, request.Source.Y);
+        Point targetEntry = new(request.Target.X - stub, request.Target.Y);
+        return
+        [
+            request.Source,
+            sourceExit,
+            new Point(sourceExit.X, laneY),
+            new Point(targetEntry.X, laneY),
+            targetEntry,
+            request.Target
+        ];
     }
 
     private static IReadOnlyList<SchematicConnectionRoute> ComputeStackedRoutes(SchematicConnectionRoutingInput input)
@@ -118,12 +182,12 @@ public sealed class SchematicConnectionRouter
             : lowerLaneStart + (input.CompactLayout ? 24 : 32);
 
         List<SchematicConnectionRouteRequest> currentRoutes = input.Requests
-            .Where(static route => !route.SourceFromLocalSignal)
+            .Where(static route => !route.UsesLocalNet)
             .OrderBy(static route => route.Target.X)
             .ThenBy(static route => route.Target.Y)
             .ToList();
         List<SchematicConnectionRouteRequest> localRoutes = input.Requests
-            .Where(static route => route.SourceFromLocalSignal)
+            .Where(static route => route.UsesLocalNet)
             .OrderBy(static route => route.Source.Y)
             .ThenBy(static route => route.Target.X)
             .ToList();
@@ -135,7 +199,7 @@ public sealed class SchematicConnectionRouter
         List<SchematicConnectionRoute> routes = [];
         foreach (SchematicConnectionRouteRequest request in input.Requests)
         {
-            double laneY = request.SourceFromLocalSignal
+            double laneY = request.UsesLocalNet
                 ? localLanes[request.BundleKey]
                 : currentLanes[request.BundleKey];
             SchematicConnectionBundle bundle = bundles[request.BundleKey];
@@ -278,7 +342,7 @@ public sealed class SchematicConnectionRouter
         double below = obstacle.Bottom + margin;
         double minY = bounds.Y + margin;
         double maxY = bounds.Bottom - margin;
-        bool preferAbove = !request.SourceFromLocalSignal && (start.Y + end.Y) / 2 <= obstacle.Center.Y;
+        bool preferAbove = !request.UsesLocalNet && (start.Y + end.Y) / 2 <= obstacle.Center.Y;
         double preferred = preferAbove ? above : below;
         double alternate = preferAbove ? below : above;
 
@@ -297,7 +361,7 @@ public sealed class SchematicConnectionRouter
         double right = obstacle.Right + margin;
         double minX = bounds.X + margin;
         double maxX = bounds.Right - margin;
-        bool preferRight = !request.TargetIsInput || (start.X + end.X) / 2 >= obstacle.Center.X;
+        bool preferRight = request.RoutesFromChildOutput || (start.X + end.X) / 2 >= obstacle.Center.X;
         double preferred = preferRight ? right : left;
         double alternate = preferRight ? left : right;
 
@@ -519,10 +583,36 @@ public sealed record SchematicConnectionRouteRequest(
     int LabelWidth,
     Point Source,
     Point Target,
-    bool SourceFromLocalSignal,
-    bool TargetIsInput)
+    SchematicConnectionRouteKind Kind,
+    string? SignalValue = null)
 {
     public string BundleKey => string.IsNullOrWhiteSpace(SelectionSignalName) ? SignalName : SelectionSignalName;
+
+    public bool RoutesToChildInput =>
+        Kind is SchematicConnectionRouteKind.BoundaryToChildInput
+            or SchematicConnectionRouteKind.LocalToChildInput
+            or SchematicConnectionRouteKind.ChildOutputToChildInput;
+
+    public bool RoutesFromChildOutput =>
+        Kind is SchematicConnectionRouteKind.ChildOutputToBoundary
+            or SchematicConnectionRouteKind.ChildOutputToLocal
+            or SchematicConnectionRouteKind.ChildOutputToChildInput;
+
+    public bool RoutesToLocalNet => Kind is SchematicConnectionRouteKind.ChildOutputToLocal;
+
+    public bool UsesLocalNet =>
+        Kind is SchematicConnectionRouteKind.LocalToChildInput
+            or SchematicConnectionRouteKind.ChildOutputToLocal
+            or SchematicConnectionRouteKind.ChildOutputToChildInput;
+}
+
+public enum SchematicConnectionRouteKind
+{
+    BoundaryToChildInput,
+    LocalToChildInput,
+    ChildOutputToBoundary,
+    ChildOutputToLocal,
+    ChildOutputToChildInput
 }
 
 public sealed record SchematicConnectionRoute(
@@ -532,7 +622,17 @@ public sealed record SchematicConnectionRoute(
     bool IsBundlePrimary,
     IReadOnlyList<Point> Points,
     Rect LabelBounds,
-    Point LabelAnchor);
+    Point LabelAnchor,
+    IReadOnlyList<Point>? Junctions = null,
+    IReadOnlyList<SchematicRouteBridge>? Bridges = null);
+
+public sealed record SchematicRouteBridge(Point Center, SchematicRouteBridgeOrientation Orientation);
+
+public enum SchematicRouteBridgeOrientation
+{
+    Horizontal,
+    Vertical
+}
 
 internal sealed record SchematicConnectionBundle(
     string Key,

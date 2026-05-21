@@ -99,11 +99,12 @@ public sealed class VerilatorTool
     public async Task RunAsync(
         IReadOnlyList<string> arguments,
         string workingDirectory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<string>? output = null)
     {
         ProcessResult result = _msys2 is not null
-            ? await RunViaBashAsync(arguments, workingDirectory, cancellationToken)
-            : await RunProcessAsync(ExecutablePath, arguments, workingDirectory, cancellationToken);
+            ? await RunViaBashAsync(arguments, workingDirectory, cancellationToken, output)
+            : await RunProcessAsync(ExecutablePath, arguments, workingDirectory, cancellationToken, output);
 
         if (result.ExitCode != 0)
         {
@@ -115,7 +116,8 @@ public sealed class VerilatorTool
     private async Task<ProcessResult> RunViaBashAsync(
         IReadOnlyList<string> arguments,
         string workingDirectory,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<string>? output)
     {
         string msys2Root = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(_msys2!.VerilatorExecutable)!, "..", ".."));
         string bashPath = Path.Combine(msys2Root, "usr", "bin", "bash.exe");
@@ -135,7 +137,8 @@ public sealed class VerilatorTool
         {
             List<string> generateArgs = arguments.Where(a => a != "--build").ToList();
             string generateCmd = BuildBashCommand(ToCygpath(workingDirectory), pathEnv, verilatorExe, generateArgs);
-            ProcessResult generateResult = await RunProcessAsync(bashPath, ["-c", generateCmd], null, cancellationToken);
+            output?.Invoke("Generating Verilator makefiles...");
+            ProcessResult generateResult = await RunProcessAsync(bashPath, ["-c", generateCmd], null, cancellationToken, output);
             if (generateResult.ExitCode != 0)
             {
                 return generateResult;
@@ -151,11 +154,12 @@ public sealed class VerilatorTool
             string makefile = $"V{SanitizeForMakefile(topModule)}.mk";
             string mdirCygpath = ToCygpath(mdir);
             string makeCmd = $"cd {ShellEscape(mdirCygpath)} && {pathEnv} make VERILATOR_ROOT={verilatorRoot} -f {ShellEscape(makefile)} -j 1";
-            return await RunProcessAsync(bashPath, ["-c", makeCmd], null, cancellationToken);
+            output?.Invoke("Compiling generated worker with make...");
+            return await RunProcessAsync(bashPath, ["-c", makeCmd], null, cancellationToken, output);
         }
 
         string singleCmd = BuildBashCommand(ToCygpath(workingDirectory), pathEnv, verilatorExe, arguments);
-        return await RunProcessAsync(bashPath, ["-c", singleCmd], null, cancellationToken);
+        return await RunProcessAsync(bashPath, ["-c", singleCmd], null, cancellationToken, output);
     }
 
     private static string BuildBashCommand(string cwdCygpath, string pathEnv, string verilatorExe, IEnumerable<string> arguments)
@@ -210,7 +214,8 @@ public sealed class VerilatorTool
         string executable,
         IReadOnlyList<string> arguments,
         string? workingDirectory,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<string>? output = null)
     {
         using Process process = new()
         {
@@ -244,6 +249,7 @@ public sealed class VerilatorTool
             if (e.Data is not null)
             {
                 stdout.AppendLine(e.Data);
+                output?.Invoke(e.Data);
             }
         };
         process.ErrorDataReceived += (_, e) =>
@@ -251,6 +257,7 @@ public sealed class VerilatorTool
             if (e.Data is not null)
             {
                 stderr.AppendLine(e.Data);
+                output?.Invoke(e.Data);
             }
         };
 
@@ -261,7 +268,25 @@ public sealed class VerilatorTool
 
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-        await process.WaitForExitAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            throw;
+        }
 
         return new ProcessResult(process.ExitCode, stdout.ToString(), stderr.ToString());
     }

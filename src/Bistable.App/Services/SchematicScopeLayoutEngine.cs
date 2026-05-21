@@ -2,13 +2,13 @@ using Avalonia;
 
 namespace Bistable.App.Services;
 
-public sealed class SchematicScopeLayoutEngine
+public sealed class SchematicScopeLayoutEngine : ISchematicLayoutEngine
 {
     public SchematicScopePanelLayout Compute(SchematicScopeLayoutInput input)
     {
-        int visibleProbeCount = Math.Min(input.ScopeSignalCount, input.CompactLayout ? 8 : 14);
-        int visibleChildCount = Math.Min(input.ChildScopeCount, input.CompactLayout ? 4 : 8);
-        int visibleLocalCount = Math.Min(input.LocalSignalCount, input.CompactLayout ? 4 : 8);
+        int visibleProbeCount = Math.Min(input.ScopeSignalCount, input.CompactLayout ? 10 : 18);
+        int visibleChildCount = Math.Min(input.ChildScopeCount, input.CompactLayout ? 6 : 10);
+        int visibleLocalCount = Math.Min(input.LocalSignalCount, input.CompactLayout ? 8 : 14);
         int visibleLeftPortCount = Math.Min(input.InputPortCount, input.CompactLayout ? 5 : 8);
         int visibleRightPortCount = Math.Min(input.OutputPortCount, input.CompactLayout ? 5 : 8);
         bool inlineChildren = visibleChildCount > 0 && input.WorldBounds.Width >= (input.CompactLayout ? 1080 : 1440);

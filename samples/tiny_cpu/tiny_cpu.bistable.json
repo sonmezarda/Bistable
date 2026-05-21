@@ -1,0 +1,21 @@
+{
+  "topModule": "tiny_cpu_top",
+  "sources": [
+    "tiny_cpu_top.sv",
+    "control_unit.sv",
+    "register_file.sv",
+    "alu8.sv",
+    "status_flags.sv"
+  ],
+  "clocks": [
+    { "name": "clk", "defaultPeriodNs": 10 }
+  ],
+  "resets": [
+    { "name": "rst_n", "activeLevel": 0 }
+  ],
+  "trace": {
+    "enabled": true,
+    "format": "vcd",
+    "depth": 4
+  }
+}

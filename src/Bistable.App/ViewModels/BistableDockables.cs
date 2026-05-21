@@ -29,6 +29,9 @@ public sealed class BistableToolDockable : Tool
         Id = id;
         Title = title;
         CanClose = false;
+        CanDrag = false;
+        CanDrop = false;
+        CanFloat = false;
         CanPin = false;
     }
 
@@ -47,6 +50,9 @@ public sealed class BistableDocumentDockable : Document
         Id = id;
         Title = title;
         CanClose = false;
+        CanDrag = false;
+        CanDrop = false;
+        CanFloat = false;
         CanPin = false;
     }
 
