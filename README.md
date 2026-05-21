@@ -106,6 +106,18 @@ The current UI also supports a basic IDE-style workspace flow:
 - bus routes now render with stronger strokes and compact inline labels, while selected routes expose a label hit target for easier inspection.
 - route labels are now clamped inside the scope panel and spaced apart by the router to avoid obvious label collisions.
 - repeated routes for the same bus now draw one grouped label with a fanout count instead of repeating the same label on every branch.
+- repeated routes for the same net now share a routed bundle lane, so fanout is drawn as one trunk with short branches instead of independent overlapping paths.
+- focused schematic worlds and scope panels now reserve more horizontal routing space, making dense hierarchy inspection favor readability over fitting everything into a tiny box.
+- schematic module pins now place labels before the bit/value badge, keeping the badge adjacent to the connector line instead of drifting away from the pin.
+- child instance cards now keep port labels and width badges inside the symbol body, with short edge stubs instead of long internal lines crossing text bands.
+- focused scope symbols now keep their own port labels and width badges inside the active module body, reducing cable/label collisions around scope outputs.
+- focused hierarchy views now avoid drawing the parent scope as a small side module; parent navigation remains in breadcrumbs/tree while the canvas concentrates on the active scope and its child instances.
+- schematic hierarchy now starts collapsed like Vivado: the selected scope renders as a symbol until the `+` affordance or double-click expands that scope.
+- expanded schematic scopes render boundary port glyphs plus child instances, instead of drawing the parent module as a competing box next to its children.
+- child instance expansion is now in-place: expanding `u_core` from inside `system_top` keeps the current canvas context and opens `u_core` as a nested scope panel with its own boundary ports and child instances.
+- expanded hierarchy panels now resize their world and local layout around nested scopes so open modules remain pannable and do not collapse into neighboring cards.
+- schematic connection routing now accepts layout obstacles and performs bounded orthogonal detours around module cards/local regions, reducing routes that cut through symbols in dense hierarchy views.
+- schematic routes now use a small net-class palette: boundary input routes, local/internal net routes, and child output routes are visually separated.
 - schematic split panes now keep practical minimum sizes during resize so the probe and hierarchy regions do not collapse into unusable strips.
 - child instance cards now use an internal card layout engine, with explicit header/body/footer regions and bounded port rows so dense cards stay readable.
 - local net chips and routed schematic connections are now selectable inspection surfaces, not only passive drawing primitives.
@@ -152,7 +164,11 @@ surface. That means:
 - dense hierarchy inspection can now move into a dedicated `Schematic Studio` window with a larger world canvas and a less compact placement mode
 - waveform inspection can now move into a dedicated `Waveform Studio` window instead of competing with docked pane width
 - dense scope routing now uses explicit lane planning for current-port, child-port, and local-net connections, which reduces line overlap in wider hierarchy views
+- fanout routing is bundle-aware, so repeated child connections for the same current-scope signal reuse one trunk lane and one primary label
 - child instance cards now compress their internal port rows to stay within the card body instead of spilling into footer space
+- child instance port rows now follow a Logisim-style symbol treatment: the route terminates at the card edge and pin metadata stays inside the symbol
+- active scope views now behave more like a descend-into-schematic view: the parent is not drawn as a competing mini-symbol on the canvas
+- schematic expansion state is separate from hierarchy selection, so selecting a scope for inspection does not automatically explode its internals on the canvas
 - local net chips and routed connections can now be clicked to select the matching traced signal and double-clicked to push it into the waveform
 - `Schematic Studio` now supports scope breadcrumbs, `Scope` framing, and keyboard navigation (`F`, `S`, `1`, `+`, `-`)
 - clock edges are still explicit through `Tick` and `Run`

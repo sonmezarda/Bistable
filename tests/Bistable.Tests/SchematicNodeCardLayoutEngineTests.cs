@@ -52,6 +52,34 @@ public sealed class SchematicNodeCardLayoutEngineTests
         });
     }
 
+    [Fact]
+    public void ConnectionStubsStayAtTheCardEdgeAndDoNotCrossTextBands()
+    {
+        SchematicNodeCardLayout layout = _engine.Compute(new SchematicNodeCardLayoutInput(
+            new Rect(100, 60, 360, 170),
+            CompactLayout: false,
+            InputCount: 4,
+            OutputCount: 3,
+            TotalInputCount: 4,
+            TotalOutputCount: 3));
+
+        Assert.All(layout.InputRows, row =>
+        {
+            Assert.Equal(layout.Bounds.X, row.RouteAnchor.X);
+            Assert.True(row.StubStart.X >= layout.Bounds.X);
+            Assert.True(row.StubEnd.X < row.TextBandRect.X);
+            Assert.False(SegmentIntersects(row.StubStart, row.StubEnd, row.TextBandRect));
+        });
+
+        Assert.All(layout.OutputRows, row =>
+        {
+            Assert.Equal(layout.Bounds.Right, row.RouteAnchor.X);
+            Assert.True(row.StubEnd.X <= layout.Bounds.Right);
+            Assert.True(row.StubStart.X > row.TextBandRect.Right);
+            Assert.False(SegmentIntersects(row.StubStart, row.StubEnd, row.TextBandRect));
+        });
+    }
+
     private static void AssertRowsInsideBody(Rect bodyRect, IReadOnlyList<SchematicNodeCardRowLayout> rows)
     {
         Assert.All(rows, row =>
@@ -70,5 +98,14 @@ public sealed class SchematicNodeCardLayoutEngineTests
                 Assert.False(rows[i].Bounds.Intersects(rows[j].Bounds), $"Rows {i} and {j} overlap.");
             }
         }
+    }
+
+    private static bool SegmentIntersects(Point start, Point end, Rect rect)
+    {
+        double minX = Math.Min(start.X, end.X);
+        double maxX = Math.Max(start.X, end.X);
+        double minY = Math.Min(start.Y, end.Y);
+        double maxY = Math.Max(start.Y, end.Y);
+        return new Rect(minX, minY, Math.Max(1, maxX - minX), Math.Max(1, maxY - minY)).Intersects(rect);
     }
 }

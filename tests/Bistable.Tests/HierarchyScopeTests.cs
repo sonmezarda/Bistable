@@ -189,6 +189,67 @@ public sealed class HierarchyScopeTests
         Assert.Contains(logic.PortConnections, connection => connection is { PortName: "a", SignalName: "a", IsInput: true, Width: 8 });
         Assert.Contains(logic.PortConnections, connection => connection is { PortName: "sum", SignalName: "result", IsOutput: true, Width: 8 });
         Assert.Contains(logic.PortConnections, connection => connection is { PortName: "parity", SignalName: "parity_i", IsOutput: true, Width: 1 });
+
+        viewModel.SelectedHierarchyPath = "system_top";
+
+        await WaitUntilAsync(() => viewModel.SelectedHierarchyChildInstances.Count == 1, TimeSpan.FromSeconds(5));
+
+        HierarchyScopeInstanceViewModel core = Assert.Single(viewModel.SelectedHierarchyChildInstances);
+        Assert.Equal("system_top.u_core", core.HierarchyPath);
+        Assert.Contains(core.Ports, port => port is { Name: "clk", IsInput: true, Width: 1 });
+        Assert.Contains(core.Ports, port => port is { Name: "result", IsOutput: true, Width: 8 });
+        Assert.Contains(core.LocalSignals, signal => signal is { Name: "parity_i", Width: 1 });
+        Assert.Contains(core.ChildInstances, child => child.HierarchyPath == "system_top.u_core.u_logic");
+        Assert.Contains(core.ChildInstances, child => child.HierarchyPath == "system_top.u_core.u_status");
+    }
+
+    [Fact]
+    public async Task SchematicExpansionStateStartsCollapsedAndIsIndependentFromSelection()
+    {
+        string root = FindRepositoryRoot();
+        string samplePath = Path.Combine(root, "samples", "hierarchy", "hierarchy.bistable.json");
+        MainWindowViewModel viewModel = CreateViewModel();
+
+        await viewModel.LoadProjectFromPathAsync(samplePath, CancellationToken.None);
+
+        Assert.Empty(viewModel.SchematicExpandedPaths);
+        Assert.Equal("system_top", viewModel.SelectedHierarchyPath);
+        Assert.False(viewModel.IsSelectedHierarchyScopeExpanded);
+
+        viewModel.ToggleSchematicExpansionCommand.Execute("system_top");
+
+        Assert.Contains("system_top", viewModel.SchematicExpandedPaths);
+        Assert.True(viewModel.IsSelectedHierarchyScopeExpanded);
+
+        viewModel.SelectedHierarchyPath = "system_top.u_core";
+
+        Assert.Equal("system_top.u_core", viewModel.SelectedHierarchyPath);
+        Assert.Contains("system_top", viewModel.SchematicExpandedPaths);
+        Assert.False(viewModel.IsSelectedHierarchyScopeExpanded);
+
+        viewModel.ToggleSchematicExpansionCommand.Execute("system_top.u_core");
+
+        Assert.Contains("system_top.u_core", viewModel.SchematicExpandedPaths);
+        Assert.True(viewModel.IsSelectedHierarchyScopeExpanded);
+
+        viewModel.SelectedHierarchyPath = "system_top";
+        viewModel.ToggleSchematicExpansionCommand.Execute("system_top.u_core");
+
+        Assert.Equal("system_top", viewModel.SelectedHierarchyPath);
+        Assert.Contains("system_top", viewModel.SchematicExpandedPaths);
+        Assert.DoesNotContain("system_top.u_core", viewModel.SchematicExpandedPaths);
+        Assert.True(viewModel.IsSelectedHierarchyScopeExpanded);
+
+        viewModel.ToggleSchematicExpansionCommand.Execute("system_top.u_core");
+
+        Assert.Equal("system_top", viewModel.SelectedHierarchyPath);
+        Assert.Contains("system_top.u_core", viewModel.SchematicExpandedPaths);
+
+        viewModel.SelectedHierarchyPath = "system_top.u_core";
+        viewModel.ToggleSchematicExpansionCommand.Execute("system_top.u_core");
+
+        Assert.DoesNotContain("system_top.u_core", viewModel.SchematicExpandedPaths);
+        Assert.False(viewModel.IsSelectedHierarchyScopeExpanded);
     }
 
     private static MainWindowViewModel CreateViewModel()

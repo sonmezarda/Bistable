@@ -50,9 +50,9 @@ public sealed class SchematicNodeCardLayoutEngine
             return [];
         }
 
-        double sideInset = compactLayout ? 10 : 12;
-        double rowHeight = compactLayout ? 14 : 18;
-        double rowGap = compactLayout ? 3 : 5;
+        double sideInset = compactLayout ? 12 : 14;
+        double rowHeight = compactLayout ? 16 : 18;
+        double rowGap = compactLayout ? 5 : 6;
         double availableHeight = Math.Max(12, bodyRect.Height - 8);
         double preferredHeight = visibleCount * rowHeight + Math.Max(0, visibleCount - 1) * rowGap;
         if (preferredHeight > availableHeight)
@@ -66,11 +66,12 @@ public sealed class SchematicNodeCardLayoutEngine
 
         double totalHeight = visibleCount * rowHeight + Math.Max(0, visibleCount - 1) * rowGap;
         double startY = bodyRect.Y + Math.Max(4, (bodyRect.Height - totalHeight) / 2);
-        double stubLength = compactLayout ? 10 : 14;
-        double labelInset = compactLayout ? 10 : 12;
-        double labelWidth = Math.Max(42, cardRect.Width * (compactLayout ? 0.34 : 0.38));
-        double widthBadgeWidth = compactLayout ? 24 : 28;
-        double textBandWidth = Math.Min(labelWidth + widthBadgeWidth + 8, cardRect.Width / 2 - sideInset - 8);
+        double stubLength = compactLayout ? 12 : 14;
+        double pinGap = compactLayout ? 8 : 10;
+        double widthBadgeWidth = compactLayout ? 28 : 32;
+        double textBandWidth = Math.Min(
+            Math.Max(compactLayout ? 96 : 122, cardRect.Width * (compactLayout ? 0.38 : 0.42)),
+            Math.Max(76, cardRect.Width / 2 - sideInset - 10));
 
         List<SchematicNodeCardRowLayout> rows = [];
         for (int index = 0; index < visibleCount; index++)
@@ -78,20 +79,20 @@ public sealed class SchematicNodeCardLayoutEngine
             double y = startY + index * (rowHeight + rowGap);
             Rect rowRect = new(cardRect.X + sideInset, y, cardRect.Width - sideInset * 2, rowHeight);
             Point stubStart = isInput
-                ? new Point(cardRect.X - stubLength, y + rowHeight / 2)
-                : new Point(cardRect.Right, y + rowHeight / 2);
-            Point stubEnd = isInput
                 ? new Point(cardRect.X, y + rowHeight / 2)
-                : new Point(cardRect.Right + stubLength, y + rowHeight / 2);
+                : new Point(cardRect.Right - stubLength, y + rowHeight / 2);
+            Point stubEnd = isInput
+                ? new Point(cardRect.X + stubLength, y + rowHeight / 2)
+                : new Point(cardRect.Right, y + rowHeight / 2);
             Rect textBand = isInput
-                ? new Rect(cardRect.X + labelInset, y + 1, textBandWidth, rowHeight - 2)
-                : new Rect(cardRect.Right - labelInset - textBandWidth, y + 1, textBandWidth, rowHeight - 2);
+                ? new Rect(cardRect.X + stubLength + pinGap, y + 1, textBandWidth, rowHeight - 2)
+                : new Rect(cardRect.Right - stubLength - pinGap - textBandWidth, y + 1, textBandWidth, rowHeight - 2);
             Rect widthBadge = isInput
-                ? new Rect(textBand.Right - widthBadgeWidth, y + 1, widthBadgeWidth, rowHeight - 2)
-                : new Rect(textBand.X, y + 1, widthBadgeWidth, rowHeight - 2);
+                ? new Rect(textBand.X, y + 1, widthBadgeWidth, rowHeight - 2)
+                : new Rect(textBand.Right - widthBadgeWidth, y + 1, widthBadgeWidth, rowHeight - 2);
             Rect labelRect = isInput
-                ? new Rect(textBand.X + 4, y + 1, Math.Max(20, textBand.Width - widthBadgeWidth - 8), rowHeight - 2)
-                : new Rect(textBand.X + widthBadgeWidth + 4, y + 1, Math.Max(20, textBand.Width - widthBadgeWidth - 8), rowHeight - 2);
+                ? new Rect(textBand.X + widthBadgeWidth + 6, y + 1, Math.Max(24, textBand.Width - widthBadgeWidth - 8), rowHeight - 2)
+                : new Rect(textBand.X, y + 1, Math.Max(24, textBand.Width - widthBadgeWidth - 8), rowHeight - 2);
             Point routeAnchor = isInput ? new(cardRect.X, y + rowHeight / 2) : new(cardRect.Right, y + rowHeight / 2);
 
             rows.Add(new SchematicNodeCardRowLayout(

@@ -169,4 +169,272 @@ public sealed class SchematicConnectionRouterTests
             }
         }
     }
+
+    [Fact]
+    public void InlineFanoutRoutesShareOneBundleLane()
+    {
+        SchematicScopePanelLayout layout = new(
+            new Rect(0, 0, 1400, 760),
+            new Rect(300, 180, 320, 156),
+            null,
+            [
+                new Rect(860, 180, 260, 120),
+                new Rect(860, 336, 260, 120)
+            ],
+            new Rect(24, 540, 900, 48),
+            new Rect(24, 604, 900, 96),
+            InlineChildren: true,
+            RouteCorridorWidth: 220,
+            ChildCardWidth: 260,
+            ChildCardHeight: 120,
+            TitleBlockHeight: 90,
+            LocalColumns: 1,
+            LocalRowCount: 1,
+            ProbeColumns: 2,
+            ProbeRowCount: 2);
+
+        IReadOnlyList<SchematicConnectionRoute> routes = _router.Compute(new SchematicConnectionRoutingInput(
+            layout,
+            CompactLayout: false,
+            [
+                new SchematicConnectionRouteRequest("fanout-a", "clk", "clk", 1, new Point(620, 220), new Point(860, 210), SourceFromLocalSignal: false, TargetIsInput: true),
+                new SchematicConnectionRouteRequest("fanout-b", "clk", "clk", 1, new Point(620, 220), new Point(860, 366), SourceFromLocalSignal: false, TargetIsInput: true),
+                new SchematicConnectionRouteRequest("rst", "rst_n", "rst_n", 1, new Point(620, 260), new Point(860, 400), SourceFromLocalSignal: false, TargetIsInput: true)
+            ]));
+
+        SchematicConnectionRoute[] fanoutRoutes = routes
+            .Where(static route => route.BundleKey == "clk")
+            .ToArray();
+        SchematicConnectionRoute resetRoute = Assert.Single(routes, static route => route.BundleKey == "rst_n");
+
+        Assert.Equal(2, fanoutRoutes.Length);
+        Assert.All(fanoutRoutes, route =>
+        {
+            Assert.Equal(2, route.BundleSize);
+            Assert.Equal(fanoutRoutes[0].Points[1].X, route.Points[1].X);
+        });
+        Assert.Single(fanoutRoutes, static route => route.IsBundlePrimary);
+        Assert.NotEqual(resetRoute.Points[1].X, fanoutRoutes[0].Points[1].X);
+    }
+
+    [Fact]
+    public void StackedFanoutRoutesShareOneTrunkLane()
+    {
+        SchematicScopePanelLayout layout = new(
+            new Rect(0, 0, 980, 940),
+            new Rect(320, 180, 240, 140),
+            null,
+            [
+                new Rect(180, 420, 260, 120),
+                new Rect(480, 420, 260, 120)
+            ],
+            new Rect(24, 650, 900, 54),
+            new Rect(24, 730, 900, 120),
+            InlineChildren: false,
+            RouteCorridorWidth: 120,
+            ChildCardWidth: 260,
+            ChildCardHeight: 120,
+            TitleBlockHeight: 74,
+            LocalColumns: 1,
+            LocalRowCount: 1,
+            ProbeColumns: 2,
+            ProbeRowCount: 2);
+
+        IReadOnlyList<SchematicConnectionRoute> routes = _router.Compute(new SchematicConnectionRoutingInput(
+            layout,
+            CompactLayout: true,
+            [
+                new SchematicConnectionRouteRequest("valid-a", "valid", "valid", 1, new Point(560, 224), new Point(180, 442), SourceFromLocalSignal: false, TargetIsInput: true),
+                new SchematicConnectionRouteRequest("valid-b", "valid", "valid", 1, new Point(560, 224), new Point(480, 478), SourceFromLocalSignal: false, TargetIsInput: true),
+                new SchematicConnectionRouteRequest("sum", "sum", "sum", 8, new Point(300, 670), new Point(740, 474), SourceFromLocalSignal: true, TargetIsInput: false)
+            ]));
+
+        SchematicConnectionRoute[] fanoutRoutes = routes
+            .Where(static route => route.BundleKey == "valid")
+            .ToArray();
+
+        Assert.Equal(2, fanoutRoutes.Length);
+        Assert.All(fanoutRoutes, route =>
+        {
+            Assert.Equal(2, route.BundleSize);
+            Assert.Equal(fanoutRoutes[0].Points[1].Y, route.Points[1].Y);
+        });
+        Assert.Single(fanoutRoutes, static route => route.IsBundlePrimary);
+    }
+
+    [Fact]
+    public void InlineRoutesDetourAroundBlockingObstacles()
+    {
+        SchematicScopePanelLayout layout = new(
+            new Rect(0, 0, 1200, 760),
+            new Rect(300, 160, 200, 120),
+            null,
+            [new Rect(800, 160, 220, 120)],
+            new Rect(24, 540, 900, 48),
+            new Rect(24, 604, 900, 96),
+            InlineChildren: true,
+            RouteCorridorWidth: 300,
+            ChildCardWidth: 220,
+            ChildCardHeight: 120,
+            TitleBlockHeight: 90,
+            LocalColumns: 1,
+            LocalRowCount: 1,
+            ProbeColumns: 2,
+            ProbeRowCount: 2);
+        Rect obstacle = new(700, 186, 46, 42);
+
+        IReadOnlyList<SchematicConnectionRoute> routes = _router.Compute(new SchematicConnectionRoutingInput(
+            layout,
+            CompactLayout: false,
+            [
+                new SchematicConnectionRouteRequest("data", "data", "data", 8, new Point(500, 207), new Point(800, 207), SourceFromLocalSignal: false, TargetIsInput: true)
+            ],
+            [obstacle]));
+
+        SchematicConnectionRoute route = Assert.Single(routes);
+
+        Assert.True(route.Points.Count > 4);
+        AssertNoSegmentIntersects(route.Points, obstacle.Inflate(10));
+    }
+
+    [Fact]
+    public void StackedRoutesDetourAroundBlockingObstacles()
+    {
+        SchematicScopePanelLayout layout = new(
+            new Rect(0, 0, 980, 940),
+            new Rect(320, 120, 240, 140),
+            null,
+            [new Rect(180, 420, 260, 120)],
+            new Rect(24, 650, 900, 54),
+            new Rect(24, 730, 900, 120),
+            InlineChildren: false,
+            RouteCorridorWidth: 120,
+            ChildCardWidth: 260,
+            ChildCardHeight: 120,
+            TitleBlockHeight: 74,
+            LocalColumns: 1,
+            LocalRowCount: 1,
+            ProbeColumns: 2,
+            ProbeRowCount: 2);
+        Rect obstacle = new(432, 292, 56, 28);
+
+        IReadOnlyList<SchematicConnectionRoute> routes = _router.Compute(new SchematicConnectionRoutingInput(
+            layout,
+            CompactLayout: true,
+            [
+                new SchematicConnectionRouteRequest("clk", "clk", "clk", 1, new Point(440, 260), new Point(440, 420), SourceFromLocalSignal: false, TargetIsInput: true)
+            ],
+            [obstacle]));
+
+        SchematicConnectionRoute route = Assert.Single(routes);
+
+        Assert.True(route.Points.Count > 4);
+        AssertNoSegmentIntersects(route.Points, obstacle.Inflate(8));
+    }
+
+    [Fact]
+    public void RoutesCanDetourAroundMultipleBlockingObstacles()
+    {
+        SchematicScopePanelLayout layout = new(
+            new Rect(0, 0, 1300, 760),
+            new Rect(300, 160, 200, 120),
+            null,
+            [new Rect(880, 160, 220, 120)],
+            new Rect(24, 540, 900, 48),
+            new Rect(24, 604, 900, 96),
+            InlineChildren: true,
+            RouteCorridorWidth: 360,
+            ChildCardWidth: 220,
+            ChildCardHeight: 120,
+            TitleBlockHeight: 90,
+            LocalColumns: 1,
+            LocalRowCount: 1,
+            ProbeColumns: 2,
+            ProbeRowCount: 2);
+        Rect firstObstacle = new(710, 186, 42, 42);
+        Rect secondObstacle = new(780, 186, 42, 42);
+
+        IReadOnlyList<SchematicConnectionRoute> routes = _router.Compute(new SchematicConnectionRoutingInput(
+            layout,
+            CompactLayout: false,
+            [
+                new SchematicConnectionRouteRequest("data", "data", "data", 8, new Point(500, 207), new Point(880, 207), SourceFromLocalSignal: false, TargetIsInput: true)
+            ],
+            [firstObstacle, secondObstacle]));
+
+        SchematicConnectionRoute route = Assert.Single(routes);
+
+        Assert.True(route.Points.Count > 4);
+        AssertNoSegmentIntersects(route.Points, firstObstacle.Inflate(10));
+        AssertNoSegmentIntersects(route.Points, secondObstacle.Inflate(10));
+    }
+
+    [Fact]
+    public void RouteLabelsAvoidObstacles()
+    {
+        SchematicScopePanelLayout layout = new(
+            new Rect(0, 0, 1200, 760),
+            new Rect(300, 160, 200, 120),
+            null,
+            [new Rect(800, 160, 220, 120)],
+            new Rect(24, 540, 900, 48),
+            new Rect(24, 604, 900, 96),
+            InlineChildren: true,
+            RouteCorridorWidth: 300,
+            ChildCardWidth: 220,
+            ChildCardHeight: 120,
+            TitleBlockHeight: 90,
+            LocalColumns: 1,
+            LocalRowCount: 1,
+            ProbeColumns: 2,
+            ProbeRowCount: 2);
+        Rect labelObstacle = new(610, 192, 86, 32);
+
+        IReadOnlyList<SchematicConnectionRoute> routes = _router.Compute(new SchematicConnectionRoutingInput(
+            layout,
+            CompactLayout: false,
+            [
+                new SchematicConnectionRouteRequest("data", "data", "data", 16, new Point(500, 207), new Point(800, 207), SourceFromLocalSignal: false, TargetIsInput: true)
+            ],
+            [labelObstacle]));
+
+        SchematicConnectionRoute route = Assert.Single(routes);
+
+        Assert.False(route.LabelBounds.Intersects(labelObstacle.Inflate(3)));
+        Assert.True(layout.PanelRect.Contains(route.LabelBounds.TopLeft));
+        Assert.True(layout.PanelRect.Contains(route.LabelBounds.BottomRight));
+    }
+
+    private static void AssertNoSegmentIntersects(IReadOnlyList<Point> points, Rect obstacle)
+    {
+        for (int index = 0; index < points.Count - 1; index++)
+        {
+            Assert.False(SegmentIntersects(points[index], points[index + 1], obstacle), $"Segment {index} intersects {obstacle}.");
+        }
+    }
+
+    private static bool SegmentIntersects(Point start, Point end, Rect rect)
+    {
+        if (Math.Abs(start.Y - end.Y) < 0.01)
+        {
+            double minX = Math.Min(start.X, end.X);
+            double maxX = Math.Max(start.X, end.X);
+            return start.Y > rect.Y
+                && start.Y < rect.Bottom
+                && maxX > rect.X
+                && minX < rect.Right;
+        }
+
+        if (Math.Abs(start.X - end.X) < 0.01)
+        {
+            double minY = Math.Min(start.Y, end.Y);
+            double maxY = Math.Max(start.Y, end.Y);
+            return start.X > rect.X
+                && start.X < rect.Right
+                && maxY > rect.Y
+                && minY < rect.Bottom;
+        }
+
+        return false;
+    }
 }

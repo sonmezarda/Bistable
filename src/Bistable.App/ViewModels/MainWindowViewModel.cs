@@ -80,6 +80,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         AddSelectedWaveformSignalCommand = new RelayCommand(AddSelectedWaveformSignal);
         AddHierarchyScopeSignalsToWaveformCommand = new RelayCommand(AddHierarchyScopeSignalsToWaveform);
         SelectHierarchyScopeCommand = new ParameterizedRelayCommand<string>(SelectHierarchyScope);
+        ToggleSchematicExpansionCommand = new ParameterizedRelayCommand<string>(ToggleSchematicExpansion);
         ToggleInputSignalCommand = new ParameterizedRelayCommand<string>(ToggleInputSignal);
         DriveSelectedSchematicInputCommand = new RelayCommand(DriveSelectedSchematicInput);
         RemoveSelectedWaveformSignalCommand = new RelayCommand(RemoveSelectedWaveformSignal);
@@ -127,6 +128,8 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<HierarchyScopeLocalSignalViewModel> SelectedHierarchyLocalSignals { get; } = [];
 
+    public ObservableCollection<string> SchematicExpandedPaths { get; } = [];
+
     public ObservableCollection<SampleProjectViewModel> Samples { get; } = [];
 
     public ObservableCollection<WaveformLaneViewModel> WaveformLanes { get; } = [];
@@ -159,6 +162,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                 OnPropertyChanged(nameof(SelectedHierarchyScopeTitle));
                 OnPropertyChanged(nameof(SelectedHierarchyScopeModuleName));
                 OnPropertyChanged(nameof(SelectedHierarchyScopePath));
+                OnPropertyChanged(nameof(IsSelectedHierarchyScopeExpanded));
                 OnPropertyChanged(nameof(SelectedHierarchyScopeSummary));
                 OnPropertyChanged(nameof(SelectedHierarchyScopeHint));
                 OnPropertyChanged(nameof(SelectedHierarchyParentScope));
@@ -188,6 +192,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ICommand AddHierarchyScopeSignalsToWaveformCommand { get; }
 
     public ICommand SelectHierarchyScopeCommand { get; }
+
+    public ICommand ToggleSchematicExpansionCommand { get; }
 
     public ICommand ToggleInputSignalCommand { get; }
 
@@ -595,6 +601,10 @@ public sealed class MainWindowViewModel : ViewModelBase
     public string SelectedHierarchyScopePath =>
         SelectedHierarchyNode?.HierarchyPath ?? string.Empty;
 
+    public bool IsSelectedHierarchyScopeExpanded =>
+        SelectedHierarchyNode is not null
+        && SchematicExpandedPaths.Contains(SelectedHierarchyNode.HierarchyPath, StringComparer.OrdinalIgnoreCase);
+
     public string SelectedHierarchyScopeSummary
     {
         get
@@ -795,6 +805,8 @@ public sealed class MainWindowViewModel : ViewModelBase
             _currentMetadata = result.Metadata;
             _currentDesign = result.Design;
             _currentProjectDirectory = result.ProjectDirectory;
+            SchematicExpandedPaths.Clear();
+            OnPropertyChanged(nameof(IsSelectedHierarchyScopeExpanded));
 
             foreach (string clockName in ResolveAvailableClocks(result.Project, Inputs))
             {
@@ -1732,6 +1744,29 @@ public sealed class MainWindowViewModel : ViewModelBase
         SelectedHierarchyPath = hierarchyPath;
     }
 
+    private void ToggleSchematicExpansion(string hierarchyPath)
+    {
+        if (string.IsNullOrWhiteSpace(hierarchyPath))
+        {
+            return;
+        }
+
+        string? existing = SchematicExpandedPaths.FirstOrDefault(path =>
+            string.Equals(path, hierarchyPath, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+        {
+            SchematicExpandedPaths.Add(hierarchyPath);
+            Status = $"Expanded schematic scope {hierarchyPath}.";
+        }
+        else
+        {
+            SchematicExpandedPaths.Remove(existing);
+            Status = $"Collapsed schematic scope {hierarchyPath}.";
+        }
+
+        OnPropertyChanged(nameof(IsSelectedHierarchyScopeExpanded));
+    }
+
     private Task PersistLayoutStateAsync() =>
         _workspace.LayoutState.SaveAsync(new LayoutState(
             WaveformZoom,
@@ -1963,7 +1998,63 @@ public sealed class MainWindowViewModel : ViewModelBase
             module?.Outputs.Count ?? 0,
             summary?.ExactSignalCount ?? 0,
             summary?.DescendantSignalCount ?? 0,
-            connections);
+            connections,
+            CreateScopePorts(module),
+            CreateScopeLocalSignals(node.HierarchyPath, node.ModuleName),
+            CreateChildScopeInstances(node));
+    }
+
+    private IReadOnlyList<HierarchyScopePortViewModel> CreateScopePorts(ModuleMetadata? module)
+    {
+        if (module is null)
+        {
+            return [];
+        }
+
+        return module.Ports
+            .OrderBy(static port => port.PinIndex)
+            .Select(static port => new HierarchyScopePortViewModel(port.Name, port.Direction, port.Width, port.IsSigned))
+            .ToList();
+    }
+
+    private IReadOnlyList<HierarchyScopeLocalSignalViewModel> CreateScopeLocalSignals(string hierarchyPath, string moduleName)
+    {
+        if (_currentDesign is null || !_currentDesign.ModuleDefinitions.TryGetValue(moduleName, out Bistable.Core.Design.DesignModuleDefinition? definition))
+        {
+            return [];
+        }
+
+        List<HierarchyScopeLocalSignalViewModel> signals = [];
+        foreach (Bistable.Core.Design.DesignLocalSignal local in definition.LocalSignals.OrderBy(static local => local.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            SignalViewModel? traced = TraceSignals.FirstOrDefault(signal =>
+                string.Equals(signal.ScopePath, hierarchyPath, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(signal.ShortName, local.Name, StringComparison.OrdinalIgnoreCase));
+            signals.Add(new HierarchyScopeLocalSignalViewModel(
+                local.Name,
+                local.Width,
+                local.IsSigned,
+                traced is not null,
+                traced?.Value ?? "-",
+                traced?.Name));
+        }
+
+        return signals;
+    }
+
+    private IReadOnlyList<HierarchyScopeInstanceViewModel> CreateChildScopeInstances(HierarchyNodeViewModel node)
+    {
+        if (_currentDesign is null || !_currentDesign.ModuleDefinitions.TryGetValue(node.ModuleName, out Bistable.Core.Design.DesignModuleDefinition? definition))
+        {
+            return [];
+        }
+
+        Dictionary<string, Bistable.Core.Design.DesignInstanceDefinition> instancesByName = definition.Instances
+            .ToDictionary(static instance => instance.Name, StringComparer.OrdinalIgnoreCase);
+        return node.Children
+            .OrderBy(static child => child.InstanceName, StringComparer.OrdinalIgnoreCase)
+            .Select(child => CreateScopeInstance(child, instancesByName))
+            .ToList();
     }
 
     private Bistable.Core.Design.DesignModuleDefinition? ResolveCurrentModuleDefinition()

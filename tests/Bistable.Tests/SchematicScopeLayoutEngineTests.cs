@@ -65,6 +65,30 @@ public sealed class SchematicScopeLayoutEngineTests
         Assert.True(layout.ProbeSectionRect.Y > layout.LocalSectionRect!.Value.Bottom);
     }
 
+    [Fact]
+    public void CompactFocusedLayoutKeepsARoutableInlineCorridor()
+    {
+        SchematicScopePanelLayout layout = _engine.Compute(new SchematicScopeLayoutInput(
+            new Rect(0, 0, 2600, 1700),
+            new Rect(860, 160, 520, 300),
+            96,
+            CompactLayout: true,
+            ParentVisible: true,
+            ScopeSignalCount: 12,
+            ChildScopeCount: 3,
+            LocalSignalCount: 6,
+            InputPortCount: 5,
+            OutputPortCount: 4,
+            MaxChildConnectionRows: 4));
+
+        Assert.True(layout.InlineChildren);
+        Assert.True(layout.PanelRect.Width >= 1400);
+        Assert.True(layout.RouteCorridorWidth >= 200);
+        Assert.All(layout.ChildNodeRects, rect => Assert.True(rect.X >= layout.CurrentNodeRect.Right + 180));
+        Assert.True(layout.LocalSectionRect!.Value.Y > layout.ChildNodeRects.Max(static rect => rect.Bottom));
+        Assert.True(layout.ProbeSectionRect.Y > layout.LocalSectionRect!.Value.Bottom);
+    }
+
     private static void AssertNoIntersections(IReadOnlyList<Rect> rects)
     {
         for (int i = 0; i < rects.Count; i++)

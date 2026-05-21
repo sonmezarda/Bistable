@@ -10,7 +10,10 @@ public sealed class HierarchyScopeInstanceViewModel
         int outputCount,
         int exactSignalCount,
         int descendantSignalCount,
-        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> portConnections)
+        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> portConnections,
+        IReadOnlyList<HierarchyScopePortViewModel>? ports = null,
+        IReadOnlyList<HierarchyScopeLocalSignalViewModel>? localSignals = null,
+        IReadOnlyList<HierarchyScopeInstanceViewModel>? childInstances = null)
     {
         HierarchyPath = hierarchyPath;
         InstanceName = instanceName;
@@ -20,6 +23,9 @@ public sealed class HierarchyScopeInstanceViewModel
         ExactSignalCount = exactSignalCount;
         DescendantSignalCount = descendantSignalCount;
         PortConnections = portConnections;
+        Ports = ports ?? [];
+        LocalSignals = localSignals ?? [];
+        ChildInstances = childInstances ?? [];
     }
 
     public string HierarchyPath { get; }
@@ -37,6 +43,12 @@ public sealed class HierarchyScopeInstanceViewModel
     public int DescendantSignalCount { get; }
 
     public IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> PortConnections { get; }
+
+    public IReadOnlyList<HierarchyScopePortViewModel> Ports { get; }
+
+    public IReadOnlyList<HierarchyScopeLocalSignalViewModel> LocalSignals { get; }
+
+    public IReadOnlyList<HierarchyScopeInstanceViewModel> ChildInstances { get; }
 
     public bool HasTraceActivity => ExactSignalCount > 0 || DescendantSignalCount > 0;
 

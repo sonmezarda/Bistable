@@ -11,7 +11,7 @@ public sealed class SchematicScopeLayoutEngine
         int visibleLocalCount = Math.Min(input.LocalSignalCount, input.CompactLayout ? 4 : 8);
         int visibleLeftPortCount = Math.Min(input.InputPortCount, input.CompactLayout ? 5 : 8);
         int visibleRightPortCount = Math.Min(input.OutputPortCount, input.CompactLayout ? 5 : 8);
-        bool inlineChildren = visibleChildCount > 0 && input.WorldBounds.Width >= (input.CompactLayout ? 920 : 1320);
+        bool inlineChildren = visibleChildCount > 0 && input.WorldBounds.Width >= (input.CompactLayout ? 1080 : 1440);
 
         int childColumnCount = inlineChildren && visibleChildCount > 2 ? 2 : 1;
         int childRowCount = visibleChildCount == 0 ? 0 : (int)Math.Ceiling(visibleChildCount / (double)childColumnCount);
@@ -21,9 +21,9 @@ public sealed class SchematicScopeLayoutEngine
         int probeRowCount = visibleProbeCount == 0 ? 0 : (int)Math.Ceiling(visibleProbeCount / (double)probeColumnCount);
 
         double panelWidth = Math.Clamp(
-            input.WorldBounds.Width * (inlineChildren ? (input.CompactLayout ? 0.82 : 0.84) : (input.CompactLayout ? 0.68 : 0.72)),
-            input.CompactLayout ? 520 : 720,
-            inlineChildren ? (input.CompactLayout ? 1180 : 1580) : (input.CompactLayout ? 920 : 1280));
+            input.WorldBounds.Width * (inlineChildren ? (input.CompactLayout ? 0.9 : 0.88) : (input.CompactLayout ? 0.76 : 0.78)),
+            input.CompactLayout ? 720 : 900,
+            inlineChildren ? (input.CompactLayout ? 1520 : 1840) : (input.CompactLayout ? 1180 : 1480));
 
         double titleBlockHeight = input.CompactLayout ? 84 : 104;
         double childCardHeight = GetChildCardHeight(input.MaxChildConnectionRows, input.CompactLayout);
@@ -43,7 +43,7 @@ public sealed class SchematicScopeLayoutEngine
         double panelHeight = Math.Clamp(
             navigationHeight + childrenBlockHeight + localBlockHeight + probeBlockHeight + (input.CompactLayout ? 88 : 112),
             input.CompactLayout ? 360 : 440,
-            input.CompactLayout ? 760 : 940);
+            input.CompactLayout ? 920 : 1120);
 
         double panelX = Math.Clamp(
             input.ModuleRect.Center.X - panelWidth / 2,
@@ -54,16 +54,16 @@ public sealed class SchematicScopeLayoutEngine
         double panelY = Math.Max(minimumTop, Math.Min(input.WorldBounds.Bottom - panelHeight - 16, targetY));
         Rect panel = new(panelX, panelY, panelWidth, panelHeight);
 
-        double currentNodeWidth = input.CompactLayout ? 300 : 380;
+        double currentNodeWidth = input.CompactLayout ? 340 : 420;
         double currentNodeHeight = GetCurrentNodeHeight(visibleLeftPortCount, visibleRightPortCount, input.CompactLayout);
         double headerBottom = panel.Y + titleBlockHeight;
         double currentNodeY = headerBottom + (input.CompactLayout ? 8 : 14);
 
         double parentWidth = input.ParentVisible ? (input.CompactLayout ? 170 : 190) : 0;
         double parentGap = input.ParentVisible ? (input.CompactLayout ? 34 : 42) : 0;
-        double leftPortZone = visibleLeftPortCount > 0 ? (input.CompactLayout ? 246 : 300) : 36;
-        double rightPortZone = visibleRightPortCount > 0 ? (input.CompactLayout ? 226 : 280) : 36;
-        double routeCorridorWidth = visibleChildCount > 0 ? (input.CompactLayout ? 150 : 190) : (input.CompactLayout ? 36 : 48);
+        double leftPortZone = visibleLeftPortCount > 0 ? (input.CompactLayout ? 280 : 330) : 40;
+        double rightPortZone = visibleRightPortCount > 0 ? (input.CompactLayout ? 260 : 310) : 40;
+        double routeCorridorWidth = visibleChildCount > 0 ? (input.CompactLayout ? 220 : 260) : (input.CompactLayout ? 42 : 56);
         double outerMargin = input.CompactLayout ? 18 : 22;
         double rightReserved = outerMargin + rightPortZone;
 
@@ -72,17 +72,17 @@ public sealed class SchematicScopeLayoutEngine
         IReadOnlyList<Rect> childRects = [];
         if (visibleChildCount > 0 && inlineChildren)
         {
-            double childGap = input.CompactLayout ? 22 : 30;
+            double childGap = input.CompactLayout ? 34 : 42;
             double availableForCurrentAndChildren = panel.Width - outerMargin - Math.Max(leftPortZone, parentWidth + parentGap) - rightReserved;
-            double preferredChildWidth = input.CompactLayout ? 300 : 360;
+            double preferredChildWidth = input.CompactLayout ? 360 : 420;
             double neededWidth = currentNodeWidth + routeCorridorWidth + childColumnCount * preferredChildWidth + (childColumnCount - 1) * childGap;
             double shrink = Math.Max(0, neededWidth - availableForCurrentAndChildren);
-            currentNodeWidth = Math.Max(input.CompactLayout ? 260 : 320, currentNodeWidth - shrink * 0.18);
+            currentNodeWidth = Math.Max(input.CompactLayout ? 300 : 360, currentNodeWidth - shrink * 0.12);
             double childAvailableWidth = Math.Max(
-                childColumnCount == 1 ? 260 : 2 * (input.CompactLayout ? 240 : 300) + childGap,
+                childColumnCount == 1 ? 320 : 2 * (input.CompactLayout ? 300 : 340) + childGap,
                 availableForCurrentAndChildren - currentNodeWidth - routeCorridorWidth);
             childCardWidth = childColumnCount == 1
-                ? Math.Min(Math.Max(260, childAvailableWidth), input.CompactLayout ? 400 : 480)
+                ? Math.Min(Math.Max(320, childAvailableWidth), input.CompactLayout ? 500 : 580)
                 : (childAvailableWidth - childGap) / 2;
 
             double currentNodeX = panel.X + outerMargin + Math.Max(leftPortZone, parentWidth + parentGap);
@@ -264,8 +264,8 @@ public sealed class SchematicScopeLayoutEngine
     {
         int portCount = Math.Max(inputCount, outputCount);
         return compactLayout
-            ? Math.Clamp(76 + portCount * 12, 108, 170)
-            : Math.Clamp(96 + portCount * 16, 132, 230);
+            ? Math.Clamp(106 + portCount * 18, 148, 220)
+            : Math.Clamp(128 + portCount * 22, 178, 290);
     }
 
     private static double GetChildCardHeight(int maxChildConnectionRows, bool compactLayout) =>
