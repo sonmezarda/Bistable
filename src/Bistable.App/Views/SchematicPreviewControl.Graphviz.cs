@@ -181,7 +181,10 @@ public sealed partial class SchematicPreviewControl
             nodeRects[node.Id] = new Rect(center.X - size.Width / 2, center.Y - size.Height / 2, size.Width, size.Height);
         }
 
+        NormalizeGraphvizModuleRects(graph, nodeRects);
+        NormalizeRootBoundaryPortRects(graph, nodeRects, viewport);
         DrawGraphvizContainers(context, graph, nodeRects);
+        IReadOnlyList<Rect> routeObstacles = BuildGraphvizRouteObstacles(graph, nodeRects);
 
         List<GraphvizRoutableEdge> routableEdges = [];
         foreach (GraphvizEdgeDefinition definition in graph.Edges.Values)
@@ -197,6 +200,7 @@ public sealed partial class SchematicPreviewControl
             .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
         Dictionary<string, int> laneIndexes = new(StringComparer.Ordinal);
         List<GraphvizRenderedEdge> renderedEdges = [];
+        List<GraphvizOccupiedSegment> occupiedSegments = [];
         foreach (GraphvizRoutableEdge edge in routableEdges
                      .OrderBy(static edge => Math.Min(edge.Start.Y, edge.End.Y))
                      .ThenBy(static edge => Math.Max(edge.Start.Y, edge.End.Y))
@@ -205,33 +209,48 @@ public sealed partial class SchematicPreviewControl
             laneIndexes.TryGetValue(edge.LaneGroupKey, out int laneIndex);
             laneIndexes[edge.LaneGroupKey] = laneIndex + 1;
             int laneCount = laneCounts.TryGetValue(edge.LaneGroupKey, out int count) ? count : 1;
-            renderedEdges.Add(new GraphvizRenderedEdge(
-                edge.Definition,
-                BuildGraphvizRenderedRoute(edge.Start, edge.End, laneIndex, laneCount)));
+            IReadOnlyList<Point> route = BuildGraphvizRenderedRoute(
+                edge.Start,
+                edge.End,
+                laneIndex,
+                laneCount,
+                routeObstacles,
+                occupiedSegments,
+                edge.Definition.SelectionSignalName);
+            renderedEdges.Add(new GraphvizRenderedEdge(edge.Definition, route));
+            AddGraphvizOccupiedSegments(occupiedSegments, route, edge.Definition.SelectionSignalName);
         }
 
         foreach (GraphvizRenderedEdge renderedEdge in renderedEdges)
         {
             GraphvizEdgeDefinition definition = renderedEdge.Definition;
             IReadOnlyList<Point> routePoints = renderedEdge.Points;
-            IBrush brush = definition.Kind == GraphvizEdgeKind.Input
+            bool highlighted = IsGraphvizSignalHighlighted(definition);
+            IBrush brush = highlighted
+                ? Palette.Selected
+                : definition.Kind == GraphvizEdgeKind.Input
                 ? Palette.PinStroke
                 : definition.Kind == GraphvizEdgeKind.Output
                     ? Palette.OutputValue
                     : Palette.LocalNet;
-            Pen pen = new(brush, definition.Width > 1 ? 1.8 : 1.2);
+            Pen pen = new(brush, highlighted ? 3.0 : definition.Width > 1 ? 1.8 : 1.2);
             for (int index = 0; index < routePoints.Count - 1; index++)
             {
                 context.DrawLine(pen, routePoints[index], routePoints[index + 1]);
             }
 
-            DrawGraphvizEdgeLabel(context, routePoints, definition, brush);
+            if (!definition.SuppressLabel)
+            {
+                DrawGraphvizEdgeLabel(context, routePoints, definition, brush);
+            }
 
             if (!string.IsNullOrWhiteSpace(definition.SelectionSignalName))
             {
                 _signalReferenceHitTargets.Add(new SignalReferenceHitTarget(definition.SelectionSignalName!, null, routePoints));
             }
         }
+
+        DrawGraphvizJunctionDots(context, renderedEdges);
 
         foreach (GraphvizPlainNode node in diagram.Nodes)
         {
@@ -241,6 +260,74 @@ public sealed partial class SchematicPreviewControl
             }
 
             DrawGraphvizNode(context, nodeRects[node.Id], definition);
+        }
+    }
+
+    private static IReadOnlyList<Rect> BuildGraphvizRouteObstacles(
+        GraphvizScopeGraph graph,
+        IReadOnlyDictionary<string, Rect> nodeRects)
+    {
+        List<Rect> obstacles = [];
+        foreach (GraphvizNodeDefinition node in graph.Nodes.Values)
+        {
+            if (node.Kind != GraphvizNodeKind.Module || !nodeRects.TryGetValue(node.Id, out Rect rect))
+            {
+                continue;
+            }
+
+            obstacles.Add(rect.Inflate(new Thickness(10)));
+        }
+
+        return obstacles;
+    }
+
+    private static void NormalizeGraphvizModuleRects(GraphvizScopeGraph graph, IDictionary<string, Rect> nodeRects)
+    {
+        foreach (GraphvizNodeDefinition node in graph.Nodes.Values)
+        {
+            if (node.Kind != GraphvizNodeKind.Module || !nodeRects.TryGetValue(node.Id, out Rect rect))
+            {
+                continue;
+            }
+
+            int rows = Math.Max(node.InputLabels.Count, node.OutputLabels.Count);
+            if (rows == 0)
+            {
+                continue;
+            }
+
+            double requiredHeight = GraphvizModuleRequiredHeight(rows);
+            double requiredWidth = Math.Max(230, 20 + Math.Max(
+                node.InputLabels.DefaultIfEmpty(string.Empty).Max(label => MeasureWidth(label, 9)),
+                node.OutputLabels.DefaultIfEmpty(string.Empty).Max(label => MeasureWidth(label, 9))) * 2.4);
+            double width = Math.Max(rect.Width, requiredWidth);
+            double height = Math.Max(rect.Height, requiredHeight);
+            nodeRects[node.Id] = new Rect(
+                rect.Center.X - width / 2,
+                rect.Center.Y - height / 2,
+                width,
+                height);
+        }
+    }
+
+    private static void NormalizeRootBoundaryPortRects(
+        GraphvizScopeGraph graph,
+        IDictionary<string, Rect> nodeRects,
+        Rect viewport)
+    {
+        foreach (GraphvizNodeDefinition node in graph.Nodes.Values)
+        {
+            if (!string.IsNullOrWhiteSpace(node.ContainerPath)
+                || node.Kind is not (GraphvizNodeKind.InputPort or GraphvizNodeKind.OutputPort)
+                || !nodeRects.TryGetValue(node.Id, out Rect rect))
+            {
+                continue;
+            }
+
+            double x = node.Kind == GraphvizNodeKind.InputPort
+                ? viewport.X + 4
+                : viewport.Right - rect.Width - 4;
+            nodeRects[node.Id] = new Rect(x, rect.Y, rect.Width, rect.Height);
         }
     }
 
@@ -264,11 +351,11 @@ public sealed partial class SchematicPreviewControl
                 bounds = bounds is null ? rect : bounds.Value.Union(rect);
                 if (node.Kind == GraphvizNodeKind.InputPort)
                 {
-                    inputEdge = inputEdge is null ? rect.X : Math.Min(inputEdge.Value, rect.X);
+                    inputEdge = inputEdge is null ? rect.Center.X : Math.Min(inputEdge.Value, rect.Center.X);
                 }
                 else if (node.Kind == GraphvizNodeKind.OutputPort)
                 {
-                    outputEdge = outputEdge is null ? rect.Right : Math.Max(outputEdge.Value, rect.Right);
+                    outputEdge = outputEdge is null ? rect.Center.X : Math.Max(outputEdge.Value, rect.Center.X);
                 }
             }
 
@@ -313,33 +400,310 @@ public sealed partial class SchematicPreviewControl
         return true;
     }
 
-    private static IReadOnlyList<Point> BuildGraphvizRenderedRoute(Point start, Point end, int laneIndex, int laneCount)
+    private static IReadOnlyList<Point> BuildGraphvizRenderedRoute(
+        Point start,
+        Point end,
+        int laneIndex,
+        int laneCount,
+        IReadOnlyList<Rect> obstacles,
+        IReadOnlyList<GraphvizOccupiedSegment> occupiedSegments,
+        string? signalName)
     {
         const double minimumLeg = 28;
         const double laneSpacing = 19;
+        Point escapedStart = new(start.X + 16, start.Y);
+        Point escapedEnd = new(end.X - 16, end.Y);
         double routeX;
-        if (start.X <= end.X)
+        if (escapedStart.X <= escapedEnd.X)
         {
-            double minX = start.X + minimumLeg;
-            double maxX = end.X - minimumLeg;
+            double minX = escapedStart.X + minimumLeg;
+            double maxX = escapedEnd.X - minimumLeg;
             double centeredLaneOffset = (laneIndex - (laneCount - 1) / 2.0) * laneSpacing;
             routeX = minX <= maxX
-                ? Math.Clamp((start.X + end.X) / 2 + centeredLaneOffset, minX, maxX)
-                : (start.X + end.X) / 2;
+                ? Math.Clamp((escapedStart.X + escapedEnd.X) / 2 + centeredLaneOffset, minX, maxX)
+                : (escapedStart.X + escapedEnd.X) / 2;
         }
         else
         {
-            routeX = Math.Max(start.X, end.X) + minimumLeg + laneIndex * laneSpacing;
+            routeX = Math.Max(escapedStart.X, escapedEnd.X) + minimumLeg + laneIndex * laneSpacing;
+        }
+
+        IReadOnlyList<Point> middle = TryBuildGraphvizObstacleAwareRoute(
+            escapedStart,
+            escapedEnd,
+            routeX,
+            laneIndex,
+            obstacles,
+            occupiedSegments,
+            signalName);
+        List<Point> route = new(middle.Count + 2) { start };
+        route.AddRange(middle);
+        route.Add(end);
+        return SimplifyRoutePoints(route);
+    }
+
+    private static IReadOnlyList<Point> TryBuildGraphvizObstacleAwareRoute(
+        Point start,
+        Point end,
+        double preferredX,
+        int laneIndex,
+        IReadOnlyList<Rect> obstacles,
+        IReadOnlyList<GraphvizOccupiedSegment> occupiedSegments,
+        string? signalName)
+    {
+        IReadOnlyList<Point>? routed = BuildGraphvizSparseGridRoute(start, end, preferredX, laneIndex, obstacles, occupiedSegments, signalName);
+        if (routed is not null)
+        {
+            return routed;
         }
 
         return SimplifyRoutePoints(
         [
             start,
-            new Point(routeX, start.Y),
-            new Point(routeX, end.Y),
+            new Point(preferredX, start.Y),
+            new Point(preferredX, end.Y),
             end
         ]);
     }
+
+    private static IReadOnlyList<Point>? BuildGraphvizSparseGridRoute(
+        Point start,
+        Point end,
+        double preferredX,
+        int laneIndex,
+        IReadOnlyList<Rect> obstacles,
+        IReadOnlyList<GraphvizOccupiedSegment> occupiedSegments,
+        string? signalName)
+    {
+        const double outerMargin = 34;
+        const double laneSpacing = 17;
+        SortedSet<double> xs = [];
+        SortedSet<double> ys = [];
+        AddCoordinate(xs, start.X);
+        AddCoordinate(xs, end.X);
+        AddCoordinate(xs, preferredX);
+        AddCoordinate(ys, start.Y);
+        AddCoordinate(ys, end.Y);
+
+        double laneOffset = laneIndex * laneSpacing;
+        foreach (Rect obstacle in obstacles)
+        {
+            AddCoordinate(xs, obstacle.X - outerMargin - laneOffset);
+            AddCoordinate(xs, obstacle.X - outerMargin);
+            AddCoordinate(xs, obstacle.Right + outerMargin);
+            AddCoordinate(xs, obstacle.Right + outerMargin + laneOffset);
+            AddCoordinate(ys, obstacle.Y - outerMargin - laneOffset);
+            AddCoordinate(ys, obstacle.Y - outerMargin);
+            AddCoordinate(ys, obstacle.Bottom + outerMargin);
+            AddCoordinate(ys, obstacle.Bottom + outerMargin + laneOffset);
+        }
+
+        double[] xValues = xs.ToArray();
+        double[] yValues = ys.ToArray();
+        GraphvizGridPoint source = new(Array.IndexOf(xValues, RoundCoordinate(start.X)), Array.IndexOf(yValues, RoundCoordinate(start.Y)));
+        GraphvizGridPoint target = new(Array.IndexOf(xValues, RoundCoordinate(end.X)), Array.IndexOf(yValues, RoundCoordinate(end.Y)));
+        if (source.X < 0 || source.Y < 0 || target.X < 0 || target.Y < 0)
+        {
+            return null;
+        }
+
+        PriorityQueue<GraphvizGridPoint, double> frontier = new();
+        Dictionary<GraphvizGridPoint, GraphvizGridPoint> cameFrom = [];
+        Dictionary<GraphvizGridPoint, double> costSoFar = [];
+        frontier.Enqueue(source, 0);
+        costSoFar[source] = 0;
+
+        while (frontier.Count > 0)
+        {
+            GraphvizGridPoint current = frontier.Dequeue();
+            if (current.Equals(target))
+            {
+                break;
+            }
+
+            foreach (GraphvizGridPoint next in EnumerateGraphvizGridNeighbors(current, xValues.Length, yValues.Length))
+            {
+                Point currentPoint = new(xValues[current.X], yValues[current.Y]);
+                Point nextPoint = new(xValues[next.X], yValues[next.Y]);
+                if (GraphvizSegmentHitsObstacle(currentPoint, nextPoint, obstacles))
+                {
+                    continue;
+                }
+
+                if (GraphvizSegmentOverlapsOccupiedSignal(currentPoint, nextPoint, occupiedSegments, signalName))
+                {
+                    continue;
+                }
+
+                double newCost = costSoFar[current] + Math.Abs(currentPoint.X - nextPoint.X) + Math.Abs(currentPoint.Y - nextPoint.Y);
+                if (Math.Abs(nextPoint.X - preferredX) > 0.5)
+                {
+                    newCost += Math.Abs(nextPoint.X - preferredX) * 0.18;
+                }
+
+                if (!costSoFar.TryGetValue(next, out double existingCost) || newCost < existingCost)
+                {
+                    costSoFar[next] = newCost;
+                    double priority = newCost + Math.Abs(nextPoint.X - end.X) + Math.Abs(nextPoint.Y - end.Y);
+                    frontier.Enqueue(next, priority);
+                    cameFrom[next] = current;
+                }
+            }
+        }
+
+        if (!cameFrom.ContainsKey(target) && !source.Equals(target))
+        {
+            return null;
+        }
+
+        List<Point> route = [];
+        GraphvizGridPoint cursor = target;
+        route.Add(new Point(xValues[cursor.X], yValues[cursor.Y]));
+        while (!cursor.Equals(source))
+        {
+            cursor = cameFrom[cursor];
+            route.Add(new Point(xValues[cursor.X], yValues[cursor.Y]));
+        }
+
+        route.Reverse();
+        return SimplifyRoutePoints(route);
+    }
+
+    private static IEnumerable<GraphvizGridPoint> EnumerateGraphvizGridNeighbors(GraphvizGridPoint point, int width, int height)
+    {
+        if (point.X > 0)
+        {
+            yield return point with { X = point.X - 1 };
+        }
+
+        if (point.X < width - 1)
+        {
+            yield return point with { X = point.X + 1 };
+        }
+
+        if (point.Y > 0)
+        {
+            yield return point with { Y = point.Y - 1 };
+        }
+
+        if (point.Y < height - 1)
+        {
+            yield return point with { Y = point.Y + 1 };
+        }
+    }
+
+    private static bool GraphvizSegmentHitsObstacle(Point start, Point end, IReadOnlyList<Rect> obstacles)
+    {
+        bool horizontal = Math.Abs(start.Y - end.Y) < 0.5;
+        bool vertical = Math.Abs(start.X - end.X) < 0.5;
+        if (!horizontal && !vertical)
+        {
+            return true;
+        }
+
+        foreach (Rect obstacle in obstacles)
+        {
+            if (horizontal)
+            {
+                double minX = Math.Min(start.X, end.X);
+                double maxX = Math.Max(start.X, end.X);
+                if (start.Y > obstacle.Y
+                    && start.Y < obstacle.Bottom
+                    && maxX > obstacle.X
+                    && minX < obstacle.Right)
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                double minY = Math.Min(start.Y, end.Y);
+                double maxY = Math.Max(start.Y, end.Y);
+                if (start.X > obstacle.X
+                    && start.X < obstacle.Right
+                    && maxY > obstacle.Y
+                    && minY < obstacle.Bottom)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool GraphvizSegmentOverlapsOccupiedSignal(
+        Point start,
+        Point end,
+        IReadOnlyList<GraphvizOccupiedSegment> occupiedSegments,
+        string? signalName)
+    {
+        foreach (GraphvizOccupiedSegment occupied in occupiedSegments)
+        {
+            if (string.Equals(signalName, occupied.SignalName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (GraphvizSegmentsOverlap(start, end, occupied.Start, occupied.End))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool GraphvizSegmentsOverlap(Point firstStart, Point firstEnd, Point secondStart, Point secondEnd)
+    {
+        bool firstHorizontal = Math.Abs(firstStart.Y - firstEnd.Y) < 0.5;
+        bool secondHorizontal = Math.Abs(secondStart.Y - secondEnd.Y) < 0.5;
+        if (firstHorizontal != secondHorizontal)
+        {
+            return false;
+        }
+
+        if (firstHorizontal)
+        {
+            if (Math.Abs(firstStart.Y - secondStart.Y) > 0.5)
+            {
+                return false;
+            }
+
+            return RangesOverlap(firstStart.X, firstEnd.X, secondStart.X, secondEnd.X);
+        }
+
+        if (Math.Abs(firstStart.X - secondStart.X) > 0.5)
+        {
+            return false;
+        }
+
+        return RangesOverlap(firstStart.Y, firstEnd.Y, secondStart.Y, secondEnd.Y);
+    }
+
+    private static bool RangesOverlap(double firstStart, double firstEnd, double secondStart, double secondEnd)
+    {
+        double firstMin = Math.Min(firstStart, firstEnd);
+        double firstMax = Math.Max(firstStart, firstEnd);
+        double secondMin = Math.Min(secondStart, secondEnd);
+        double secondMax = Math.Max(secondStart, secondEnd);
+        return Math.Min(firstMax, secondMax) - Math.Max(firstMin, secondMin) > 2;
+    }
+
+    private static void AddGraphvizOccupiedSegments(
+        ICollection<GraphvizOccupiedSegment> occupiedSegments,
+        IReadOnlyList<Point> route,
+        string? signalName)
+    {
+        for (int index = 0; index < route.Count - 1; index++)
+        {
+            occupiedSegments.Add(new GraphvizOccupiedSegment(route[index], route[index + 1], signalName));
+        }
+    }
+
+    private static void AddCoordinate(ISet<double> coordinates, double value) => coordinates.Add(RoundCoordinate(value));
+
+    private static double RoundCoordinate(double value) => Math.Round(value, 1);
 
     private static string BuildGraphvizLaneGroupKey(Point start, Point end)
     {
@@ -353,6 +717,12 @@ public sealed partial class SchematicPreviewControl
 
     private static Point ResolveGraphvizAnchor(GraphvizNodeDefinition node, Rect rect, string? portName, bool isTail)
     {
+        if (!string.IsNullOrWhiteSpace(node.ContainerPath)
+            && node.Kind is GraphvizNodeKind.InputPort or GraphvizNodeKind.OutputPort)
+        {
+            return new Point(rect.Center.X, rect.Center.Y);
+        }
+
         return node.Kind switch
         {
             GraphvizNodeKind.Module => ResolveGraphvizModuleAnchor(node, rect, portName, isTail),
@@ -378,10 +748,12 @@ public sealed partial class SchematicPreviewControl
 
     private static double GraphvizModuleHeaderY(Rect rect) => rect.Y + 42;
 
+    private static double GraphvizModuleRequiredHeight(int rows) => 76 + rows * 26;
+
     private static double GraphvizModuleRowHeight(Rect rect, int rows)
     {
         double headerY = GraphvizModuleHeaderY(rect);
-        return Math.Max(14, Math.Min(20, (rect.Bottom - headerY - 22) / Math.Max(1, rows)));
+        return Math.Max(18, Math.Min(26, (rect.Bottom - headerY - 24) / Math.Max(1, rows)));
     }
 
     private static double GraphvizModulePortY(Rect rect, int rows, int index) =>
@@ -459,6 +831,54 @@ public sealed partial class SchematicPreviewControl
         Rect rect = new(mid.X - width / 2, mid.Y - 18, width, 15);
         context.FillRectangle(Palette.FocusPanelFill, rect, 3);
         DrawText(context, Ellipsize(label, 9, rect.Width - 6), rect.X + 3, rect.Y + 1, brush, 9);
+    }
+
+    private bool IsGraphvizSignalHighlighted(GraphvizEdgeDefinition edge)
+    {
+        string? selected = SelectedSignalName;
+        string? candidate = edge.SelectionSignalName ?? edge.SignalName;
+        return !string.IsNullOrWhiteSpace(candidate)
+            && (string.Equals(candidate, selected, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(candidate, _hoveredSignalName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(edge.SignalName, selected, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(edge.SignalName, _hoveredSignalName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void DrawGraphvizJunctionDots(DrawingContext context, IReadOnlyList<GraphvizRenderedEdge> edges)
+    {
+        foreach (IGrouping<string, GraphvizRenderedEdge> group in edges
+                     .Where(static edge => !string.IsNullOrWhiteSpace(edge.Definition.SelectionSignalName))
+                     .GroupBy(static edge => edge.Definition.SelectionSignalName!, StringComparer.OrdinalIgnoreCase))
+        {
+            Dictionary<string, (Point Point, int Count, GraphvizEdgeDefinition Definition)> points = new(StringComparer.Ordinal);
+            foreach (GraphvizRenderedEdge edge in group)
+            {
+                foreach (Point point in edge.Points)
+                {
+                    string key = $"{Math.Round(point.X)}:{Math.Round(point.Y)}";
+                    points[key] = points.TryGetValue(key, out (Point Point, int Count, GraphvizEdgeDefinition Definition) current)
+                        ? (current.Point, current.Count + 1, current.Definition)
+                        : (point, 1, edge.Definition);
+                }
+            }
+
+            foreach ((Point point, int count, GraphvizEdgeDefinition definition) in points.Values)
+            {
+                if (count < 2)
+                {
+                    continue;
+                }
+
+                IBrush brush = IsGraphvizSignalHighlighted(definition)
+                    ? Palette.Selected
+                    : definition.Kind == GraphvizEdgeKind.Output
+                        ? Palette.OutputValue
+                        : definition.Kind == GraphvizEdgeKind.Local
+                            ? Palette.LocalNet
+                            : Palette.PinStroke;
+                context.DrawEllipse(brush, null, point, 3.5, 3.5);
+            }
+        }
     }
 
     private static (Point Start, Point End) FindLongestSegment(IReadOnlyList<Point> points)
@@ -690,12 +1110,17 @@ public sealed partial class SchematicPreviewControl
         string? SelectionSignalName,
         int Width,
         GraphvizEdgeKind Kind,
+        bool SuppressLabel = false,
         string? TailPortName = null,
         string? HeadPortName = null);
 
     private sealed record GraphvizRoutableEdge(GraphvizEdgeDefinition Definition, Point Start, Point End, string LaneGroupKey);
 
     private sealed record GraphvizRenderedEdge(GraphvizEdgeDefinition Definition, IReadOnlyList<Point> Points);
+
+    private sealed record GraphvizOccupiedSegment(Point Start, Point End, string? SignalName);
+
+    private readonly record struct GraphvizGridPoint(int X, int Y);
 
     private sealed record GraphvizContainerDefinition(string ScopePath, string Title, string ModuleName);
 
@@ -715,6 +1140,7 @@ public sealed partial class SchematicPreviewControl
         private readonly Dictionary<string, GraphvizContainerDefinition> _containers = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> _scopeBoundaryPorts = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> _scopeLocalNodes = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _localSelectionNamesByNodeId = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, GraphvizNodeDefinition> _instanceNodesByPath = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Dictionary<string, string>> _expandedPortNodes = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Dictionary<string, string>> _expandedLocalNodes = new(StringComparer.OrdinalIgnoreCase);
@@ -742,6 +1168,7 @@ public sealed partial class SchematicPreviewControl
             string id = $"local_{SanitizeId(local.Name)}";
             AddNode(new GraphvizNodeDefinition(id, local.Name, "local", GraphvizNodeKind.Local, local.WidthLabel, local.ResolvedSignalName));
             _scopeLocalNodes[local.Name] = id;
+            _localSelectionNamesByNodeId[id] = local.ResolvedSignalName ?? local.Name;
         }
 
         public void AddInstance(HierarchyScopeInstanceViewModel instance)
@@ -865,9 +1292,14 @@ public sealed partial class SchematicPreviewControl
             builder.Append(indent).Append(node.Id);
             if (node.Kind == GraphvizNodeKind.Module)
             {
+                (double moduleWidth, double moduleHeight) = NodeSize(node);
                 builder
                     .Append(" [shape=record, label=\"")
                     .Append(BuildRecordLabel(node))
+                    .Append("\", width=\"")
+                    .Append(moduleWidth.ToString("0.###", DotCulture))
+                    .Append("\", height=\"")
+                    .Append(moduleHeight.ToString("0.###", DotCulture))
                     .AppendLine("\"];");
                 return;
             }
@@ -941,6 +1373,7 @@ public sealed partial class SchematicPreviewControl
                     local.ResolvedSignalName,
                     ContainerPath: instance.HierarchyPath));
                 localNodes[local.Name] = id;
+                _localSelectionNamesByNodeId[id] = local.ResolvedSignalName ?? local.Name;
             }
 
             _expandedLocalNodes[instance.HierarchyPath] = localNodes;
@@ -991,6 +1424,12 @@ public sealed partial class SchematicPreviewControl
                     continue;
                 }
 
+                bool connectsLocalSignal = localNodes.TryGetValue(connection.SignalName, out string? localNodeId)
+                    && string.Equals(localNodeId, externalNode, StringComparison.OrdinalIgnoreCase);
+                string? selectionSignalName = connectsLocalSignal && _localSelectionNamesByNodeId.TryGetValue(externalNode, out string? localSelectionName)
+                    ? localSelectionName
+                    : connection.SignalName;
+
                 if (connection.IsInput)
                 {
                     string headRef = expandedTarget
@@ -1002,9 +1441,10 @@ public sealed partial class SchematicPreviewControl
                         $"{externalNode}:e",
                         headRef,
                         connection.SignalName,
-                        connection.SignalName,
+                        selectionSignalName,
                         connection.Width,
                         GraphvizEdgeKind.Input,
+                        suppressLabel: connectsLocalSignal,
                         tailPortName: null,
                         headPortName: expandedTarget ? null : connection.PortName);
                 }
@@ -1019,9 +1459,10 @@ public sealed partial class SchematicPreviewControl
                         tailRef,
                         $"{externalNode}:w",
                         connection.SignalName,
-                        connection.SignalName,
+                        selectionSignalName,
                         connection.Width,
                         GraphvizEdgeKind.Output,
+                        suppressLabel: connectsLocalSignal,
                         tailPortName: expandedTarget ? null : connection.PortName,
                         headPortName: null);
                 }
@@ -1059,6 +1500,7 @@ public sealed partial class SchematicPreviewControl
             string? selectionSignalName,
             int width,
             GraphvizEdgeKind kind,
+            bool suppressLabel,
             string? tailPortName,
             string? headPortName)
         {
@@ -1078,13 +1520,14 @@ public sealed partial class SchematicPreviewControl
                 selectionSignalName,
                 width,
                 kind,
+                suppressLabel,
                 tailPortName,
                 headPortName);
         }
 
         private static (double Width, double Height) NodeSize(GraphvizNodeDefinition node) =>
             node.Kind == GraphvizNodeKind.Module
-                ? (2.35, Math.Max(0.95, 0.62 + Math.Max(node.InputLabels.Count, node.OutputLabels.Count) * 0.2))
+                ? (3.10, Math.Max(1.55, 1.05 + Math.Max(node.InputLabels.Count, node.OutputLabels.Count) * 0.42))
                 : node.Kind is GraphvizNodeKind.InputPort or GraphvizNodeKind.OutputPort
                     ? (0.20, 0.20)
                     : (1.25, 0.30);
@@ -1098,7 +1541,6 @@ public sealed partial class SchematicPreviewControl
         {
             return connections
                 .Where(connection => connection.IsInput == input)
-                .Take(8)
                 .Select(static connection => connection.Width <= 1
                     ? connection.PortName
                     : $"{connection.PortName} [{connection.Width}b]")
