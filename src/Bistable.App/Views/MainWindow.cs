@@ -1100,6 +1100,7 @@ public sealed class MainWindow : Window
             Children =
             {
                 zoomText,
+                BuildSchematicRouterComboBox(preview),
                 ClickButton("Fit", (_, _) => preview.FitToView()),
                 ClickButton("1:1", (_, _) => preview.ResetView()),
                 ClickButton("+", (_, _) => preview.ZoomIn(), 34),
@@ -1113,6 +1114,28 @@ public sealed class MainWindow : Window
         }
 
         return buttons;
+    }
+
+    private static ComboBox BuildSchematicRouterComboBox(SchematicPreviewControl preview)
+    {
+        ComboBox routerBox = new()
+        {
+            Width = 136,
+            MinHeight = 30,
+            Background = SurfaceAltBrush,
+            Foreground = TextBrush,
+            BorderBrush = StrokeBrush,
+            ItemsSource = Enum.GetValues<SchematicRoutingEngine>(),
+            SelectedItem = preview.RoutingEngine
+        };
+        routerBox.SelectionChanged += (_, _) =>
+        {
+            if (routerBox.SelectedItem is SchematicRoutingEngine engine)
+            {
+                preview.RoutingEngine = engine;
+            }
+        };
+        return routerBox;
     }
 
     private Control BuildPanelSurface(DockPanelKind kind)

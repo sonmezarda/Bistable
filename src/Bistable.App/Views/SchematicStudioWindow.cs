@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Bistable.App.Services;
 using Bistable.App.ViewModels;
 
 namespace Bistable.App.Views;
@@ -146,12 +147,35 @@ public sealed class SchematicStudioWindow : Window
             [Grid.ColumnProperty] = 2
         };
         actions.Children.Add(zoomText);
+        actions.Children.Add(BuildRouterComboBox(preview));
         actions.Children.Add(ClickButton("Scope", (_, _) => preview.FrameActiveScope(), 68));
         actions.Children.Add(ClickButton("Fit", (_, _) => preview.FitToView()));
         actions.Children.Add(ClickButton("1:1", (_, _) => preview.ResetView()));
         actions.Children.Add(ClickButton("+", (_, _) => preview.ZoomIn(), 34));
         actions.Children.Add(ClickButton("-", (_, _) => preview.ZoomOut(), 34));
         return actions;
+    }
+
+    private static ComboBox BuildRouterComboBox(SchematicPreviewControl preview)
+    {
+        ComboBox routerBox = new()
+        {
+            Width = 136,
+            MinHeight = 30,
+            Background = SurfaceAltBrush,
+            Foreground = TextBrush,
+            BorderBrush = StrokeBrush,
+            ItemsSource = Enum.GetValues<SchematicRoutingEngine>(),
+            SelectedItem = preview.RoutingEngine
+        };
+        routerBox.SelectionChanged += (_, _) =>
+        {
+            if (routerBox.SelectedItem is SchematicRoutingEngine engine)
+            {
+                preview.RoutingEngine = engine;
+            }
+        };
+        return routerBox;
     }
 
     private Control BuildViewportToolbar(SchematicPreviewControl preview)
