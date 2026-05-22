@@ -211,6 +211,12 @@ public sealed partial class SchematicPreviewControl
         IReadOnlyList<HierarchyScopePortViewModel> scopePorts,
         IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals)
     {
+        if (RoutingEngine == SchematicRoutingEngine.Elk)
+        {
+            DrawElkScopePanel(context, bounds, moduleRect, scopeSignals, childScopes, scopePorts, localSignals);
+            return;
+        }
+
         if (RoutingEngine == SchematicRoutingEngine.GraphvizDot)
         {
             DrawGraphvizDotScopePanel(context, bounds, moduleRect, scopeSignals, childScopes, scopePorts, localSignals);

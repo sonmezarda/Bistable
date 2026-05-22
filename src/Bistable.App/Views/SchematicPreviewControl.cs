@@ -79,7 +79,7 @@ public sealed partial class SchematicPreviewControl : Control
     public static readonly StyledProperty<SchematicRoutingEngine> RoutingEngineProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, SchematicRoutingEngine>(
             nameof(RoutingEngine),
-            SchematicRoutingEngine.GraphvizDot);
+            SchematicRoutingEngine.Elk);
 
     private SchematicTheme Palette => GetValue(PaletteProperty);
 

@@ -40,6 +40,7 @@ public interface ISchematicRouter
 
 public enum SchematicRoutingEngine
 {
+    Elk,
     Internal,
     GraphvizNeato,
     GraphvizDot
@@ -69,12 +70,22 @@ public sealed record SchematicNet(string Key, IReadOnlyList<SchematicConnectionR
 
     public string PrimaryRequestId => Requests[0].Id;
 
-    public SchematicConnectionRouteKind PrimaryKind =>
-        Requests.Any(static request => request.Kind == SchematicConnectionRouteKind.BoundaryToChildInput)
-            ? SchematicConnectionRouteKind.BoundaryToChildInput
-            : Requests.Any(static request => request.Kind == SchematicConnectionRouteKind.ChildOutputToBoundary)
-                ? SchematicConnectionRouteKind.ChildOutputToBoundary
-                : Requests[0].Kind;
+    public SchematicConnectionRouteKind PrimaryKind => ResolvePrimaryKind(Requests);
+
+    private static SchematicConnectionRouteKind ResolvePrimaryKind(IReadOnlyList<SchematicConnectionRouteRequest> requests)
+    {
+        if (requests.Any(static request => request.Kind == SchematicConnectionRouteKind.BoundaryToChildInput))
+        {
+            return SchematicConnectionRouteKind.BoundaryToChildInput;
+        }
+
+        if (requests.Any(static request => request.Kind == SchematicConnectionRouteKind.ChildOutputToBoundary))
+        {
+            return SchematicConnectionRouteKind.ChildOutputToBoundary;
+        }
+
+        return requests[0].Kind;
+    }
 
     public double AverageSource => Requests.Average(static request => request.Source.Y);
 

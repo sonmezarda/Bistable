@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1112" height="407" viewBox="0 0 1112 407" style="background:#0e1623">
+<g>
+  <rect x="12" y="86" width="90" height="160" fill="#1f2734" stroke="#5b8fb0" stroke-width="1.2" rx="6"/>
+  <text x="20" y="100" fill="#dce3ec" font-family="monospace" font-size="11">boundary_in</text>
+  <circle cx="102" cy="109" r="2.5" fill="#7fb3d5"/>
+  <text x="106" y="112" fill="#7fb3d5" font-family="monospace" font-size="9">clk</text>
+  <circle cx="102" cy="132" r="2.5" fill="#7fb3d5"/>
+  <text x="106" y="135" fill="#7fb3d5" font-family="monospace" font-size="9">rst_n</text>
+  <circle cx="102" cy="155" r="2.5" fill="#7fb3d5"/>
+  <text x="106" y="158" fill="#7fb3d5" font-family="monospace" font-size="9">read</text>
+  <circle cx="102" cy="177" r="2.5" fill="#7fb3d5"/>
+  <text x="106" y="180" fill="#7fb3d5" font-family="monospace" font-size="9">write</text>
+  <circle cx="102" cy="200" r="2.5" fill="#7fb3d5"/>
+  <text x="106" y="203" fill="#7fb3d5" font-family="monospace" font-size="9">addr[8]</text>
+  <circle cx="102" cy="223" r="2.5" fill="#7fb3d5"/>
+  <text x="106" y="226" fill="#7fb3d5" font-family="monospace" font-size="9">wdata[8]</text>
+</g>
+<g>
+  <rect x="204" y="188" width="200" height="120" fill="#1f2734" stroke="#5b8fb0" stroke-width="1.2" rx="6"/>
+  <text x="212" y="202" fill="#dce3ec" font-family="monospace" font-size="11">u_decode</text>
+  <circle cx="204" cy="278" r="2.5" fill="#7fb3d5"/>
+  <text x="208" y="281" fill="#7fb3d5" font-family="monospace" font-size="9">addr</text>
+  <circle cx="204" cy="248" r="2.5" fill="#7fb3d5"/>
+  <text x="208" y="251" fill="#7fb3d5" font-family="monospace" font-size="9">read</text>
+  <circle cx="204" cy="218" r="2.5" fill="#7fb3d5"/>
+  <text x="208" y="221" fill="#7fb3d5" font-family="monospace" font-size="9">write</text>
+  <circle cx="404" cy="228" r="2.5" fill="#7fb3d5"/>
+  <text x="408" y="231" fill="#7fb3d5" font-family="monospace" font-size="9">sel_gpio</text>
+  <circle cx="404" cy="268" r="2.5" fill="#7fb3d5"/>
+  <text x="408" y="271" fill="#7fb3d5" font-family="monospace" font-size="9">sel_timer</text>
+</g>
+<g>
+  <rect x="482" y="212" width="200" height="140" fill="#1f2734" stroke="#5b8fb0" stroke-width="1.2" rx="6"/>
+  <text x="490" y="226" fill="#dce3ec" font-family="monospace" font-size="11">u_gpio</text>
+  <circle cx="482" cy="329" r="2.5" fill="#7fb3d5"/>
+  <text x="486" y="332" fill="#7fb3d5" font-family="monospace" font-size="9">clk</text>
+  <circle cx="482" cy="305" r="2.5" fill="#7fb3d5"/>
+  <text x="486" y="308" fill="#7fb3d5" font-family="monospace" font-size="9">rst_n</text>
+  <circle cx="482" cy="282" r="2.5" fill="#7fb3d5"/>
+  <text x="486" y="285" fill="#7fb3d5" font-family="monospace" font-size="9">select_i</text>
+  <circle cx="482" cy="259" r="2.5" fill="#7fb3d5"/>
+  <text x="486" y="262" fill="#7fb3d5" font-family="monospace" font-size="9">write_i</text>
+  <circle cx="482" cy="235" r="2.5" fill="#7fb3d5"/>
+  <text x="486" y="238" fill="#7fb3d5" font-family="monospace" font-size="9">wdata</text>
+  <circle cx="682" cy="259" r="2.5" fill="#7fb3d5"/>
+  <text x="686" y="262" fill="#7fb3d5" font-family="monospace" font-size="9">rdata</text>
+  <circle cx="682" cy="305" r="2.5" fill="#7fb3d5"/>
+  <text x="686" y="308" fill="#7fb3d5" font-family="monospace" font-size="9">ready</text>
+</g>
+<g>
+  <rect x="482" y="12" width="200" height="160" fill="#1f2734" stroke="#5b8fb0" stroke-width="1.2" rx="6"/>
+  <text x="490" y="26" fill="#dce3ec" font-family="monospace" font-size="11">u_timer</text>
+  <circle cx="482" cy="145" r="2.5" fill="#7fb3d5"/>
+  <text x="486" y="148" fill="#7fb3d5" font-family="monospace" font-size="9">clk</text>
+  <circle cx="482" cy="119" r="2.5" fill="#7fb3d5"/>
+  <text x="486" y="122" fill="#7fb3d5" font-family="monospace" font-size="9">rst_n</text>
+  <circle cx="482" cy="92" r="2.5" fill="#7fb3d5"/>
+  <text x="486" y="95" fill="#7fb3d5" font-family="monospace" font-size="9">select_i</text>
+  <circle cx="482" cy="65" r="2.5" fill="#7fb3d5"/>
+  <text x="486" y="68" fill="#7fb3d5" font-family="monospace" font-size="9">write_i</text>
+  <circle cx="482" cy="39" r="2.5" fill="#7fb3d5"/>
+  <text x="486" y="42" fill="#7fb3d5" font-family="monospace" font-size="9">wdata</text>
+  <circle cx="682" cy="52" r="2.5" fill="#7fb3d5"/>
+  <text x="686" y="55" fill="#7fb3d5" font-family="monospace" font-size="9">rdata</text>
+  <circle cx="682" cy="92" r="2.5" fill="#7fb3d5"/>
+  <text x="686" y="95" fill="#7fb3d5" font-family="monospace" font-size="9">ready</text>
+  <circle cx="682" cy="132" r="2.5" fill="#7fb3d5"/>
+  <text x="686" y="135" fill="#7fb3d5" font-family="monospace" font-size="9">irq</text>
+</g>
+<g>
+  <rect x="748" y="215" width="200" height="180" fill="#1f2734" stroke="#5b8fb0" stroke-width="1.2" rx="6"/>
+  <text x="756" y="229" fill="#dce3ec" font-family="monospace" font-size="11">u_response</text>
+  <circle cx="748" cy="373" r="2.5" fill="#7fb3d5"/>
+  <text x="752" y="376" fill="#7fb3d5" font-family="monospace" font-size="9">sel_gpio</text>
+  <circle cx="748" cy="350" r="2.5" fill="#7fb3d5"/>
+  <text x="752" y="353" fill="#7fb3d5" font-family="monospace" font-size="9">sel_timer</text>
+  <circle cx="748" cy="328" r="2.5" fill="#7fb3d5"/>
+  <text x="752" y="331" fill="#7fb3d5" font-family="monospace" font-size="9">gpio_rdata</text>
+  <circle cx="748" cy="305" r="2.5" fill="#7fb3d5"/>
+  <text x="752" y="308" fill="#7fb3d5" font-family="monospace" font-size="9">timer_rdata</text>
+  <circle cx="748" cy="283" r="2.5" fill="#7fb3d5"/>
+  <text x="752" y="286" fill="#7fb3d5" font-family="monospace" font-size="9">gpio_ready</text>
+  <circle cx="748" cy="260" r="2.5" fill="#7fb3d5"/>
+  <text x="752" y="263" fill="#7fb3d5" font-family="monospace" font-size="9">timer_ready</text>
+  <circle cx="748" cy="238" r="2.5" fill="#7fb3d5"/>
+  <text x="752" y="241" fill="#7fb3d5" font-family="monospace" font-size="9">timer_irq</text>
+  <circle cx="948" cy="260" r="2.5" fill="#7fb3d5"/>
+  <text x="952" y="263" fill="#7fb3d5" font-family="monospace" font-size="9">rdata</text>
+  <circle cx="948" cy="305" r="2.5" fill="#7fb3d5"/>
+  <text x="952" y="308" fill="#7fb3d5" font-family="monospace" font-size="9">ready</text>
+  <circle cx="948" cy="350" r="2.5" fill="#7fb3d5"/>
+  <text x="952" y="353" fill="#7fb3d5" font-family="monospace" font-size="9">irq</text>
+</g>
+<g>
+  <rect x="1010" y="265" width="90" height="80" fill="#1f2734" stroke="#5b8fb0" stroke-width="1.2" rx="6"/>
+  <text x="1018" y="279" fill="#dce3ec" font-family="monospace" font-size="11">boundary_out</text>
+  <circle cx="1010" cy="325" r="2.5" fill="#7fb3d5"/>
+  <text x="1014" y="328" fill="#7fb3d5" font-family="monospace" font-size="9">rdata[8]</text>
+  <circle cx="1010" cy="305" r="2.5" fill="#7fb3d5"/>
+  <text x="1014" y="308" fill="#7fb3d5" font-family="monospace" font-size="9">ready</text>
+  <circle cx="1010" cy="285" r="2.5" fill="#7fb3d5"/>
+  <text x="1014" y="288" fill="#7fb3d5" font-family="monospace" font-size="9">irq</text>
+</g>
+<path d="M 102 109 L 123 109 L 123 329 L 482 329" stroke="#7fb3d5" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 102 109 L 123 109 L 123 145 L 482 145" stroke="#f6c177" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<circle cx="123" cy="145" r="3" fill="#f6c177"/>
+<path d="M 102 132 L 135 132 L 135 318 L 437 318 L 437 305 L 482 305" stroke="#a3be8c" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<circle cx="135" cy="132" r="3" fill="#a3be8c"/>
+<path d="M 102 132 L 135 132 L 135 119 L 482 119" stroke="#bf80c4" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 102 200 L 147 200 L 147 278 L 204 278" stroke="#ec9b9b" stroke-width="2.6" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 102 155 L 159 155 L 159 248 L 204 248" stroke="#85d5b3" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 102 177 L 183 177 L 183 218 L 204 218" stroke="#7fb3d5" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<circle cx="183" cy="177" r="3" fill="#7fb3d5"/>
+<path d="M 102 177 L 437 177 L 437 259 L 482 259" stroke="#f6c177" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 102 177 L 183 177 L 183 65 L 482 65" stroke="#a3be8c" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 102 223 L 171 223 L 171 166 L 461 166 L 461 235 L 482 235" stroke="#bf80c4" stroke-width="2.6" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<circle cx="171" cy="166" r="3" fill="#bf80c4"/>
+<path d="M 102 223 L 171 223 L 171 39 L 482 39" stroke="#ec9b9b" stroke-width="2.6" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 404 228 L 425 228 L 425 282 L 482 282" stroke="#85d5b3" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<circle cx="425" cy="282" r="3" fill="#85d5b3"/>
+<path d="M 404 228 L 425 228 L 425 373 L 748 373" stroke="#7fb3d5" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 404 268 L 449 268 L 449 92 L 482 92" stroke="#f6c177" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<circle cx="449" cy="268" r="3" fill="#f6c177"/>
+<path d="M 404 268 L 449 268 L 449 362 L 703 362 L 703 350 L 748 350" stroke="#a3be8c" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 682 259 L 703 259 L 703 328 L 748 328" stroke="#bf80c4" stroke-width="2.6" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 682 305 L 715 305 L 715 283 L 748 283" stroke="#ec9b9b" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 682 52 L 727 52 L 727 305 L 748 305" stroke="#85d5b3" stroke-width="2.6" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 682 92 L 715 92 L 715 260 L 748 260" stroke="#7fb3d5" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 682 132 L 703 132 L 703 238 L 748 238" stroke="#f6c177" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 948 260 L 981 260 L 981 325 L 1010 325" stroke="#a3be8c" stroke-width="2.6" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 948 305 L 1010 305" stroke="#bf80c4" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+<path d="M 948 350 L 969 350 L 969 285 L 1010 285" stroke="#ec9b9b" stroke-width="1.4" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+</svg>

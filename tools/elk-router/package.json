@@ -1,0 +1,11 @@
+{
+  "name": "bistable-elk-router",
+  "version": "0.1.0",
+  "description": "Schematic edge routing bridge between Bistable.App and elkjs (Eclipse Layout Kernel).",
+  "main": "elk-router.js",
+  "private": true,
+  "dependencies": {
+    "elkjs": "^0.9.3",
+    "sharp": "^0.34.5"
+  }
+}
