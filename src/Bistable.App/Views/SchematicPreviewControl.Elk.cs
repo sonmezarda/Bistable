@@ -92,11 +92,11 @@ public sealed partial class SchematicPreviewControl
         foreach (ElkNode node in graph.Children)
         {
             Rect rect = transform.Apply(node.X, node.Y, node.Width, node.Height);
-            DrawElkNodeCard(context, node, rect);
+            DrawElkNodeCard(context, node, rect, transform.Scale);
         }
     }
 
-    private void DrawElkNodeCard(DrawingContext context, ElkNode node, Rect rect)
+    private void DrawElkNodeCard(DrawingContext context, ElkNode node, Rect rect, double scale)
     {
         IBrush fill = Palette.NodeFill;
         IBrush stroke = node.Id is ElkNodeIds.BoundaryIn or ElkNodeIds.BoundaryOut
@@ -118,83 +118,120 @@ public sealed partial class SchematicPreviewControl
 
         foreach (ElkPort port in node.Ports)
         {
-            DrawElkPort(context, rect, port);
+            DrawElkPort(context, rect, port, scale, node.Width);
         }
     }
 
-    private void DrawElkPort(DrawingContext context, Rect nodeRect, ElkPort port)
+    // Port positions returned by ELK are relative to the parent node and are NOT pre-scaled,
+    // so they must be multiplied by the active transform scale to align with the (already
+    // scaled) module rect. Edge polylines arrive in root coordinates and are scaled separately
+    // by ElkTransform.Apply, so port and edge endpoints converge on the same screen pixel.
+    private void DrawElkPort(DrawingContext context, Rect nodeRect, ElkPort port, double scale, double nodeWidthUnscaled)
     {
-        double px = nodeRect.X + port.X;
-        double py = nodeRect.Y + port.Y;
-        bool onEast = port.X >= nodeRect.Width - 1;
+        double px = nodeRect.X + port.X * scale;
+        double py = nodeRect.Y + port.Y * scale;
+        bool onEast = port.X >= nodeWidthUnscaled - 1;
 
-        Pen pinPen = new(Palette.PinStroke, 1.3);
-        double stubLength = 7;
-        Point pinTip = onEast ? new Point(px + stubLength, py) : new Point(px - stubLength, py);
-        context.DrawLine(pinPen, new Point(px, py), pinTip);
-        context.DrawEllipse(Palette.PinStroke, null, new Point(px, py), 1.6, 1.6);
+        context.DrawEllipse(Palette.PinStroke, null, new Point(px, py), 2.2, 2.2);
 
         if (port.Labels is { Count: > 0 })
         {
             string label = port.Labels[0].Text;
-            double labelX = onEast ? px - 6 - MeasureLabelWidth(label, 10) : px + 6;
+            double labelGap = 9;
+            double labelX = onEast ? px - labelGap - MeasureLabelWidth(label, 10) : px + labelGap;
             DrawText(context, label, labelX, py - 6, Palette.PinStroke, 9);
         }
     }
 
     private void DrawElkEdges(DrawingContext context, ElkGraph graph, ElkTransform transform)
     {
+        bool anyHovered = !string.IsNullOrEmpty(_hoveredSignalName);
+
         foreach (ElkEdge edge in graph.Edges)
         {
-            if (edge.Sections is null)
+            if (edge.Sections is null || edge.Sections.Count == 0)
             {
                 continue;
             }
 
-            IBrush brush = ResolveElkEdgeBrush(edge);
-            bool isBus = edge.Labels is { Count: > 0 } && IsBusLabel(edge.Labels[0].Text);
-            double thickness = isBus ? (CompactLayout ? 2.4 : 2.8) : (CompactLayout ? 1.2 : 1.4);
+            string? signalName = edge.Labels is { Count: > 0 } ? edge.Labels[0].Text : null;
+            bool isSelected = !string.IsNullOrWhiteSpace(signalName)
+                && string.Equals(SelectedSignalName, signalName, StringComparison.OrdinalIgnoreCase);
+            bool isHoveredNet = anyHovered
+                && string.Equals(signalName, _hoveredSignalName, StringComparison.OrdinalIgnoreCase);
+            bool shouldDim = anyHovered && !isHoveredNet && !isSelected;
+
+            IBrush brush = isSelected ? Palette.Selected : Palette.PinStroke;
+            bool isBus = !string.IsNullOrEmpty(signalName) && IsBusLabel(signalName!);
+            double thickness = ResolveEdgeThickness(isBus, isSelected);
             Pen pen = new(brush, thickness, lineCap: PenLineCap.Square);
 
-            foreach (ElkEdgeSection section in edge.Sections)
+            IReadOnlyList<Point> polyline = BuildEdgePolyline(edge.Sections, transform);
+
+            IDisposable? dimScope = shouldDim ? context.PushOpacity(0.22) : null;
+            try
             {
-                Point start = transform.Apply(section.StartPoint);
-                Point end = transform.Apply(section.EndPoint);
-                Point previous = start;
-                if (section.BendPoints is { Count: > 0 })
+                for (int i = 0; i < polyline.Count - 1; i++)
                 {
-                    foreach (ElkPoint bp in section.BendPoints)
+                    context.DrawLine(pen, polyline[i], polyline[i + 1]);
+                }
+
+                if (edge.JunctionPoints is { Count: > 0 })
+                {
+                    foreach (ElkPoint jp in edge.JunctionPoints)
                     {
-                        Point current = transform.Apply(bp);
-                        context.DrawLine(pen, previous, current);
-                        previous = current;
+                        Point center = transform.Apply(jp);
+                        context.DrawEllipse(brush, null, center, 2.8, 2.8);
                     }
                 }
-
-                context.DrawLine(pen, previous, end);
+            }
+            finally
+            {
+                dimScope?.Dispose();
             }
 
-            if (edge.JunctionPoints is { Count: > 0 })
+            if (!string.IsNullOrWhiteSpace(signalName))
             {
-                foreach (ElkPoint jp in edge.JunctionPoints)
+                _signalReferenceHitTargets.Add(new SignalReferenceHitTarget(signalName!, null, polyline));
+            }
+        }
+    }
+
+    private double ResolveEdgeThickness(bool isBus, bool isSelected)
+    {
+        double baseThickness = isBus
+            ? (CompactLayout ? 2.4 : 2.8)
+            : (CompactLayout ? 1.2 : 1.4);
+        return isSelected ? baseThickness + 0.8 : baseThickness;
+    }
+
+    private static IReadOnlyList<Point> BuildEdgePolyline(IReadOnlyList<ElkEdgeSection> sections, ElkTransform transform)
+    {
+        List<Point> points = [];
+        foreach (ElkEdgeSection section in sections)
+        {
+            Point start = transform.Apply(section.StartPoint);
+            if (points.Count == 0 || !AreClose(points[^1], start))
+            {
+                points.Add(start);
+            }
+
+            if (section.BendPoints is { Count: > 0 })
+            {
+                foreach (ElkPoint bp in section.BendPoints)
                 {
-                    Point p = transform.Apply(jp);
-                    context.DrawEllipse(brush, null, p, 2.6, 2.6);
+                    points.Add(transform.Apply(bp));
                 }
             }
-        }
-    }
 
-    private IBrush ResolveElkEdgeBrush(ElkEdge edge)
-    {
-        if (edge.Labels is { Count: > 0 } && !string.IsNullOrWhiteSpace(SelectedSignalName)
-            && string.Equals(edge.Labels[0].Text, SelectedSignalName, StringComparison.OrdinalIgnoreCase))
-        {
-            return Palette.Selected;
+            points.Add(transform.Apply(section.EndPoint));
         }
 
-        return Palette.PinStroke;
+        return points;
     }
+
+    private static bool AreClose(Point a, Point b) =>
+        Math.Abs(a.X - b.X) < 0.5 && Math.Abs(a.Y - b.Y) < 0.5;
 
     private static bool IsBusLabel(string label)
     {
