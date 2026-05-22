@@ -81,7 +81,14 @@ public sealed class VerilatorXmlParser
             .Select(ParseInstanceDefinition)
             .ToList();
 
-        return new DesignModuleDefinition(metadata, locals, instances);
+        List<DesignContAssign> contAssigns = module
+            .Elements("contassign")
+            .Select(ParseContAssign)
+            .Where(static assign => assign is not null)
+            .Cast<DesignContAssign>()
+            .ToList();
+
+        return new DesignModuleDefinition(metadata, locals, instances, contAssigns);
     }
 
     private static DesignHierarchyNode ParseHierarchy(XDocument document, string fallbackTopModuleName)
@@ -220,6 +227,29 @@ public sealed class VerilatorXmlParser
             signalName,
             (string?)element.Attribute("direction") ?? string.Empty,
             ParseInt((string?)element.Attribute("portIndex"), 0));
+    }
+
+    private static DesignContAssign? ParseContAssign(XElement element)
+    {
+        XElement? target = element.Elements("varref").FirstOrDefault()
+            ?? element.Descendants("varref").FirstOrDefault();
+        string? targetName = (string?)target?.Attribute("name");
+        if (string.IsNullOrWhiteSpace(targetName))
+        {
+            return null;
+        }
+
+        List<string> sourceNames = element
+            .Descendants("varref")
+            .Where(varref => !ReferenceEquals(varref, target))
+            .Select(static varref => (string?)varref.Attribute("name"))
+            .Where(static name => !string.IsNullOrWhiteSpace(name))
+            .Select(static name => name!)
+            .Where(name => !string.Equals(name, targetName, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return sourceNames.Count == 0 ? null : new DesignContAssign(targetName, sourceNames);
     }
 
     private static DType ParseDType(XElement element)

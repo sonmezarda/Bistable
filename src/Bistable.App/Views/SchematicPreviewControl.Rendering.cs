@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Media;
+using Bistable.Core.Design;
 using Bistable.App.Services;
 using Bistable.App.Services.Layout;
 using Bistable.App.ViewModels;
@@ -209,11 +210,12 @@ public sealed partial class SchematicPreviewControl
         IReadOnlyList<SignalViewModel> scopeSignals,
         IReadOnlyList<HierarchyScopeInstanceViewModel> childScopes,
         IReadOnlyList<HierarchyScopePortViewModel> scopePorts,
-        IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals)
+        IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals,
+        IReadOnlyList<DesignContAssign> contAssigns)
     {
         if (RoutingEngine == SchematicRoutingEngine.Elk)
         {
-            DrawElkScopePanel(context, bounds, moduleRect, scopeSignals, childScopes, scopePorts, localSignals);
+            DrawElkScopePanel(context, bounds, moduleRect, scopeSignals, childScopes, scopePorts, localSignals, contAssigns);
             return;
         }
 

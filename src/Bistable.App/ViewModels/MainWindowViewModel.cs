@@ -130,6 +130,8 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<HierarchyScopeLocalSignalViewModel> SelectedHierarchyLocalSignals { get; } = [];
 
+    public ObservableCollection<Bistable.Core.Design.DesignContAssign> SelectedHierarchyContAssigns { get; } = [];
+
     public ObservableCollection<string> SchematicExpandedPaths { get; } = [];
 
     public ObservableCollection<SampleProjectViewModel> Samples { get; } = [];
@@ -825,6 +827,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             SelectedHierarchyChildInstances.Clear();
             SelectedHierarchyPorts.Clear();
             SelectedHierarchyLocalSignals.Clear();
+            SelectedHierarchyContAssigns.Clear();
             WaveformLanes.Clear();
             AvailableClocks.Clear();
             UnsubscribeFromInputs();
@@ -1684,6 +1687,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private void RefreshSelectedHierarchyPorts()
     {
         SelectedHierarchyPorts.Clear();
+        SelectedHierarchyContAssigns.Clear();
         if (SelectedHierarchyNode is null || _currentDesign is null)
         {
             return;
@@ -1701,6 +1705,14 @@ public sealed class MainWindowViewModel : ViewModelBase
                 port.Direction,
                 port.Width,
                 port.IsSigned));
+        }
+
+        if (_currentDesign.ModuleDefinitions.TryGetValue(SelectedHierarchyNode.ModuleName, out Bistable.Core.Design.DesignModuleDefinition? definition))
+        {
+            foreach (Bistable.Core.Design.DesignContAssign assign in definition.ContAssigns)
+            {
+                SelectedHierarchyContAssigns.Add(assign);
+            }
         }
     }
 

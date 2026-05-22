@@ -87,6 +87,17 @@ public sealed class ElkSchematicEngine
             sb.Append("L:").Append(local.Name).Append(':').Append(local.Width).Append('|');
         }
 
+        foreach (Bistable.Core.Design.DesignContAssign assign in scope.ContAssigns.OrderBy(a => a.TargetName, StringComparer.OrdinalIgnoreCase))
+        {
+            sb.Append("A:").Append(assign.TargetName).Append(':');
+            foreach (string source in assign.SourceNames.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))
+            {
+                sb.Append(source).Append(',');
+            }
+
+            sb.Append('|');
+        }
+
         byte[] hash = SHA1.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexString(hash);
     }

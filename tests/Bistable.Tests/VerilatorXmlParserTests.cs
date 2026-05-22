@@ -121,4 +121,58 @@ public sealed class VerilatorXmlParserTests
             File.Delete(xmlPath);
         }
     }
+
+    [Fact]
+    public void ParsesContinuousAssignments()
+    {
+        string xmlPath = Path.Combine(Path.GetTempPath(), $"bistable-assign-{Guid.NewGuid():N}.xml");
+        File.WriteAllText(xmlPath, """
+        <verilator_xml>
+          <netlist>
+            <module name="decoder" topModule="1">
+              <var name="instruction" dtype_id="2" dir="input" pinIndex="1" vartype="logic" />
+              <var name="opcode" dtype_id="1" vartype="logic" />
+              <var name="immediate" dtype_id="2" vartype="logic" />
+              <contassign>
+                <varref name="opcode" dtype_id="1" />
+                <sel>
+                  <varref name="instruction" dtype_id="2" />
+                  <const name="32&apos;sh0" dtype_id="3" />
+                </sel>
+              </contassign>
+              <contassign>
+                <varref name="immediate" dtype_id="2" />
+                <concat>
+                  <varref name="instruction" dtype_id="2" />
+                  <varref name="opcode" dtype_id="1" />
+                </concat>
+              </contassign>
+            </module>
+            <typetable>
+              <basicdtype id="1" name="logic" left="6" right="0" />
+              <basicdtype id="2" name="logic" left="31" right="0" />
+              <basicdtype id="3" name="int" left="31" right="0" signed="true" />
+            </typetable>
+          </netlist>
+        </verilator_xml>
+        """);
+
+        try
+        {
+            ElaboratedDesign design = new VerilatorXmlParser().ParseDesign(xmlPath);
+
+            DesignModuleDefinition definition = design.ModuleDefinitions["decoder"];
+            Assert.Equal(2, definition.ContAssigns.Count);
+            Assert.Contains(definition.ContAssigns, static assign =>
+                assign.TargetName == "opcode"
+                && Assert.Single(assign.SourceNames) == "instruction");
+            Assert.Contains(definition.ContAssigns, static assign =>
+                assign.TargetName == "immediate"
+                && assign.SourceNames.SequenceEqual(["instruction", "opcode"]));
+        }
+        finally
+        {
+            File.Delete(xmlPath);
+        }
+    }
 }

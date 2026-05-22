@@ -1,5 +1,6 @@
 using System.Globalization;
 using Bistable.App.ViewModels;
+using Bistable.Core.Design;
 
 namespace Bistable.App.Services.Routing.Elk;
 
@@ -206,6 +207,7 @@ internal sealed class ElkGraphBuilder
 
         CollectBoundaryEndpoints(scope, portRefs, producers, consumers);
         CollectChildEndpoints(scope, portRefs, producers, consumers);
+        ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers);
         EmitEdges(graph, producers, consumers);
     }
 
@@ -275,7 +277,7 @@ internal sealed class ElkGraphBuilder
                         continue;
                     }
 
-                    int width = Math.Max(source.Width, target.Width);
+                    int width = ResolveEdgeWidth(source, target);
                     graph.Edges.Add(new ElkEdge
                     {
                         Id = $"e{edgeCounter++}",
@@ -291,6 +293,97 @@ internal sealed class ElkGraphBuilder
                         ]
                     });
                 }
+            }
+        }
+    }
+
+    private static int ResolveEdgeWidth(ElkPortRef source, ElkPortRef target)
+    {
+        if (source.Width == target.Width)
+        {
+            return Math.Max(1, source.Width);
+        }
+
+        return Math.Max(1, Math.Min(source.Width, target.Width));
+    }
+
+    private static void ExpandConsumersThroughContAssigns(
+        IReadOnlyList<DesignContAssign> contAssigns,
+        IReadOnlyDictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        if (contAssigns.Count == 0 || consumers.Count == 0)
+        {
+            return;
+        }
+
+        Dictionary<string, List<string>> sourcesByTarget = BuildSourcesByTarget(contAssigns);
+        foreach ((string signal, List<ElkPortRef> signalConsumers) in consumers.ToArray())
+        {
+            if (producers.ContainsKey(signal))
+            {
+                continue;
+            }
+
+            foreach (string source in ResolveAssignSources(signal, sourcesByTarget))
+            {
+                if (string.Equals(source, signal, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                foreach (ElkPortRef consumer in signalConsumers)
+                {
+                    AddTo(consumers, source, consumer);
+                }
+            }
+        }
+    }
+
+    private static Dictionary<string, List<string>> BuildSourcesByTarget(IReadOnlyList<DesignContAssign> contAssigns)
+    {
+        Dictionary<string, List<string>> sourcesByTarget = new(StringComparer.OrdinalIgnoreCase);
+        foreach (DesignContAssign assign in contAssigns)
+        {
+            string[] sourceNames = assign.SourceNames
+                .Where(static source => !string.IsNullOrWhiteSpace(source))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (sourceNames.Length != 1)
+            {
+                continue;
+            }
+
+            string source = sourceNames[0];
+            if (!string.Equals(source, assign.TargetName, StringComparison.OrdinalIgnoreCase))
+            {
+                AddTo(sourcesByTarget, assign.TargetName, source);
+            }
+        }
+
+        return sourcesByTarget;
+    }
+
+    private static IEnumerable<string> ResolveAssignSources(
+        string signal,
+        IReadOnlyDictionary<string, List<string>> sourcesByTarget)
+    {
+        HashSet<string> visited = new(StringComparer.OrdinalIgnoreCase);
+        Stack<string> pending = new();
+        pending.Push(signal);
+
+        while (pending.Count > 0)
+        {
+            string current = pending.Pop();
+            if (!visited.Add(current) || !sourcesByTarget.TryGetValue(current, out List<string>? sources))
+            {
+                continue;
+            }
+
+            foreach (string source in sources)
+            {
+                yield return source;
+                pending.Push(source);
             }
         }
     }
@@ -312,9 +405,9 @@ internal sealed class ElkGraphBuilder
     private static string FormatPortLabel(string portName, int width) =>
         width == 1 ? portName : $"{portName}[{width}b]";
 
-    private static void AddTo(Dictionary<string, List<ElkPortRef>> map, string key, ElkPortRef value)
+    private static void AddTo<TValue>(Dictionary<string, List<TValue>> map, string key, TValue value)
     {
-        if (!map.TryGetValue(key, out List<ElkPortRef>? list))
+        if (!map.TryGetValue(key, out List<TValue>? list))
         {
             list = [];
             map[key] = list;
@@ -327,7 +420,8 @@ internal sealed class ElkGraphBuilder
 public sealed record ElkScopeData(
     IReadOnlyList<HierarchyScopePortViewModel> BoundaryPorts,
     IReadOnlyList<HierarchyScopeInstanceViewModel> ChildScopes,
-    IReadOnlyList<HierarchyScopeLocalSignalViewModel> LocalSignals);
+    IReadOnlyList<HierarchyScopeLocalSignalViewModel> LocalSignals,
+    IReadOnlyList<DesignContAssign> ContAssigns);
 
 public sealed record ElkBuildResult(ElkGraph Graph, IReadOnlyDictionary<string, ElkPortRef> PortRefs);
 

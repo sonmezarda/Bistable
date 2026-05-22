@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Bistable.App.Services;
 using Bistable.App.ViewModels;
+using Bistable.Core.Design;
 
 namespace Bistable.App.Views;
 
@@ -67,6 +68,9 @@ public sealed partial class SchematicPreviewControl : Control
     public static readonly StyledProperty<IEnumerable<HierarchyScopeLocalSignalViewModel>?> ScopeLocalSignalsProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<HierarchyScopeLocalSignalViewModel>?>(nameof(ScopeLocalSignals));
 
+    public static readonly StyledProperty<IEnumerable<DesignContAssign>?> ScopeContAssignsProperty =
+        AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<DesignContAssign>?>(nameof(ScopeContAssigns));
+
     public static readonly StyledProperty<IEnumerable<SignalViewModel>?> ScopeSignalsProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<SignalViewModel>?>(nameof(ScopeSignals));
 
@@ -98,6 +102,7 @@ public sealed partial class SchematicPreviewControl : Control
     private INotifyCollectionChanged? _observableScopeChildren;
     private INotifyCollectionChanged? _observableScopePorts;
     private INotifyCollectionChanged? _observableScopeLocalSignals;
+    private INotifyCollectionChanged? _observableScopeContAssigns;
     private INotifyCollectionChanged? _observableExpandedScopePaths;
     private double _viewportZoom = 1;
     private Point _viewportPan;
@@ -274,6 +279,12 @@ public sealed partial class SchematicPreviewControl : Control
         set => SetValue(ScopeLocalSignalsProperty, value);
     }
 
+    public IEnumerable<DesignContAssign>? ScopeContAssigns
+    {
+        get => GetValue(ScopeContAssignsProperty);
+        set => SetValue(ScopeContAssignsProperty, value);
+    }
+
     public SchematicRoutingEngine RoutingEngine
     {
         get => GetValue(RoutingEngineProperty);
@@ -309,6 +320,11 @@ public sealed partial class SchematicPreviewControl : Control
             DetachCollection(change.OldValue as INotifyCollectionChanged, ref _observableScopeLocalSignals, OnScopeLocalSignalsChanged);
             AttachCollection(change.NewValue as INotifyCollectionChanged, ref _observableScopeLocalSignals, OnScopeLocalSignalsChanged);
         }
+        else if (change.Property == ScopeContAssignsProperty)
+        {
+            DetachCollection(change.OldValue as INotifyCollectionChanged, ref _observableScopeContAssigns, OnScopeContAssignsChanged);
+            AttachCollection(change.NewValue as INotifyCollectionChanged, ref _observableScopeContAssigns, OnScopeContAssignsChanged);
+        }
         else if (change.Property == ExpandedScopePathsProperty)
         {
             DetachCollection(change.OldValue as INotifyCollectionChanged, ref _observableExpandedScopePaths, OnExpandedScopePathsChanged);
@@ -343,6 +359,7 @@ public sealed partial class SchematicPreviewControl : Control
         IReadOnlyList<HierarchyScopeInstanceViewModel> childScopes = ScopeChildren?.ToList() ?? [];
         IReadOnlyList<HierarchyScopePortViewModel> scopePorts = ScopePorts?.ToList() ?? [];
         IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals = ScopeLocalSignals?.ToList() ?? [];
+        IReadOnlyList<DesignContAssign> contAssigns = ScopeContAssigns?.ToList() ?? [];
         HierarchyScopeNodeViewModel? parentScope = ScopeParent;
         bool hasScopeFocus = HasScopeContext(scopeSignals, childScopes, parentScope);
         bool expandedScope = IsActiveScopeExpanded && hasScopeFocus;
@@ -397,7 +414,7 @@ public sealed partial class SchematicPreviewControl : Control
 
             if (expandedScope)
             {
-                DrawExpandedScopePanel(context, worldBounds, moduleRect, scopeCard, scopeSignals, childScopes, scopePorts, localSignals);
+                DrawExpandedScopePanel(context, worldBounds, moduleRect, scopeCard, scopeSignals, childScopes, scopePorts, localSignals, contAssigns);
             }
             else if (hasScopeFocus && !string.Equals(ActiveScopePath, ModuleName, StringComparison.OrdinalIgnoreCase) && scopePorts.Count > 0)
             {
@@ -521,6 +538,7 @@ public sealed partial class SchematicPreviewControl : Control
         || property == ScopeChildrenProperty
         || property == ScopePortsProperty
         || property == ScopeLocalSignalsProperty
+        || property == ScopeContAssignsProperty
         || property == ScopeParentProperty
         || property == IsActiveScopeExpandedProperty
         || property == ExpandedScopePathsProperty
@@ -539,6 +557,8 @@ public sealed partial class SchematicPreviewControl : Control
     private void OnScopePortsChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateVisual();
 
     private void OnScopeLocalSignalsChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateVisual();
+
+    private void OnScopeContAssignsChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateVisual();
 
     private void OnExpandedScopePathsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {

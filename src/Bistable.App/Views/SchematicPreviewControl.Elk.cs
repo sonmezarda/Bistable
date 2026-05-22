@@ -3,6 +3,7 @@ using Avalonia.Media;
 using Bistable.App.Services;
 using Bistable.App.Services.Routing.Elk;
 using Bistable.App.ViewModels;
+using Bistable.Core.Design;
 
 namespace Bistable.App.Views;
 
@@ -17,14 +18,15 @@ public sealed partial class SchematicPreviewControl
         IReadOnlyList<SignalViewModel> scopeSignals,
         IReadOnlyList<HierarchyScopeInstanceViewModel> childScopes,
         IReadOnlyList<HierarchyScopePortViewModel> scopePorts,
-        IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals)
+        IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals,
+        IReadOnlyList<DesignContAssign> contAssigns)
     {
         Rect panel = ComputeElkPanelRect(bounds, moduleRect);
         _lastFocusedScopePanelRect = panel;
 
         DrawElkPanelChrome(context, panel);
 
-        ElkScopeData scope = new(scopePorts, childScopes, localSignals);
+        ElkScopeData scope = new(scopePorts, childScopes, localSignals, contAssigns);
         ElkLayoutResult layoutResult;
         try
         {

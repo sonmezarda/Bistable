@@ -1511,7 +1511,8 @@ public sealed class MainWindow : Window
             [!SchematicPreviewControl.ScopeParentProperty] = new Binding("SelectedHierarchyParentScope"),
             [!SchematicPreviewControl.ScopeChildrenProperty] = new Binding("SelectedHierarchyChildInstances"),
             [!SchematicPreviewControl.ScopePortsProperty] = new Binding("SelectedHierarchyPorts"),
-            [!SchematicPreviewControl.ScopeLocalSignalsProperty] = new Binding("SelectedHierarchyLocalSignals")
+            [!SchematicPreviewControl.ScopeLocalSignalsProperty] = new Binding("SelectedHierarchyLocalSignals"),
+            [!SchematicPreviewControl.ScopeContAssignsProperty] = new Binding("SelectedHierarchyContAssigns")
         };
         preview.SignalEditorRequested += OnSchematicSignalEditorRequested;
         return preview;
