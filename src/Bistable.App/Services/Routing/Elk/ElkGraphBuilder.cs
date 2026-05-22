@@ -17,6 +17,13 @@ internal sealed class ElkGraphBuilder
     private const double ModuleSidePadding = 24;
     private const double BoundaryNodeWidth = 88;
 
+    private const string ElkPortSideKey = "elk.port.side";
+    private const string ElkPortIndexKey = "elk.port.index";
+    private const string ElkPortConstraintsKey = "elk.portConstraints";
+    private const string PortSideEast = "EAST";
+    private const string PortSideWest = "WEST";
+    private const string PortConstraintsFixedOrder = "FIXED_ORDER";
+
     public ElkBuildResult Build(ElkScopeData scope, bool compactLayout)
     {
         ElkGraph graph = new()
@@ -62,6 +69,16 @@ internal sealed class ElkGraphBuilder
         };
     }
 
+    private static Dictionary<string, string> FixedOrderPortConstraints() =>
+        new() { [ElkPortConstraintsKey] = PortConstraintsFixedOrder };
+
+    private static Dictionary<string, string> PortLayout(string side, int index) =>
+        new()
+        {
+            [ElkPortSideKey] = side,
+            [ElkPortIndexKey] = index.ToString(CultureInfo.InvariantCulture)
+        };
+
     private static void AddBoundaryInputNode(ElkGraph graph, ElkScopeData scope, Dictionary<string, ElkPortRef> portRefs)
     {
         HierarchyScopePortViewModel[] inputs = scope.BoundaryPorts.Where(p => p.IsInput).ToArray();
@@ -75,10 +92,7 @@ internal sealed class ElkGraphBuilder
             Id = ElkNodeIds.BoundaryIn,
             Width = BoundaryNodeWidth,
             Height = Math.Max(60, inputs.Length * PortRowHeight + 20),
-            LayoutOptions = new Dictionary<string, string>
-            {
-                ["elk.portConstraints"] = "FIXED_ORDER"
-            },
+            LayoutOptions = FixedOrderPortConstraints(),
             Labels = [new ElkLabel { Text = "inputs" }],
             Ports = []
         };
@@ -90,11 +104,7 @@ internal sealed class ElkGraphBuilder
             node.Ports!.Add(new ElkPort
             {
                 Id = id,
-                LayoutOptions = new Dictionary<string, string>
-                {
-                    ["elk.port.side"] = "EAST",
-                    ["elk.port.index"] = i.ToString(CultureInfo.InvariantCulture)
-                },
+                LayoutOptions = PortLayout(PortSideEast, i),
                 Labels = [new ElkLabel { Text = port.DisplayLabel }]
             });
             portRefs[port.Name] = new ElkPortRef(ElkNodeIds.BoundaryIn, id, ElkPortRole.BoundaryInput, port.Width);
@@ -116,10 +126,7 @@ internal sealed class ElkGraphBuilder
             Id = ElkNodeIds.BoundaryOut,
             Width = BoundaryNodeWidth,
             Height = Math.Max(60, outputs.Length * PortRowHeight + 20),
-            LayoutOptions = new Dictionary<string, string>
-            {
-                ["elk.portConstraints"] = "FIXED_ORDER"
-            },
+            LayoutOptions = FixedOrderPortConstraints(),
             Labels = [new ElkLabel { Text = "outputs" }],
             Ports = []
         };
@@ -131,11 +138,7 @@ internal sealed class ElkGraphBuilder
             node.Ports!.Add(new ElkPort
             {
                 Id = id,
-                LayoutOptions = new Dictionary<string, string>
-                {
-                    ["elk.port.side"] = "WEST",
-                    ["elk.port.index"] = i.ToString(CultureInfo.InvariantCulture)
-                },
+                LayoutOptions = PortLayout(PortSideWest, i),
                 Labels = [new ElkLabel { Text = port.DisplayLabel }]
             });
             portRefs[ElkSignalKey.BoundaryOutput(port.Name)] = new ElkPortRef(ElkNodeIds.BoundaryOut, id, ElkPortRole.BoundaryOutput, port.Width);
@@ -162,10 +165,7 @@ internal sealed class ElkGraphBuilder
             Id = nodeId,
             Width = width,
             Height = height,
-            LayoutOptions = new Dictionary<string, string>
-            {
-                ["elk.portConstraints"] = "FIXED_ORDER"
-            },
+            LayoutOptions = FixedOrderPortConstraints(),
             Labels = [new ElkLabel { Text = child.InstanceName }],
             Ports = []
         };
@@ -177,11 +177,7 @@ internal sealed class ElkGraphBuilder
             node.Ports!.Add(new ElkPort
             {
                 Id = id,
-                LayoutOptions = new Dictionary<string, string>
-                {
-                    ["elk.port.side"] = "WEST",
-                    ["elk.port.index"] = i.ToString(CultureInfo.InvariantCulture)
-                },
+                LayoutOptions = PortLayout(PortSideWest, i),
                 Labels = [new ElkLabel { Text = FormatPortLabel(pin.PortName, pin.Width) }]
             });
             portRefs[ElkSignalKey.ChildInput(child.HierarchyPath, pin.PortName)] = new ElkPortRef(nodeId, id, ElkPortRole.ChildInput, pin.Width);
@@ -194,11 +190,7 @@ internal sealed class ElkGraphBuilder
             node.Ports!.Add(new ElkPort
             {
                 Id = id,
-                LayoutOptions = new Dictionary<string, string>
-                {
-                    ["elk.port.side"] = "EAST",
-                    ["elk.port.index"] = i.ToString(CultureInfo.InvariantCulture)
-                },
+                LayoutOptions = PortLayout(PortSideEast, i),
                 Labels = [new ElkLabel { Text = FormatPortLabel(pin.PortName, pin.Width) }]
             });
             portRefs[ElkSignalKey.ChildOutput(child.HierarchyPath, pin.PortName)] = new ElkPortRef(nodeId, id, ElkPortRole.ChildOutput, pin.Width);
@@ -211,24 +203,38 @@ internal sealed class ElkGraphBuilder
     {
         Dictionary<string, List<ElkPortRef>> producers = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, List<ElkPortRef>> consumers = new(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> boundaryInputSignals = new(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> boundaryOutputSignals = new(StringComparer.OrdinalIgnoreCase);
 
+        CollectBoundaryEndpoints(scope, portRefs, producers, consumers);
+        CollectChildEndpoints(scope, portRefs, producers, consumers);
+        EmitEdges(graph, producers, consumers);
+    }
+
+    private static void CollectBoundaryEndpoints(
+        ElkScopeData scope,
+        Dictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
         foreach (HierarchyScopePortViewModel port in scope.BoundaryPorts)
         {
             if (port.IsInput && portRefs.TryGetValue(port.Name, out ElkPortRef? inRef))
             {
                 AddTo(producers, port.Name, inRef);
-                boundaryInputSignals.Add(port.Name);
             }
 
             if (port.IsOutput && portRefs.TryGetValue(ElkSignalKey.BoundaryOutput(port.Name), out ElkPortRef? outRef))
             {
                 AddTo(consumers, port.Name, outRef);
-                boundaryOutputSignals.Add(port.Name);
             }
         }
+    }
 
+    private static void CollectChildEndpoints(
+        ElkScopeData scope,
+        Dictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
         foreach (HierarchyScopeInstanceViewModel child in scope.ChildScopes)
         {
             foreach (HierarchyScopeInstancePortConnectionViewModel pin in child.PortConnections)
@@ -241,17 +247,17 @@ internal sealed class ElkGraphBuilder
                     continue;
                 }
 
-                if (pin.IsInput)
-                {
-                    AddTo(consumers, pin.SignalName, portRef);
-                }
-                else
-                {
-                    AddTo(producers, pin.SignalName, portRef);
-                }
+                Dictionary<string, List<ElkPortRef>> target = pin.IsInput ? consumers : producers;
+                AddTo(target, pin.SignalName, portRef);
             }
         }
+    }
 
+    private static void EmitEdges(
+        ElkGraph graph,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
         int edgeCounter = 0;
         foreach ((string signal, List<ElkPortRef> sourceList) in producers)
         {
@@ -275,7 +281,14 @@ internal sealed class ElkGraphBuilder
                         Id = $"e{edgeCounter++}",
                         Sources = [source.PortId],
                         Targets = [target.PortId],
-                        Labels = [new ElkLabel { Text = signal }]
+                        // labels[0] = signal name (rendered + selection key)
+                        // labels[1] = bit width metadata (used by the renderer to pick the
+                        // correct Logisim palette colour without re-deriving width from name)
+                        Labels =
+                        [
+                            new ElkLabel { Text = signal },
+                            new ElkLabel { Text = width.ToString(CultureInfo.InvariantCulture) }
+                        ]
                     });
                 }
             }
@@ -334,7 +347,10 @@ internal static class ElkNodeIds
     public const string BoundaryOut = "boundary_out";
 
     public static string ForChild(string hierarchyPath) =>
-        "child_" + hierarchyPath.Replace('.', '_').Replace('/', '_').Replace(':', '_');
+        "child_" + SanitizeId(hierarchyPath);
+
+    private static string SanitizeId(string raw) =>
+        raw.Replace('.', '_').Replace('/', '_').Replace(':', '_').Replace('[', '_').Replace(']', '_');
 }
 
 internal static class ElkSignalKey
