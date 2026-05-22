@@ -13,13 +13,29 @@ dependency and remains available for comparison and offline development.
 `GraphvizDot` is the current functional schematic backend. Unlike
 `GraphvizNeato`, it does not try to route wires through an already-fixed
 Avalonia layout. It gives Graphviz the schematic graph and lets Graphviz place
-the boundary ports, local nets, module nodes, and routes together. Bistable then
+the boundary ports, module nodes, clusters, and routes together. Bistable then
 renders the resulting graph with its own dark theme and hit-test metadata.
 
 This backend prioritizes correctness and readability over matching the earlier
 hand-drawn card layout. It is the right direction for production external
 schematic rendering because node placement and edge routing are solved as one
 problem.
+
+Implementation notes:
+
+- Local/internal net helper chips are not emitted to DOT. If they are present as
+  invisible nodes, Graphviz still routes toward them and the renderer can show
+  dangling wires. Bistable instead normalizes local-net connections into direct
+  visible driver-to-consumer edges and keeps the local signal only as selection
+  metadata.
+- Route geometry is cached after Graphviz plain output is converted into
+  Bistable drawing primitives. Hover and selection redraws should not rerun
+  Graphviz or the post-route obstacle pass.
+- Spacing is density-aware. Dense scopes increase `nodesep`, `ranksep`, cluster
+  margin, and post-layout module spread so readability is preferred over compact
+  placement.
+- Graphviz remains an optional external executable. Its output is treated as a
+  layout source, not as a public visual style dependency.
 
 ## Graphviz Neato
 

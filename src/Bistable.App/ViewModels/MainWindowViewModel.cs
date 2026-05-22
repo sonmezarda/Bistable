@@ -34,6 +34,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     private HierarchyNodeViewModel? _hierarchyRoot;
     private HierarchyNodeViewModel? _selectedHierarchyNode;
     private SignalViewModel? _selectedSignal;
+    private string? _selectedSchematicReferenceName;
+    private bool _settingSelectedSchematicReference;
     private SignalViewModel? _observedSelectedSignal;
     private WaveformLaneViewModel? _selectedWaveformLane;
     private DockPanelViewModel? _selectedLeftDockPanel;
@@ -232,6 +234,15 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             if (SetProperty(ref _selectedSignal, value))
             {
+                if (value is not null)
+                {
+                    _selectedSchematicReferenceName = value.Name;
+                }
+                else if (!_settingSelectedSchematicReference)
+                {
+                    _selectedSchematicReferenceName = null;
+                }
+
                 if (_observedSelectedSignal is not null)
                 {
                     _observedSelectedSignal.PropertyChanged -= OnSelectedSignalPropertyChanged;
@@ -249,14 +260,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                 }
 
                 SyncSelectedWaveformLaneFromSignal();
-                OnPropertyChanged(nameof(SelectedSchematicSignalDisplayName));
-                OnPropertyChanged(nameof(SelectedSchematicSignalDirection));
-                OnPropertyChanged(nameof(SelectedSchematicSignalWidth));
-                OnPropertyChanged(nameof(SelectedSchematicSignalValue));
-                OnPropertyChanged(nameof(IsSchematicSignalSelected));
-                OnPropertyChanged(nameof(CanDriveSelectedSchematicInput));
-                OnPropertyChanged(nameof(CanToggleSelectedSchematicInput));
-                OnPropertyChanged(nameof(SelectedSchematicSignalName));
+                RaiseSelectedSchematicSignalProperties();
             }
         }
     }
@@ -293,17 +297,28 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public string? SelectedSchematicSignalName
     {
-        get => SelectedSignal?.Name;
+        get => SelectedSignal?.Name ?? _selectedSchematicReferenceName;
         set
         {
-            if (string.Equals(SelectedSignal?.Name, value, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(SelectedSchematicSignalName, value, StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
 
-            SelectedSignal = value is null
-                ? null
-                : FindAnySignalByName(value);
+            _selectedSchematicReferenceName = value;
+            _settingSelectedSchematicReference = true;
+            try
+            {
+                SelectedSignal = value is null
+                    ? null
+                    : FindAnySignalByName(value);
+            }
+            finally
+            {
+                _settingSelectedSchematicReference = false;
+            }
+
+            RaiseSelectedSchematicSignalProperties();
         }
     }
 
@@ -698,19 +713,65 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ulong WaveformCursorTime => SelectedWaveformLane?.GetTimeAtOrBefore(WaveformCursorOrder) ?? Time;
 
-    public bool IsSchematicSignalSelected => SelectedSignal is not null;
+    public bool IsSchematicSignalSelected => SelectedSignal is not null || !string.IsNullOrWhiteSpace(_selectedSchematicReferenceName);
 
     public bool CanDriveSelectedSchematicInput => SelectedSignal?.IsInput == true;
 
     public bool CanToggleSelectedSchematicInput => SelectedSignal?.IsInput == true && SelectedSignal.IsBoolean;
 
-    public string SelectedSchematicSignalDisplayName => SelectedSignal?.DisplayName ?? "No signal selected";
+    public string SelectedSchematicSignalDisplayName =>
+        SelectedSignal?.DisplayName
+        ?? SelectedSchematicLocalSignal?.Name
+        ?? _selectedSchematicReferenceName
+        ?? "No signal selected";
 
-    public string SelectedSchematicSignalDirection => SelectedSignal?.DirectionLabel ?? "-";
+    public string SelectedSchematicSignalDirection => SelectedSignal?.DirectionLabel ?? (SelectedSchematicLocalSignal is null ? "-" : "INTERNAL");
 
-    public string SelectedSchematicSignalWidth => SelectedSignal?.WidthLabel ?? "-";
+    public string SelectedSchematicSignalWidth => SelectedSignal?.WidthLabel ?? SelectedSchematicLocalSignal?.WidthLabel ?? "-";
 
-    public string SelectedSchematicSignalValue => SelectedSignal?.Value ?? "-";
+    public string SelectedSchematicSignalValue => SelectedSignal?.Value ?? SelectedSchematicLocalSignal?.CurrentValue ?? "-";
+
+    private HierarchyScopeLocalSignalViewModel? SelectedSchematicLocalSignal =>
+        string.IsNullOrWhiteSpace(_selectedSchematicReferenceName)
+            ? null
+            : FindSchematicLocalSignalReference(_selectedSchematicReferenceName);
+
+    private HierarchyScopeLocalSignalViewModel? FindSchematicLocalSignalReference(string referenceName) =>
+        SelectedHierarchyLocalSignals.FirstOrDefault(local => IsSchematicLocalSignalReference(local, referenceName))
+        ?? EnumerateScopeLocalSignals(SelectedHierarchyChildInstances)
+            .FirstOrDefault(local => IsSchematicLocalSignalReference(local, referenceName));
+
+    private static IEnumerable<HierarchyScopeLocalSignalViewModel> EnumerateScopeLocalSignals(IEnumerable<HierarchyScopeInstanceViewModel> instances)
+    {
+        foreach (HierarchyScopeInstanceViewModel instance in instances)
+        {
+            foreach (HierarchyScopeLocalSignalViewModel local in instance.LocalSignals)
+            {
+                yield return local;
+            }
+
+            foreach (HierarchyScopeLocalSignalViewModel childLocal in EnumerateScopeLocalSignals(instance.ChildInstances))
+            {
+                yield return childLocal;
+            }
+        }
+    }
+
+    private static bool IsSchematicLocalSignalReference(HierarchyScopeLocalSignalViewModel local, string referenceName) =>
+        string.Equals(local.ResolvedSignalName, referenceName, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(local.Name, referenceName, StringComparison.OrdinalIgnoreCase);
+
+    private void RaiseSelectedSchematicSignalProperties()
+    {
+        OnPropertyChanged(nameof(SelectedSchematicSignalDisplayName));
+        OnPropertyChanged(nameof(SelectedSchematicSignalDirection));
+        OnPropertyChanged(nameof(SelectedSchematicSignalWidth));
+        OnPropertyChanged(nameof(SelectedSchematicSignalValue));
+        OnPropertyChanged(nameof(IsSchematicSignalSelected));
+        OnPropertyChanged(nameof(CanDriveSelectedSchematicInput));
+        OnPropertyChanged(nameof(CanToggleSelectedSchematicInput));
+        OnPropertyChanged(nameof(SelectedSchematicSignalName));
+    }
 
     public string WaveformCursorSummary
     {
@@ -1647,7 +1708,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         SelectedHierarchyLocalSignals.Clear();
         Bistable.Core.Design.DesignModuleDefinition? definition = ResolveCurrentModuleDefinition();
-        if (definition is null)
+        string? hierarchyPath = SelectedHierarchyNode?.HierarchyPath;
+        if (definition is null || string.IsNullOrWhiteSpace(hierarchyPath))
         {
             return;
         }
@@ -1662,8 +1724,10 @@ public sealed class MainWindowViewModel : ViewModelBase
                 local.IsSigned,
                 traced is not null,
                 traced?.Value ?? "-",
-                traced?.Name));
+                traced?.Name ?? BuildResolvedLocalSignalName(hierarchyPath, local.Name)));
         }
+
+        RaiseSelectedSchematicSignalProperties();
     }
 
     private void RebuildHierarchyTraceScopeSummaries()
@@ -2039,11 +2103,14 @@ public sealed class MainWindowViewModel : ViewModelBase
                 local.IsSigned,
                 traced is not null,
                 traced?.Value ?? "-",
-                traced?.Name));
+                traced?.Name ?? BuildResolvedLocalSignalName(hierarchyPath, local.Name)));
         }
 
         return signals;
     }
+
+    private static string BuildResolvedLocalSignalName(string hierarchyPath, string localName) =>
+        string.IsNullOrWhiteSpace(hierarchyPath) ? localName : $"{hierarchyPath}.{localName}";
 
     private IReadOnlyList<HierarchyScopeInstanceViewModel> CreateChildScopeInstances(HierarchyNodeViewModel node)
     {

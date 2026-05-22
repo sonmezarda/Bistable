@@ -88,6 +88,57 @@ public sealed class HierarchyScopeTests
     }
 
     [Fact]
+    public async Task SelectedSchematicSignalNameShowsLocalSignalDetailsWithoutTraceBuild()
+    {
+        string root = FindRepositoryRoot();
+        string samplePath = Path.Combine(root, "samples", "hierarchy", "hierarchy.bistable.json");
+        MainWindowViewModel viewModel = CreateViewModel();
+
+        await viewModel.LoadProjectFromPathAsync(samplePath, CancellationToken.None);
+
+        viewModel.SelectedHierarchyPath = "system_top.u_core";
+
+        await WaitUntilAsync(() => viewModel.SelectedHierarchyLocalSignals.Count > 0, TimeSpan.FromSeconds(5));
+
+        Assert.Contains(viewModel.SelectedHierarchyLocalSignals, local =>
+            local is { Name: "parity_i", IsTraced: false, ResolvedSignalName: "system_top.u_core.parity_i" });
+
+        viewModel.SelectedSchematicSignalName = "parity_i";
+
+        Assert.Null(viewModel.SelectedSignal);
+        Assert.True(viewModel.IsSchematicSignalSelected);
+        Assert.Equal("parity_i", viewModel.SelectedSchematicSignalDisplayName);
+        Assert.Equal("INTERNAL", viewModel.SelectedSchematicSignalDirection);
+        Assert.Equal("1b", viewModel.SelectedSchematicSignalWidth);
+        Assert.Equal("-", viewModel.SelectedSchematicSignalValue);
+        Assert.False(viewModel.CanDriveSelectedSchematicInput);
+        Assert.False(viewModel.CanToggleSelectedSchematicInput);
+        Assert.Equal("system_top.u_core", viewModel.SelectedHierarchyPath);
+    }
+
+    [Fact]
+    public async Task SelectedSchematicSignalNameFindsExpandedChildLocalSignals()
+    {
+        string root = FindRepositoryRoot();
+        string samplePath = Path.Combine(root, "samples", "hierarchy", "hierarchy.bistable.json");
+        MainWindowViewModel viewModel = CreateViewModel();
+
+        await viewModel.LoadProjectFromPathAsync(samplePath, CancellationToken.None);
+
+        Assert.Equal("system_top", viewModel.SelectedHierarchyPath);
+        await WaitUntilAsync(() => viewModel.SelectedHierarchyChildInstances.Count == 1, TimeSpan.FromSeconds(5));
+
+        viewModel.SelectedSchematicSignalName = "system_top.u_core.parity_i";
+
+        Assert.Null(viewModel.SelectedSignal);
+        Assert.True(viewModel.IsSchematicSignalSelected);
+        Assert.Equal("parity_i", viewModel.SelectedSchematicSignalDisplayName);
+        Assert.Equal("INTERNAL", viewModel.SelectedSchematicSignalDirection);
+        Assert.Equal("1b", viewModel.SelectedSchematicSignalWidth);
+        Assert.Equal("system_top", viewModel.SelectedHierarchyPath);
+    }
+
+    [Fact]
     public async Task SelectingHierarchyNodeUpdatesScopeMetadata()
     {
         string root = FindRepositoryRoot();
