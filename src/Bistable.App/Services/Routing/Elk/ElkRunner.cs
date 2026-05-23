@@ -14,7 +14,12 @@ namespace Bistable.App.Services.Routing.Elk;
 /// </summary>
 public sealed class ElkRunner : IDisposable
 {
-    private static readonly TimeSpan DefaultResponseTimeout = TimeSpan.FromSeconds(8);
+    // Bumped from 8 s to 45 s as a band-aid for large designs (arnicomp tops 8 s on
+    // first layout). The proper fix is Phase 1+2's AST → primitive decoder which will
+    // produce a structurally smaller graph; Phase 6 moves layout off the UI thread but
+    // does NOT reduce ELK runtime. Override via the (nodeExecutable, scriptPath,
+    // responseTimeout) constructor if you need a different value.
+    private static readonly TimeSpan DefaultResponseTimeout = TimeSpan.FromSeconds(45);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

@@ -240,7 +240,11 @@ internal sealed class ElkGraphBuilder
             ["elk.layered.nodePlacement.strategy"] = "NETWORK_SIMPLEX",
             ["elk.layered.crossingMinimization.semiInteractive"] = "true",
             ["elk.layered.feedbackEdges"] = "true",
-            ["elk.layered.thoroughness"] = "10"
+            // thoroughness=10 was choking on arnicomp-scale graphs (>8 s ELK runtime).
+            // Dropping to 3 trades a small amount of layout quality (slightly more edge
+            // crossings) for a 3-5× speedup. Re-evaluate after Phase 2 reduces graph
+            // size at the source.
+            ["elk.layered.thoroughness"] = "3"
         };
     }
 
