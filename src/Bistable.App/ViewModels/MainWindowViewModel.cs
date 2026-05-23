@@ -68,6 +68,19 @@ public sealed class MainWindowViewModel : ViewModelBase
     private CancellationTokenSource? _liveEvaluationCts;
     private bool _isLiveEvaluationInFlight;
     private bool _liveEvaluationPending;
+    private bool _isSubSimActive;
+    private SimulationWorkerClient? _topLevelWorker;
+    private ProjectConfiguration? _subSimProject;
+    private List<SignalViewModel>? _savedTopInputs;
+    private List<SignalViewModel>? _savedTopOutputs;
+    private List<SignalViewModel>? _savedTopAllSignals;
+    private List<SignalViewModel>? _savedTopTraceSignals;
+    private string? _savedTopModule;
+    private string? _savedTopTraceFilePath;
+    private ElaboratedDesign? _savedTopDesign;
+    private HierarchyNodeViewModel? _savedTopHierarchyRoot;
+    private HierarchyNodeViewModel? _savedTopSelectedHierarchyNode;
+    private List<string>? _savedTopExpandedPaths;
 
     public MainWindowViewModel(BistableWorkspace workspace, bool loadPersistedLayout = true, int liveEvaluationDelayMs = 120)
     {
@@ -97,6 +110,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         ToggleWaveformPaneCommand = new RelayCommand(() => IsWaveformPaneVisible = !IsWaveformPaneVisible);
         DockPanelCommand = new ParameterizedRelayCommand<DockCommandParameter>(request => MoveDockPanel(request.PanelKind, request.Zone));
         ToggleSchematicPaneCommand = new RelayCommand(() => IsSchematicPaneVisible = !IsSchematicPaneVisible);
+        EnterSubSimulationCommand = new AsyncCommand(EnterSubSimulationAsync, () => CanEnterSubSim);
+        ExitSubSimulationCommand  = new RelayCommand(ExitSubSimulation, () => _isSubSimActive);
         FitWaveformCommand = new RelayCommand(() =>
         {
             WaveformZoom = 1;
@@ -175,6 +190,8 @@ public sealed class MainWindowViewModel : ViewModelBase
                 RefreshSelectedHierarchyNeighborhood();
                 RefreshSelectedHierarchyPorts();
                 RefreshSelectedHierarchyLocalSignals();
+                OnPropertyChanged(nameof(CanEnterSubSim));
+                ((AsyncCommand)EnterSubSimulationCommand).RaiseCanExecuteChanged();
             }
         }
     }
@@ -182,6 +199,10 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ICommand LoadProjectCommand { get; }
 
     public ICommand BuildCommand { get; }
+
+    public ICommand EnterSubSimulationCommand { get; }
+
+    public ICommand ExitSubSimulationCommand { get; }
 
     public ICommand EvalCommand { get; }
 
@@ -313,7 +334,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             {
                 SelectedSignal = value is null
                     ? null
-                    : FindAnySignalByName(value);
+                    : (FindAnySignalByName(value) ?? ResolveLiveSignalForLocalReference(value));
             }
             finally
             {
@@ -322,6 +343,21 @@ public sealed class MainWindowViewModel : ViewModelBase
 
             RaiseSelectedSchematicSignalProperties();
         }
+    }
+
+    // Edge labels carry the *local* signal name (e.g. "reg_a_we") while traced signals
+    // are keyed by their full hierarchy path (e.g. "arnicomp_top.reg_a_we"). When the
+    // local lookup hits, fall back through its ResolvedSignalName so the probe panel
+    // subscribes to the live signal and shows the simulator's current value.
+    private SignalViewModel? ResolveLiveSignalForLocalReference(string reference)
+    {
+        HierarchyScopeLocalSignalViewModel? local = FindSchematicLocalSignalReference(reference);
+        if (local?.ResolvedSignalName is not { } resolved)
+        {
+            return null;
+        }
+
+        return FindAnySignalByName(resolved);
     }
 
     public string? SelectedHierarchyPath
@@ -592,6 +628,32 @@ public sealed class MainWindowViewModel : ViewModelBase
         private set => SetProperty(ref _verilatorVersion, value);
     }
 
+    public bool IsSubSimActive
+    {
+        get => _isSubSimActive;
+        private set
+        {
+            if (SetProperty(ref _isSubSimActive, value))
+            {
+                OnPropertyChanged(nameof(CanEnterSubSim));
+                OnPropertyChanged(nameof(SubSimStatusLabel));
+                ((RelayCommand)ExitSubSimulationCommand).RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool CanEnterSubSim =>
+        !_isSubSimActive
+        && SelectedHierarchyNode is { } node
+        && !ReferenceEquals(node, HierarchyRoot)
+        && _currentDesign?.ModuleCatalog.ContainsKey(node.ModuleName) == true
+        && _currentProjectDirectory is not null;
+
+    public string SubSimStatusLabel =>
+        _isSubSimActive ? $"Isolated: {_subSimProject?.TopModule}" : string.Empty;
+
+    private ProjectConfiguration? ActiveProject => _subSimProject ?? _currentProject;
+
     public ulong Time
     {
         get => _time;
@@ -736,7 +798,21 @@ public sealed class MainWindowViewModel : ViewModelBase
         get
         {
             if (SelectedSignal?.Value is { } val) return val;
-            string? localVal = SelectedSchematicLocalSignal?.CurrentValue;
+
+            // For internal signals (submodule outputs, locals), the local view-model only
+            // snapshots its value at construction time. Re-fetch the live signal by its
+            // resolved hierarchical name so probes track simulation updates.
+            HierarchyScopeLocalSignalViewModel? local = SelectedSchematicLocalSignal;
+            if (local?.ResolvedSignalName is { } resolved)
+            {
+                string? liveValue = FindAnySignalByName(resolved)?.Value;
+                if (!string.IsNullOrWhiteSpace(liveValue) && liveValue != "-")
+                {
+                    return liveValue;
+                }
+            }
+
+            string? localVal = local?.CurrentValue;
             if (localVal is not null and not "-") return localVal;
             return ComputeSliceValue(_selectedSchematicReferenceName) ?? localVal ?? "-";
         }
@@ -998,6 +1074,148 @@ public sealed class MainWindowViewModel : ViewModelBase
         return compact.Length <= 140 ? compact : compact[..137] + "...";
     }
 
+    private async Task EnterSubSimulationAsync(CancellationToken cancellationToken)
+    {
+        if (!CanEnterSubSim) return;
+
+        string moduleName = SelectedHierarchyNode!.ModuleName;
+        if (!_currentDesign!.ModuleCatalog.TryGetValue(moduleName, out ModuleMetadata? subMeta))
+        {
+            Status = $"Module metadata not found for '{moduleName}'.";
+            return;
+        }
+
+        ProjectConfiguration subConfig = _currentProject! with { TopModule = moduleName };
+        Status = $"Building isolated simulation for {moduleName}…";
+
+        SimulationWorkerBuildResult subBuild;
+        try
+        {
+            Progress<SimulationWorkerBuildProgress> progress = new(report =>
+            {
+                if (!string.IsNullOrWhiteSpace(report.Message))
+                    Status = $"Build {report.Stage}: {TrimBuildStatus(report.Message)}";
+            });
+            subBuild = await _workspace.WorkerBuilder.BuildAsync(
+                subConfig, subMeta, _currentProjectDirectory!, cancellationToken, progress);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Status = $"Sub-simulation build failed: {ex.Message}";
+            return;
+        }
+
+        // Re-elaborate the sub-module so the hierarchy panel, schematic, and trace lookups
+        // operate against the sub-design — without this, those panels keep showing top-level
+        // scopes whose signals are no longer driven by the active worker.
+        DesignLoadResult subElab;
+        try
+        {
+            subElab = await _workspace.DesignLoader.ElaborateAsync(
+                subConfig, _currentProjectDirectory!, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Status = $"Sub-simulation elaboration failed: {ex.Message}";
+            return;
+        }
+
+        // Save top-level context before swapping
+        _topLevelWorker     = _worker;
+        _savedTopInputs     = [.. Inputs];
+        _savedTopOutputs    = [.. Outputs];
+        _savedTopAllSignals = [.. AllSignals];
+        _savedTopTraceSignals = [.. TraceSignals];
+        _savedTopModule     = TopModule;
+        _savedTopTraceFilePath = _traceFilePath;
+        _savedTopDesign = _currentDesign;
+        _savedTopHierarchyRoot = HierarchyRoot;
+        _savedTopSelectedHierarchyNode = SelectedHierarchyNode;
+        _savedTopExpandedPaths = [.. SchematicExpandedPaths];
+        _subSimProject = subConfig;
+
+        _worker = new SimulationWorkerClient(subBuild.ExecutablePath);
+        _traceFilePath = subBuild.TraceFilePath;
+        _currentDesign = subElab.Design;
+
+        Inputs.Clear();
+        Outputs.Clear();
+        AllSignals.Clear();
+        TraceSignals.Clear();
+        SchematicExpandedPaths.Clear();
+        foreach (SignalPort port in subMeta.Ports.OrderBy(static p => p.PinIndex))
+        {
+            SignalViewModel signal = new(port);
+            AllSignals.Add(signal);
+            if (signal.IsInput) Inputs.Add(signal);
+            else Outputs.Add(signal);
+        }
+
+        // Swap the hierarchy view to the sub-design's tree so subscope navigation, signal
+        // probing and schematic scope-selection target the sub-module's namespace.
+        HierarchyRoot = new HierarchyNodeViewModel(subElab.Design.HierarchyRoot);
+        SelectedHierarchyNode = HierarchyRoot;
+
+        SelectedSignal = null;
+        TopModule = moduleName;
+        IsSubSimActive = true;
+
+        SimulationSnapshot snapshot = await _worker.SendAsync(
+            new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
+        ApplySnapshot(snapshot);
+        RefreshTraceState();
+
+        Status = $"Isolated simulation active: {moduleName}. Drive inputs, then Eval / Tick.";
+    }
+
+    private void ExitSubSimulation()
+    {
+        if (!_isSubSimActive) return;
+
+        _ = _worker?.DisposeAsync().AsTask();
+        _worker = _topLevelWorker;
+        _topLevelWorker = null;
+        _traceFilePath = _savedTopTraceFilePath;
+        _subSimProject = null;
+        _currentDesign = _savedTopDesign;
+
+        RestoreTopSimulationCollections();
+        HierarchyRoot = _savedTopHierarchyRoot;
+        SelectedHierarchyNode = _savedTopSelectedHierarchyNode ?? HierarchyRoot;
+
+        _savedTopInputs = _savedTopOutputs = _savedTopAllSignals = _savedTopTraceSignals = null;
+        _savedTopDesign = null;
+        _savedTopHierarchyRoot = null;
+        _savedTopSelectedHierarchyNode = null;
+        _savedTopExpandedPaths = null;
+        TopModule = _savedTopModule ?? "-";
+        _savedTopModule = null;
+
+        SelectedSignal = null;
+        IsSubSimActive = false;
+        Status = "Returned to top-level simulation.";
+    }
+
+    private void RestoreTopSimulationCollections()
+    {
+        Inputs.Clear();
+        Outputs.Clear();
+        AllSignals.Clear();
+        TraceSignals.Clear();
+        SchematicExpandedPaths.Clear();
+        RestoreSaved(AllSignals, _savedTopAllSignals);
+        RestoreSaved(Inputs, _savedTopInputs);
+        RestoreSaved(Outputs, _savedTopOutputs);
+        RestoreSaved(TraceSignals, _savedTopTraceSignals);
+        RestoreSaved(SchematicExpandedPaths, _savedTopExpandedPaths);
+    }
+
+    private static void RestoreSaved<T>(System.Collections.ObjectModel.ObservableCollection<T> target, IReadOnlyList<T>? saved)
+    {
+        if (saved is null) return;
+        foreach (T item in saved) target.Add(item);
+    }
+
     private async Task EvaluateAsync(CancellationToken cancellationToken)
     {
         if (TopModule == "-")
@@ -1078,10 +1296,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         ClearWaveformSamples();
         ApplySnapshot(snapshot);
         RefreshTraceState();
-        string? reset = _currentProject?.Resets.FirstOrDefault()?.Name;
+        string? reset = ActiveProject?.Resets.FirstOrDefault()?.Name;
         if (reset is not null)
         {
-            int activeLevel = _currentProject?.Resets.FirstOrDefault()?.ActiveLevel ?? 0;
+            int activeLevel = ActiveProject?.Resets.FirstOrDefault()?.ActiveLevel ?? 0;
             SetInputValueSilently(reset, activeLevel == 0 ? "1" : "0");
         }
 
@@ -2114,6 +2332,13 @@ public sealed class MainWindowViewModel : ViewModelBase
             }
         }
 
+        IReadOnlyList<Bistable.Core.Design.DesignContAssign> instanceContAssigns = [];
+        if (_currentDesign is not null
+            && _currentDesign.ModuleDefinitions.TryGetValue(node.ModuleName, out Bistable.Core.Design.DesignModuleDefinition? subDefinition))
+        {
+            instanceContAssigns = subDefinition.ContAssigns;
+        }
+
         return new HierarchyScopeInstanceViewModel(
             node.HierarchyPath,
             node.InstanceName,
@@ -2125,7 +2350,8 @@ public sealed class MainWindowViewModel : ViewModelBase
             connections,
             CreateScopePorts(module),
             CreateScopeLocalSignals(node.HierarchyPath, node.ModuleName),
-            CreateChildScopeInstances(node));
+            CreateChildScopeInstances(node),
+            instanceContAssigns);
     }
 
     private IReadOnlyList<HierarchyScopePortViewModel> CreateScopePorts(ModuleMetadata? module)

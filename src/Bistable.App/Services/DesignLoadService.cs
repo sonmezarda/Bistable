@@ -16,6 +16,16 @@ public sealed class DesignLoadService
             ?? throw new InvalidOperationException("Project file must have a directory.");
 
         ProjectConfiguration project = await ProjectConfiguration.LoadAsync(projectFilePath, cancellationToken);
+        return await ElaborateAsync(project, projectDirectory, cancellationToken);
+    }
+
+    // Elaborate an already-loaded configuration. Used by sub-simulation entry where the
+    // outer project file is the same but the TopModule has been overridden in-memory.
+    public async Task<DesignLoadResult> ElaborateAsync(
+        ProjectConfiguration project,
+        string projectDirectory,
+        CancellationToken cancellationToken)
+    {
         IReadOnlyList<string> errors = _validator.Validate(project, projectDirectory);
         if (errors.Count > 0)
         {

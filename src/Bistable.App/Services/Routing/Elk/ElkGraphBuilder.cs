@@ -40,12 +40,19 @@ internal sealed class ElkGraphBuilder
 
         foreach (HierarchyScopeInstanceViewModel child in scope.ChildScopes)
         {
-            AddChildNode(graph, child, portRefs);
+            AddChildNode(graph, child, portRefs, scope.ExpandedPaths);
         }
 
         foreach (DesignContAssign assign in scope.ContAssigns.Where(a => a.SourceNames.Count >= 2))
         {
-            AddOperatorNode(graph, scope, assign, portRefs);
+            if (IsConcatAssign(assign))
+            {
+                AddJoinerNode(graph, scope, assign, portRefs);
+            }
+            else
+            {
+                AddOperatorNode(graph, scope, assign, portRefs);
+            }
         }
 
         foreach (IGrouping<string, DesignContAssign> group in scope.ContAssigns
@@ -92,6 +99,53 @@ internal sealed class ElkGraphBuilder
         node.Ports!.Add(new ElkPort { Id = outPortId, LayoutOptions = PortLayout(PortSideEast, 0) });
         portRefs[ElkSignalKey.OpOutput(assign.TargetName)] =
             new ElkPortRef(nodeId, outPortId, ElkPortRole.OperatorOutput, targetWidth);
+
+        graph.Children.Add(node);
+    }
+
+    private static bool IsConcatAssign(DesignContAssign assign) =>
+        string.Equals(assign.OperatorSymbol, "{}", StringComparison.Ordinal);
+
+    // Mirror of the splitter: multiple WEST inputs feed a single EAST output that
+    // represents the concatenated bus. Visually rendered as a left-flat / right-apex wedge.
+    private static void AddJoinerNode(
+        ElkGraph graph,
+        ElkScopeData scope,
+        DesignContAssign assign,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        const double portRowHeight = 24;
+        const double nodeWidth = 40;
+
+        string nodeId = ElkNodeIds.ForJoiner(assign.TargetName);
+        int targetWidth = ResolveSignalWidth(scope, assign.TargetName);
+        double height = Math.Max(OperatorNodeSize, assign.SourceNames.Count * portRowHeight + 8);
+
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = nodeWidth,
+            Height = height,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [],
+            Ports = []
+        };
+
+        // One WEST input per concat operand, in declaration order (MSB-first by Verilog
+        // convention — Verilator preserves this in the XML source list).
+        for (int i = 0; i < assign.SourceNames.Count; i++)
+        {
+            string portId = $"{nodeId}.in.{i}";
+            int sourceWidth = ResolveSignalWidth(scope, assign.SourceNames[i]);
+            node.Ports!.Add(new ElkPort { Id = portId, LayoutOptions = PortLayout(PortSideWest, i) });
+            portRefs[ElkSignalKey.JoinerInput(assign.TargetName, i)] =
+                new ElkPortRef(nodeId, portId, ElkPortRole.JoinerInput, sourceWidth);
+        }
+
+        string outPortId = $"{nodeId}.out";
+        node.Ports!.Add(new ElkPort { Id = outPortId, LayoutOptions = PortLayout(PortSideEast, 0) });
+        portRefs[ElkSignalKey.JoinerOutput(assign.TargetName)] =
+            new ElkPortRef(nodeId, outPortId, ElkPortRole.JoinerOutput, targetWidth);
 
         graph.Children.Add(node);
     }
@@ -271,11 +325,25 @@ internal sealed class ElkGraphBuilder
     private static void AddChildNode(
         ElkGraph graph,
         HierarchyScopeInstanceViewModel child,
-        Dictionary<string, ElkPortRef> portRefs)
+        Dictionary<string, ElkPortRef> portRefs,
+        IReadOnlySet<string>? expandedPaths)
+    {
+        ElkNode node = BuildChildNode(child, portRefs, expandedPaths);
+        graph.Children.Add(node);
+    }
+
+    private static ElkNode BuildChildNode(
+        HierarchyScopeInstanceViewModel child,
+        Dictionary<string, ElkPortRef> portRefs,
+        IReadOnlySet<string>? expandedPaths)
     {
         HierarchyScopeInstancePortConnectionViewModel[] inputs = child.PortConnections.Where(c => c.IsInput).ToArray();
         HierarchyScopeInstancePortConnectionViewModel[] outputs = child.PortConnections.Where(c => c.IsOutput).ToArray();
         int portRows = Math.Max(inputs.Length, outputs.Length);
+
+        bool isExpanded = expandedPaths is not null
+            && child.ChildInstances.Count > 0
+            && expandedPaths.Contains(child.HierarchyPath);
 
         string nodeId = ElkNodeIds.ForChild(child.HierarchyPath);
         double width = ComputeChildNodeWidth(child, inputs, outputs);
@@ -287,7 +355,10 @@ internal sealed class ElkGraphBuilder
             Width = width,
             Height = height,
             LayoutOptions = FixedOrderPortConstraints(),
-            Labels = [new ElkLabel { Text = child.InstanceName }],
+            // labels[0] = rendered instance name; labels[1] = hierarchy path; labels[2] =
+            // "expandable" sentinel when the instance has sub-instances. The renderer uses
+            // these to attach a +/- expansion button at the correct depth.
+            Labels = BuildChildLabels(child),
             Ports = []
         };
 
@@ -317,7 +388,70 @@ internal sealed class ElkGraphBuilder
             portRefs[ElkSignalKey.ChildOutput(child.HierarchyPath, pin.PortName)] = new ElkPortRef(nodeId, id, ElkPortRole.ChildOutput, pin.Width);
         }
 
-        graph.Children.Add(node);
+        if (isExpanded)
+        {
+            AttachCompoundChildren(node, child, portRefs, expandedPaths);
+        }
+
+        return node;
+    }
+
+    public static bool TryGetHierarchyPath(ElkNode node, out string hierarchyPath)
+    {
+        if (node.Labels is { Count: > 1 } labels && !string.IsNullOrWhiteSpace(labels[1].Text))
+        {
+            hierarchyPath = labels[1].Text;
+            return true;
+        }
+
+        hierarchyPath = string.Empty;
+        return false;
+    }
+
+    public static bool IsExpandableChild(ElkNode node) =>
+        node.Labels is { Count: > 2 }
+        && string.Equals(node.Labels[2].Text, ExpandableSentinel, StringComparison.Ordinal);
+
+    private const string ExpandableSentinel = "expandable";
+
+    private static List<ElkLabel> BuildChildLabels(HierarchyScopeInstanceViewModel child)
+    {
+        List<ElkLabel> labels =
+        [
+            new ElkLabel { Text = child.InstanceName },
+            new ElkLabel { Text = child.HierarchyPath }
+        ];
+        if (child.ChildInstances.Count > 0)
+        {
+            labels.Add(new ElkLabel { Text = ExpandableSentinel });
+        }
+
+        return labels;
+    }
+
+    // When a child instance is in the expanded set, embed its sub-instances as ELK
+    // compound children so the viewer can drill in Vivado-style. Internal edge routing
+    // is left to a future pass — the goal here is to surface the nested structure.
+    private static void AttachCompoundChildren(
+        ElkNode parent,
+        HierarchyScopeInstanceViewModel child,
+        Dictionary<string, ElkPortRef> portRefs,
+        IReadOnlySet<string>? expandedPaths)
+    {
+        parent.Children ??= [];
+        foreach (HierarchyScopeInstanceViewModel grandchild in child.ChildInstances)
+        {
+            parent.Children.Add(BuildChildNode(grandchild, portRefs, expandedPaths));
+        }
+
+        parent.LayoutOptions ??= new Dictionary<string, string>();
+        parent.LayoutOptions[ElkPortConstraintsKey] = PortConstraintsFixedOrder;
+        parent.LayoutOptions["elk.algorithm"] = "layered";
+        parent.LayoutOptions["elk.direction"] = "RIGHT";
+        parent.LayoutOptions["elk.padding"] = "[top=48,left=24,right=24,bottom=20]";
+        // Compound nodes need a generous min size so their children layout cleanly.
+        parent.Width = Math.Max(parent.Width, 320);
+        parent.Height = Math.Max(parent.Height, 200);
     }
 
     private static void AddEdges(ElkGraph graph, ElkScopeData scope, Dictionary<string, ElkPortRef> portRefs)
@@ -329,9 +463,92 @@ internal sealed class ElkGraphBuilder
         CollectChildEndpoints(scope, portRefs, producers, consumers);
         CollectOperatorEndpoints(scope, portRefs, producers, consumers);
         CollectSplitterEndpoints(scope, portRefs, producers, consumers);
+        CollectExpandedCompoundEndpoints(scope, portRefs, producers, consumers);
         ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers);
         EmitEdges(graph, producers, consumers);
     }
+
+    // For each expanded compound child, treat its inside as a separate signal namespace
+    // so edges between its grandchildren do not collide with the outer scope. The compound's
+    // own ports double as endpoints in this inner namespace (an input port produces the
+    // inner-side wire, an output port consumes it), letting ELK route edges that cross
+    // the compound's boundary thanks to elk.hierarchyHandling=INCLUDE_CHILDREN.
+    private static void CollectExpandedCompoundEndpoints(
+        ElkScopeData scope,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        if (scope.ExpandedPaths is null || scope.ExpandedPaths.Count == 0) return;
+        foreach (HierarchyScopeInstanceViewModel child in scope.ChildScopes)
+        {
+            if (child.ChildInstances.Count == 0) continue;
+            if (!scope.ExpandedPaths.Contains(child.HierarchyPath)) continue;
+            CollectInsideCompound(child, portRefs, producers, consumers, scope.ExpandedPaths);
+        }
+    }
+
+    private static void CollectInsideCompound(
+        HierarchyScopeInstanceViewModel compound,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers,
+        IReadOnlySet<string> expandedPaths)
+    {
+        CollectCompoundBoundaryEndpoints(compound, portRefs, producers, consumers);
+        foreach (HierarchyScopeInstanceViewModel grandchild in compound.ChildInstances)
+        {
+            CollectGrandchildEndpoints(compound.HierarchyPath, grandchild, portRefs, producers, consumers);
+            if (expandedPaths.Contains(grandchild.HierarchyPath) && grandchild.ChildInstances.Count > 0)
+            {
+                CollectInsideCompound(grandchild, portRefs, producers, consumers, expandedPaths);
+            }
+        }
+    }
+
+    // The compound's own ports map into its *inner* namespace: the wire name on the
+    // inside of a module is the port name itself (assign-by-name semantics). A compound
+    // input feeds inwards (producer of inner wire); a compound output receives from
+    // inwards (consumer of inner wire).
+    private static void CollectCompoundBoundaryEndpoints(
+        HierarchyScopeInstanceViewModel compound,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        foreach (HierarchyScopeInstancePortConnectionViewModel pin in compound.PortConnections)
+        {
+            string innerKey = ScopedSignalKey(compound.HierarchyPath, pin.PortName);
+            string portRefKey = pin.IsInput
+                ? ElkSignalKey.ChildInput(compound.HierarchyPath, pin.PortName)
+                : ElkSignalKey.ChildOutput(compound.HierarchyPath, pin.PortName);
+            if (!portRefs.TryGetValue(portRefKey, out ElkPortRef? portRef)) continue;
+            AddTo(pin.IsInput ? producers : consumers, innerKey, portRef);
+        }
+    }
+
+    private static void CollectGrandchildEndpoints(
+        string compoundPath,
+        HierarchyScopeInstanceViewModel grandchild,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        foreach (HierarchyScopeInstancePortConnectionViewModel pin in grandchild.PortConnections)
+        {
+            string innerKey = ScopedSignalKey(compoundPath, pin.SignalName);
+            string portRefKey = pin.IsInput
+                ? ElkSignalKey.ChildInput(grandchild.HierarchyPath, pin.PortName)
+                : ElkSignalKey.ChildOutput(grandchild.HierarchyPath, pin.PortName);
+            if (!portRefs.TryGetValue(portRefKey, out ElkPortRef? portRef)) continue;
+            AddTo(pin.IsInput ? consumers : producers, innerKey, portRef);
+        }
+    }
+
+    // Inner-scope signal namespace prefix — keeps grandchild wires distinct from outer
+    // scope wires that share the same name (e.g. both have a "clk").
+    private static string ScopedSignalKey(string scopePath, string signalName) =>
+        $"@inner::{scopePath}::{signalName}";
 
     private static void CollectOperatorEndpoints(
         ElkScopeData scope,
@@ -341,6 +558,12 @@ internal sealed class ElkGraphBuilder
     {
         foreach (DesignContAssign assign in scope.ContAssigns.Where(a => a.SourceNames.Count >= 2))
         {
+            if (IsConcatAssign(assign))
+            {
+                CollectJoinerEndpoints(assign, portRefs, producers, consumers);
+                continue;
+            }
+
             // Operator output is a producer of the target signal.
             if (portRefs.TryGetValue(ElkSignalKey.OpOutput(assign.TargetName), out ElkPortRef? outRef))
             {
@@ -354,6 +577,26 @@ internal sealed class ElkGraphBuilder
                 {
                     AddTo(consumers, assign.SourceNames[i], inRef);
                 }
+            }
+        }
+    }
+
+    private static void CollectJoinerEndpoints(
+        DesignContAssign assign,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        if (portRefs.TryGetValue(ElkSignalKey.JoinerOutput(assign.TargetName), out ElkPortRef? outRef))
+        {
+            AddTo(producers, assign.TargetName, outRef);
+        }
+
+        for (int i = 0; i < assign.SourceNames.Count; i++)
+        {
+            if (portRefs.TryGetValue(ElkSignalKey.JoinerInput(assign.TargetName, i), out ElkPortRef? inRef))
+            {
+                AddTo(consumers, assign.SourceNames[i], inRef);
             }
         }
     }
@@ -598,7 +841,8 @@ public sealed record ElkScopeData(
     IReadOnlyList<HierarchyScopePortViewModel> BoundaryPorts,
     IReadOnlyList<HierarchyScopeInstanceViewModel> ChildScopes,
     IReadOnlyList<HierarchyScopeLocalSignalViewModel> LocalSignals,
-    IReadOnlyList<DesignContAssign> ContAssigns);
+    IReadOnlyList<DesignContAssign> ContAssigns,
+    IReadOnlySet<string>? ExpandedPaths = null);
 
 public sealed record ElkBuildResult(ElkGraph Graph, IReadOnlyDictionary<string, ElkPortRef> PortRefs);
 
@@ -613,7 +857,9 @@ public enum ElkPortRole
     OperatorInput,
     OperatorOutput,
     SplitterInput,
-    SplitterOutput
+    SplitterOutput,
+    JoinerInput,
+    JoinerOutput
 }
 
 internal static class ElkNodeIds
@@ -625,12 +871,16 @@ internal static class ElkNodeIds
 
     public static string ForOperator(string targetName) => "op_" + SanitizeId(targetName);
     public static string ForSplitter(string sourceName) => "split_" + SanitizeId(sourceName);
+    public static string ForJoiner(string targetName) => "join_" + SanitizeId(targetName);
 
     public static bool IsOperator(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("op_", StringComparison.Ordinal);
 
     public static bool IsSplitter(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("split_", StringComparison.Ordinal);
+
+    public static bool IsJoiner(string? nodeId) =>
+        nodeId is not null && nodeId.StartsWith("join_", StringComparison.Ordinal);
 
     private static string SanitizeId(string raw) =>
         raw.Replace('.', '_').Replace('/', '_').Replace(':', '_').Replace('[', '_').Replace(']', '_');
@@ -645,4 +895,6 @@ internal static class ElkSignalKey
     public static string OpOutput(string targetName) => $"::op_out::{targetName}";
     public static string SplitterInput(string sourceName) => $"::split_in::{sourceName}";
     public static string SplitterOutput(string sourceName, string targetName) => $"::split_out::{sourceName}::{targetName}";
+    public static string JoinerInput(string targetName, int index) => $"::join_in::{targetName}::{index}";
+    public static string JoinerOutput(string targetName) => $"::join_out::{targetName}";
 }

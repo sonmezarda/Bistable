@@ -26,7 +26,10 @@ public sealed partial class SchematicPreviewControl
 
         DrawElkPanelChrome(context, panel);
 
-        ElkScopeData scope = new(scopePorts, childScopes, localSignals, contAssigns);
+        HashSet<string> expandedPaths = ExpandedScopePaths is null
+            ? []
+            : new HashSet<string>(ExpandedScopePaths, StringComparer.OrdinalIgnoreCase);
+        ElkScopeData scope = new(scopePorts, childScopes, localSignals, contAssigns, expandedPaths);
         ElkLayoutResult layoutResult;
         try
         {
@@ -92,9 +95,26 @@ public sealed partial class SchematicPreviewControl
 
     private void DrawElkNodes(DrawingContext context, ElkGraph graph, ElkTransform transform)
     {
-        foreach (ElkNode node in graph.Children)
+        DrawElkNodesRecursive(context, graph.Children, transform, baseX: 0, baseY: 0);
+    }
+
+    // ELK's compound layout positions sub-children relative to their parent node, so the
+    // recursion accumulates absolute coordinates (baseX/baseY) before applying the global
+    // viewport transform. Without this, nested children would render at the same root-origin
+    // as their parent's coordinate.
+    private void DrawElkNodesRecursive(
+        DrawingContext context,
+        IList<ElkNode> nodes,
+        ElkTransform transform,
+        double baseX,
+        double baseY)
+    {
+        foreach (ElkNode node in nodes)
         {
-            Rect rect = transform.Apply(node.X, node.Y, node.Width, node.Height);
+            double absX = baseX + node.X;
+            double absY = baseY + node.Y;
+            Rect rect = transform.Apply(absX, absY, node.Width, node.Height);
+
             if (node.Id is ElkNodeIds.BoundaryIn)
             {
                 DrawElkBoundaryPins(context, node, rect, transform.Scale, isInput: true);
@@ -111,37 +131,172 @@ public sealed partial class SchematicPreviewControl
             {
                 DrawElkSplitterNode(context, node, rect, transform.Scale);
             }
+            else if (ElkNodeIds.IsJoiner(node.Id))
+            {
+                DrawElkJoinerNode(context, node, rect, transform.Scale);
+            }
             else
             {
                 DrawElkNodeCard(context, node, rect, transform.Scale);
+                DrawElkChildExpansionButton(context, node, rect);
+            }
+
+            if (node.Children is { Count: > 0 } childNodes)
+            {
+                DrawElkNodesRecursive(context, childNodes, transform, absX, absY);
             }
         }
     }
 
+    private void DrawElkChildExpansionButton(DrawingContext context, ElkNode node, Rect rect)
+    {
+        if (!ElkGraphBuilder.IsExpandableChild(node)) return;
+        if (!ElkGraphBuilder.TryGetHierarchyPath(node, out string hierarchyPath)) return;
+
+        bool isExpanded = node.Children is { Count: > 0 };
+        // DrawScopeExpansionButton lives in Rendering.cs; it draws the +/- glyph and
+        // registers an expansion hit-target keyed by the hierarchy path.
+        DrawScopeExpansionButton(context, rect, hierarchyPath, expanded: isExpanded);
+    }
+
     private void DrawElkOperatorNode(DrawingContext context, ElkNode node, Rect rect, double scale)
     {
-        double cx = rect.X + rect.Width / 2;
-        double cy = rect.Y + rect.Height / 2;
-        double radius = Math.Min(rect.Width, rect.Height) / 2 - 1 * scale;
-
-        context.DrawEllipse(Palette.NodeFill, new Pen(Palette.ModuleStroke, 1.4), new Point(cx, cy), radius, radius);
-
         string? symbol = node.Labels is { Count: > 0 } ? node.Labels[0].Text : null;
+        Pen gatePen = new(Palette.ModuleStroke, 1.5);
+
+        switch (symbol)
+        {
+            case "&" or "&&": DrawAndGate(context, rect, gatePen); break;
+            case "|" or "||": DrawOrGate(context, rect, gatePen, xor: false); break;
+            case "^":         DrawOrGate(context, rect, gatePen, xor: true);  break;
+            case "~" or "!":  DrawNotGate(context, rect, gatePen);            break;
+            default:          DrawOperatorBox(context, rect, symbol, gatePen); break;
+        }
+
+        if (node.Ports is not null)
+        {
+            foreach (ElkPort port in node.Ports)
+                DrawElkPort(context, rect, port, scale, node.Width);
+        }
+    }
+
+    // AND gate — flat left edge + D-shaped semicircle on the right.
+    private void DrawAndGate(DrawingContext context, Rect r, Pen stroke)
+    {
+        const double k = 0.5523; // Bezier quarter-circle approximation constant
+        double x = r.X, y = r.Y, w = r.Width, h = r.Height;
+        double cx = x + w * 0.5, cy = y + h * 0.5;
+        double rx = w * 0.5,     ry = h * 0.5;
+
+        StreamGeometry geo = new();
+        using (StreamGeometryContext gc = geo.Open())
+        {
+            gc.BeginFigure(new Point(x, y), isFilled: true);
+            gc.LineTo(new Point(cx, y));
+            gc.CubicBezierTo(new Point(cx + rx * k, y),    new Point(x + w, cy - ry * k), new Point(x + w, cy));
+            gc.CubicBezierTo(new Point(x + w, cy + ry * k), new Point(cx + rx * k, y + h), new Point(cx, y + h));
+            gc.LineTo(new Point(x, y + h));
+            gc.EndFigure(isClosed: true);
+        }
+        context.DrawGeometry(Palette.NodeFill, stroke, geo);
+    }
+
+    // OR gate — torpedo/shield shape. XOR adds a second concave arc at the input side.
+    private void DrawOrGate(DrawingContext context, Rect r, Pen stroke, bool xor)
+    {
+        double x = r.X, y = r.Y, w = r.Width, h = r.Height;
+        double xorIn = xor ? w * 0.18 : 0; // OR body shifts right for XOR
+        double bx = x + xorIn;
+        double bw = w - xorIn;
+
+        StreamGeometry geo = new();
+        using (StreamGeometryContext gc = geo.Open())
+        {
+            gc.BeginFigure(new Point(bx, y), isFilled: true);
+            gc.CubicBezierTo(new Point(bx + bw * 0.55, y),      new Point(x + w, y + h * 0.3),   new Point(x + w, y + h * 0.5));
+            gc.CubicBezierTo(new Point(x + w, y + h * 0.7),     new Point(bx + bw * 0.55, y + h), new Point(bx, y + h));
+            gc.CubicBezierTo(new Point(bx + bw * 0.2, y + h * 0.75), new Point(bx + bw * 0.2, y + h * 0.25), new Point(bx, y));
+            gc.EndFigure(isClosed: true);
+        }
+        context.DrawGeometry(Palette.NodeFill, stroke, geo);
+
+        if (xor)
+        {
+            // XOR indicator: extra concave open arc just left of the body
+            StreamGeometry arc = new();
+            using (StreamGeometryContext gc = arc.Open())
+            {
+                gc.BeginFigure(new Point(x, y), isFilled: false);
+                gc.CubicBezierTo(
+                    new Point(x + bw * 0.2, y + h * 0.25),
+                    new Point(x + bw * 0.2, y + h * 0.75),
+                    new Point(x, y + h));
+                gc.EndFigure(isClosed: false);
+            }
+            context.DrawGeometry(null, stroke, arc);
+        }
+    }
+
+    // NOT gate — right-pointing triangle with output bubble.
+    private void DrawNotGate(DrawingContext context, Rect r, Pen stroke)
+    {
+        double x = r.X, y = r.Y, w = r.Width, h = r.Height;
+        double bubbleR = w * 0.1;
+        double tipX    = r.Right - bubbleR * 2;
+        double midY    = y + h * 0.5;
+
+        StreamGeometry tri = new();
+        using (StreamGeometryContext gc = tri.Open())
+        {
+            gc.BeginFigure(new Point(x, y), isFilled: true);
+            gc.LineTo(new Point(tipX, midY));
+            gc.LineTo(new Point(x, y + h));
+            gc.EndFigure(isClosed: true);
+        }
+        context.DrawGeometry(Palette.NodeFill, stroke, tri);
+        context.DrawEllipse(Palette.NodeFill, stroke, new Point(tipX + bubbleR, midY), bubbleR, bubbleR);
+    }
+
+    // Arithmetic / comparison / unknown operators — plain box with centred symbol text.
+    private void DrawOperatorBox(DrawingContext context, Rect r, string? symbol, Pen stroke)
+    {
+        context.DrawRectangle(Palette.NodeFill, stroke, r.Deflate(1));
         if (!string.IsNullOrWhiteSpace(symbol))
         {
-            double fontSize = Math.Clamp(radius * 0.7, 8, 16);
-            double textW = MeasureLabelWidth(symbol!, fontSize);
-            DrawText(context, symbol!, cx - textW / 2, cy - fontSize * 0.6, Palette.Text, fontSize);
+            double fontSize = Math.Clamp(r.Height * 0.38, 7, 13);
+            double textW    = MeasureLabelWidth(symbol, fontSize);
+            DrawText(context, symbol, r.X + (r.Width - textW) / 2, r.Y + r.Height * 0.5 - fontSize * 0.6, Palette.Text, fontSize);
+        }
+    }
+
+    // Left-pointing wedge (mirror of splitter): flat left edge holds WEST inputs (the
+    // concat operands, MSB-first by Verilog convention), right apex emits the joined bus
+    // on the single EAST output.
+    private void DrawElkJoinerNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    {
+        double midY = rect.Y + rect.Height / 2;
+        double indentX = Math.Min(rect.Width * 0.32, 10 * scale);
+
+        StreamGeometry geo = new();
+        using (StreamGeometryContext gc = geo.Open())
+        {
+            gc.BeginFigure(new Point(rect.X, rect.Y), isFilled: true);
+            gc.LineTo(new Point(rect.Right - indentX, rect.Y));
+            gc.LineTo(new Point(rect.Right, midY));
+            gc.LineTo(new Point(rect.Right - indentX, rect.Bottom));
+            gc.LineTo(new Point(rect.X, rect.Bottom));
+            gc.EndFigure(isClosed: true);
         }
 
-        if (node.Ports is null)
-        {
-            return;
-        }
+        context.DrawGeometry(Palette.NodeFill, new Pen(Palette.ModuleStroke, 1.2), geo);
+
+        if (node.Ports is null) return;
 
         foreach (ElkPort port in node.Ports)
         {
-            DrawElkPort(context, rect, port, scale, node.Width);
+            double px = rect.X + port.X * scale;
+            double py = rect.Y + port.Y * scale;
+            context.DrawEllipse(Palette.PinStroke, null, new Point(px, py), 2.2, 2.2);
         }
     }
 

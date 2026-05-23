@@ -13,7 +13,8 @@ public sealed class HierarchyScopeInstanceViewModel
         IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> portConnections,
         IReadOnlyList<HierarchyScopePortViewModel>? ports = null,
         IReadOnlyList<HierarchyScopeLocalSignalViewModel>? localSignals = null,
-        IReadOnlyList<HierarchyScopeInstanceViewModel>? childInstances = null)
+        IReadOnlyList<HierarchyScopeInstanceViewModel>? childInstances = null,
+        IReadOnlyList<Bistable.Core.Design.DesignContAssign>? contAssigns = null)
     {
         HierarchyPath = hierarchyPath;
         InstanceName = instanceName;
@@ -26,6 +27,7 @@ public sealed class HierarchyScopeInstanceViewModel
         Ports = ports ?? [];
         LocalSignals = localSignals ?? [];
         ChildInstances = childInstances ?? [];
+        ContAssigns = contAssigns ?? [];
     }
 
     public string HierarchyPath { get; }
@@ -49,6 +51,8 @@ public sealed class HierarchyScopeInstanceViewModel
     public IReadOnlyList<HierarchyScopeLocalSignalViewModel> LocalSignals { get; }
 
     public IReadOnlyList<HierarchyScopeInstanceViewModel> ChildInstances { get; }
+
+    public IReadOnlyList<Bistable.Core.Design.DesignContAssign> ContAssigns { get; }
 
     public bool HasTraceActivity => ExactSignalCount > 0 || DescendantSignalCount > 0;
 

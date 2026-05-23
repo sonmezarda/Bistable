@@ -6,6 +6,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Controls.Templates;
 using Avalonia.Data;
+using Avalonia.Data.Converters;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -800,6 +801,7 @@ public sealed class MainWindow : Window
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
                 new RowDefinition(new GridLength(0.52, GridUnitType.Star))
             }
         };
@@ -873,6 +875,35 @@ public sealed class MainWindow : Window
             [Grid.RowProperty] = 5
         });
 
+        Button simulateIsolatedButton = SmallButton("Simulate Isolated", "EnterSubSimulationCommand");
+        simulateIsolatedButton.Bind(Button.IsEnabledProperty, new Binding("CanEnterSubSim"));
+        simulateIsolatedButton.Bind(Button.IsVisibleProperty, new Binding("IsSubSimActive")
+        {
+            Converter = BoolConverters.Not
+        });
+
+        Button exitSubSimButton = SmallButton("Exit Sub-Sim", "ExitSubSimulationCommand");
+        exitSubSimButton.Background = new SolidColorBrush(Color.FromRgb(100, 40, 40));
+        exitSubSimButton.Bind(Button.IsVisibleProperty, new Binding("IsSubSimActive"));
+
+        TextBlock subSimLabel = new()
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(255, 160, 80)),
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            [!TextBlock.TextProperty] = new Binding("SubSimStatusLabel"),
+            [!TextBlock.IsVisibleProperty] = new Binding("IsSubSimActive")
+        };
+
+        treePanel.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Margin = new Thickness(0, 4, 0, 0),
+            Children = { simulateIsolatedButton, exitSubSimButton, subSimLabel },
+            [Grid.RowProperty] = 6
+        });
+
         treePanel.Children.Add(new ListBox
         {
             Background = Brushes.Transparent,
@@ -883,7 +914,7 @@ public sealed class MainWindow : Window
             ItemTemplate = SignalListTemplate(),
             [!ItemsControl.ItemsSourceProperty] = new Binding("HierarchyScopeSignals"),
             [!SelectingItemsControl.SelectedItemProperty] = new Binding("SelectedSignal", BindingMode.TwoWay),
-            [Grid.RowProperty] = 6
+            [Grid.RowProperty] = 7
         });
 
         treeBorder.Child = treePanel;

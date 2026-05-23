@@ -1,0 +1,29 @@
+{
+  "topModule": "arnicomp_top",
+  "sources": [
+    "control_pkg.sv",
+    "reg_cell.sv",
+    "alu.sv",
+    "reg_a.sv",
+    "reg_marl.sv",
+    "stack_pointer.sv",
+    "flag_reg.sv",
+    "program_counter.sv",
+    "bus_selector.sv",
+    "jump_logic.sv",
+    "control_rom.sv",
+    "control_decoder.sv",
+    "arnicomp_top.sv"
+  ],
+  "clocks": [
+    { "name": "clk", "defaultPeriodNs": 10 }
+  ],
+  "resets": [
+    { "name": "rst_n", "activeLevel": 0 }
+  ],
+  "trace": {
+    "enabled": true,
+    "format": "vcd",
+    "depth": 6
+  }
+}

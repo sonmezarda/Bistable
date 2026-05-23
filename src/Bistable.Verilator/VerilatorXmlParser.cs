@@ -221,9 +221,16 @@ public sealed class VerilatorXmlParser
 
     private static DesignInstancePortConnection ParseInstancePortConnection(XElement element)
     {
-        string signalName = (string?)element.Element(VarRefElement)?.Attribute("name")
-            ?? (string?)element.Element("const")?.Attribute("name")
-            ?? "?";
+        // Direct varref (simple wire connection)
+        string? signalName = (string?)element.Element(VarRefElement)?.Attribute("name");
+
+        // Packed-struct field access: <sel><varref name="struct"/><const offset/>...</sel>
+        // Verilator represents e.g. control_pins.ops as a bit-slice of the struct variable.
+        // Treat the base variable as the connected signal so the schematic shows the wire.
+        signalName ??= (string?)element.Element("sel")?.Element(VarRefElement)?.Attribute("name");
+
+        signalName ??= (string?)element.Element("const")?.Attribute("name") ?? "?";
+
         return new DesignInstancePortConnection(
             RequiredAttribute(element, "name"),
             signalName,
