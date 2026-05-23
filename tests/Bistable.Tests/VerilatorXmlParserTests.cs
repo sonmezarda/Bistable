@@ -123,6 +123,70 @@ public sealed class VerilatorXmlParserTests
     }
 
     [Fact]
+    public void ParsesSelContAssignWithBitRange()
+    {
+        string xmlPath = Path.Combine(Path.GetTempPath(), $"bistable-sel-{Guid.NewGuid():N}.xml");
+        File.WriteAllText(xmlPath, """
+        <verilator_xml>
+          <netlist>
+            <module name="top" topModule="1">
+              <var name="bus" dtype_id="1" dir="input" pinIndex="1" vartype="logic" />
+              <var name="high" dtype_id="2" vartype="logic" />
+              <var name="low" dtype_id="3" vartype="logic" />
+              <contassign>
+                <sel>
+                  <varref name="bus" dtype_id="1" />
+                  <const name="32'hc" dtype_id="4" />
+                  <const name="32'h4" dtype_id="4" />
+                </sel>
+                <varref name="high" dtype_id="2" />
+              </contassign>
+              <contassign>
+                <sel>
+                  <varref name="bus" dtype_id="1" />
+                  <const name="32'h0" dtype_id="4" />
+                  <const name="32'h8" dtype_id="4" />
+                </sel>
+                <varref name="low" dtype_id="3" />
+              </contassign>
+            </module>
+            <typetable>
+              <basicdtype id="1" name="logic" left="15" right="0" />
+              <basicdtype id="2" name="logic" left="3" right="0" />
+              <basicdtype id="3" name="logic" left="7" right="0" />
+              <basicdtype id="4" name="int" left="31" right="0" />
+            </typetable>
+          </netlist>
+        </verilator_xml>
+        """);
+
+        try
+        {
+            ElaboratedDesign design = VerilatorXmlParser.ParseDesign(xmlPath);
+            DesignModuleDefinition def = design.ModuleDefinitions["top"];
+            Assert.Equal(2, def.ContAssigns.Count);
+
+            // sel: lo=0xc=12, width=0x4=4 → hi=15
+            DesignContAssign highAssign = Assert.Single(def.ContAssigns, static a => a.TargetName == "high");
+            Assert.NotNull(highAssign.SourceRange);
+            Assert.Equal(15, highAssign.SourceRange!.Value.Hi);
+            Assert.Equal(12, highAssign.SourceRange.Value.Lo);
+            Assert.Equal(4, highAssign.SourceRange.Value.Width);
+
+            // sel: lo=0, width=0x8=8 → hi=7
+            DesignContAssign lowAssign = Assert.Single(def.ContAssigns, static a => a.TargetName == "low");
+            Assert.NotNull(lowAssign.SourceRange);
+            Assert.Equal(7, lowAssign.SourceRange!.Value.Hi);
+            Assert.Equal(0, lowAssign.SourceRange.Value.Lo);
+            Assert.Equal(8, lowAssign.SourceRange.Value.Width);
+        }
+        finally
+        {
+            File.Delete(xmlPath);
+        }
+    }
+
+    [Fact]
     public void ParsesContinuousAssignments()
     {
         string xmlPath = Path.Combine(Path.GetTempPath(), $"bistable-assign-{Guid.NewGuid():N}.xml");

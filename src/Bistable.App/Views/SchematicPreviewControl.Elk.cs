@@ -41,7 +41,7 @@ public sealed partial class SchematicPreviewControl
 
         Rect canvas = panel.Deflate(new Thickness(20, 76, 20, 36));
         ElkTransform transform = ComputeFitTransform(layoutResult.Graph, canvas);
-        IReadOnlyDictionary<string, string> signalValues = BuildSignalValueLookup();
+        IReadOnlyDictionary<string, string> signalValues = BuildSignalValueLookup(contAssigns);
 
         DrawElkEdges(context, layoutResult.Graph, transform, signalValues);
         DrawElkNodes(context, layoutResult.Graph, transform);
@@ -107,6 +107,10 @@ public sealed partial class SchematicPreviewControl
             {
                 DrawElkOperatorNode(context, node, rect, transform.Scale);
             }
+            else if (ElkNodeIds.IsSplitter(node.Id))
+            {
+                DrawElkSplitterNode(context, node, rect, transform.Scale);
+            }
             else
             {
                 DrawElkNodeCard(context, node, rect, transform.Scale);
@@ -138,6 +142,50 @@ public sealed partial class SchematicPreviewControl
         foreach (ElkPort port in node.Ports)
         {
             DrawElkPort(context, rect, port, scale, node.Width);
+        }
+    }
+
+    // Right-pointing wedge: left apex at the single WEST input, flat right edge at EAST outputs.
+    // Bit-range labels are drawn inside the wedge near each output port (right-aligned to port).
+    private void DrawElkSplitterNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    {
+        double midY = rect.Y + rect.Height / 2;
+        double indentX = Math.Min(rect.Width * 0.32, 10 * scale);
+
+        StreamGeometry geo = new();
+        using (StreamGeometryContext gc = geo.Open())
+        {
+            gc.BeginFigure(new Point(rect.X, midY), isFilled: true);
+            gc.LineTo(new Point(rect.X + indentX, rect.Y));
+            gc.LineTo(new Point(rect.Right, rect.Y));
+            gc.LineTo(new Point(rect.Right, rect.Bottom));
+            gc.LineTo(new Point(rect.X + indentX, rect.Bottom));
+            gc.EndFigure(isClosed: true);
+        }
+
+        context.DrawGeometry(Palette.NodeFill, new Pen(Palette.ModuleStroke, 1.2), geo);
+
+        if (node.Ports is null)
+        {
+            return;
+        }
+
+        foreach (ElkPort port in node.Ports)
+        {
+            double px = rect.X + port.X * scale;
+            double py = rect.Y + port.Y * scale;
+            bool onEast = port.X >= node.Width - 1;
+
+            context.DrawEllipse(Palette.PinStroke, null, new Point(px, py), 2.2, 2.2);
+
+            // Bit-range labels go inside the wedge body (right-aligned to each EAST port).
+            if (onEast && port.Labels is { Count: > 0 })
+            {
+                string label = port.Labels[0].Text;
+                double fontSize = Math.Clamp(8 * scale, 7, 10);
+                double labelW = MeasureLabelWidth(label, fontSize);
+                DrawText(context, label, px - 4 * scale - labelW, py - fontSize * 0.6, Palette.PinStroke, fontSize);
+            }
         }
     }
 

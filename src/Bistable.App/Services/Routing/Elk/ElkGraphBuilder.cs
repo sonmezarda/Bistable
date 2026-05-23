@@ -48,6 +48,13 @@ internal sealed class ElkGraphBuilder
             AddOperatorNode(graph, scope, assign, portRefs);
         }
 
+        foreach (IGrouping<string, DesignContAssign> group in scope.ContAssigns
+                     .Where(static a => a.SourceRange.HasValue && a.SourceNames.Count == 1)
+                     .GroupBy(static a => a.SourceNames[0], StringComparer.OrdinalIgnoreCase))
+        {
+            AddSplitterNode(graph, scope, group.Key, [.. group.OrderByDescending(static a => a.SourceRange!.Value.Hi)], portRefs);
+        }
+
         AddEdges(graph, scope, portRefs);
         return new ElkBuildResult(graph, portRefs);
     }
@@ -85,6 +92,56 @@ internal sealed class ElkGraphBuilder
         node.Ports!.Add(new ElkPort { Id = outPortId, LayoutOptions = PortLayout(PortSideEast, 0) });
         portRefs[ElkSignalKey.OpOutput(assign.TargetName)] =
             new ElkPortRef(nodeId, outPortId, ElkPortRole.OperatorOutput, targetWidth);
+
+        graph.Children.Add(node);
+    }
+
+    private static void AddSplitterNode(
+        ElkGraph graph,
+        ElkScopeData scope,
+        string sourceName,
+        IReadOnlyList<DesignContAssign> slices,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        const double portRowHeight = 24;
+        const double nodeWidth = 40;
+
+        string nodeId = ElkNodeIds.ForSplitter(sourceName);
+        int busWidth = ResolveSignalWidth(scope, sourceName);
+        double height = Math.Max(OperatorNodeSize, slices.Count * portRowHeight + 8);
+
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = nodeWidth,
+            Height = height,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [],
+            Ports = []
+        };
+
+        // Single WEST input port — the full bus
+        string inPortId = $"{nodeId}.in";
+        node.Ports!.Add(new ElkPort { Id = inPortId, LayoutOptions = PortLayout(PortSideWest, 0) });
+        portRefs[ElkSignalKey.SplitterInput(sourceName)] =
+            new ElkPortRef(nodeId, inPortId, ElkPortRole.SplitterInput, busWidth);
+
+        // One EAST output port per slice — ordered MSB-first (slices already sorted by caller)
+        for (int i = 0; i < slices.Count; i++)
+        {
+            DesignContAssign slice = slices[i];
+            string targetName = slice.TargetName;
+            DesignBitRange range = slice.SourceRange!.Value;
+            string outPortId = $"{nodeId}.out.{i}";
+            node.Ports!.Add(new ElkPort
+            {
+                Id = outPortId,
+                LayoutOptions = PortLayout(PortSideEast, i),
+                Labels = [new ElkLabel { Text = range.ToString() }]
+            });
+            portRefs[ElkSignalKey.SplitterOutput(sourceName, targetName)] =
+                new ElkPortRef(nodeId, outPortId, ElkPortRole.SplitterOutput, range.Width);
+        }
 
         graph.Children.Add(node);
     }
@@ -271,6 +328,7 @@ internal sealed class ElkGraphBuilder
         CollectBoundaryEndpoints(scope, portRefs, producers, consumers);
         CollectChildEndpoints(scope, portRefs, producers, consumers);
         CollectOperatorEndpoints(scope, portRefs, producers, consumers);
+        CollectSplitterEndpoints(scope, portRefs, producers, consumers);
         ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers);
         EmitEdges(graph, producers, consumers);
     }
@@ -296,6 +354,32 @@ internal sealed class ElkGraphBuilder
                 {
                     AddTo(consumers, assign.SourceNames[i], inRef);
                 }
+            }
+        }
+    }
+
+    private static void CollectSplitterEndpoints(
+        ElkScopeData scope,
+        Dictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        foreach (IGrouping<string, DesignContAssign> group in scope.ContAssigns
+                     .Where(static a => a.SourceRange.HasValue && a.SourceNames.Count == 1)
+                     .GroupBy(static a => a.SourceNames[0], StringComparer.OrdinalIgnoreCase))
+        {
+            string sourceName = group.Key;
+
+            if (portRefs.TryGetValue(ElkSignalKey.SplitterInput(sourceName), out ElkPortRef? inRef))
+            {
+                AddTo(consumers, sourceName, inRef);
+            }
+
+            foreach (string targetName in group
+                         .Select(static s => s.TargetName)
+                         .Where(t => portRefs.ContainsKey(ElkSignalKey.SplitterOutput(sourceName, t))))
+            {
+                AddTo(producers, targetName, portRefs[ElkSignalKey.SplitterOutput(sourceName, targetName)]);
             }
         }
     }
@@ -442,7 +526,8 @@ internal sealed class ElkGraphBuilder
     private static Dictionary<string, List<string>> BuildSourcesByTarget(IReadOnlyList<DesignContAssign> contAssigns)
     {
         Dictionary<string, List<string>> sourcesByTarget = new(StringComparer.OrdinalIgnoreCase);
-        foreach (DesignContAssign assign in contAssigns)
+        // Sel assigns (SourceRange != null) are handled by splitter nodes; skip them here.
+        foreach (DesignContAssign assign in contAssigns.Where(static a => a.SourceRange is null))
         {
             foreach (string source in assign.SourceNames
                 .Where(static s => !string.IsNullOrWhiteSpace(s))
@@ -526,7 +611,9 @@ public enum ElkPortRole
     ChildInput,
     ChildOutput,
     OperatorInput,
-    OperatorOutput
+    OperatorOutput,
+    SplitterInput,
+    SplitterOutput
 }
 
 internal static class ElkNodeIds
@@ -537,9 +624,13 @@ internal static class ElkNodeIds
     public static string ForChild(string hierarchyPath) => "child_" + SanitizeId(hierarchyPath);
 
     public static string ForOperator(string targetName) => "op_" + SanitizeId(targetName);
+    public static string ForSplitter(string sourceName) => "split_" + SanitizeId(sourceName);
 
     public static bool IsOperator(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("op_", StringComparison.Ordinal);
+
+    public static bool IsSplitter(string? nodeId) =>
+        nodeId is not null && nodeId.StartsWith("split_", StringComparison.Ordinal);
 
     private static string SanitizeId(string raw) =>
         raw.Replace('.', '_').Replace('/', '_').Replace(':', '_').Replace('[', '_').Replace(']', '_');
@@ -552,4 +643,6 @@ internal static class ElkSignalKey
     public static string ChildOutput(string hierarchyPath, string portName) => $"{hierarchyPath}::out::{portName}";
     public static string OpInput(string targetName, int index) => $"::op_in::{targetName}::{index}";
     public static string OpOutput(string targetName) => $"::op_out::{targetName}";
+    public static string SplitterInput(string sourceName) => $"::split_in::{sourceName}";
+    public static string SplitterOutput(string sourceName, string targetName) => $"::split_out::{sourceName}::{targetName}";
 }

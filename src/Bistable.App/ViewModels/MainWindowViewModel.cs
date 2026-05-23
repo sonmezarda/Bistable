@@ -731,7 +731,52 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public string SelectedSchematicSignalWidth => SelectedSignal?.WidthLabel ?? SelectedSchematicLocalSignal?.WidthLabel ?? "-";
 
-    public string SelectedSchematicSignalValue => SelectedSignal?.Value ?? SelectedSchematicLocalSignal?.CurrentValue ?? "-";
+    public string SelectedSchematicSignalValue
+    {
+        get
+        {
+            if (SelectedSignal?.Value is { } val) return val;
+            string? localVal = SelectedSchematicLocalSignal?.CurrentValue;
+            if (localVal is not null and not "-") return localVal;
+            return ComputeSliceValue(_selectedSchematicReferenceName) ?? localVal ?? "-";
+        }
+    }
+
+    private string? ComputeSliceValue(string? targetName)
+    {
+        if (string.IsNullOrWhiteSpace(targetName))
+        {
+            return null;
+        }
+
+        Bistable.Core.Design.DesignContAssign? assign = SelectedHierarchyContAssigns
+            .FirstOrDefault(a =>
+                string.Equals(a.TargetName, targetName, StringComparison.OrdinalIgnoreCase)
+                && a.SourceRange.HasValue && a.SourceNames.Count == 1);
+
+        if (assign is null)
+        {
+            return null;
+        }
+
+        string? sourceValue = FindAnySignalByName(assign.SourceNames[0])?.Value;
+        if (string.IsNullOrWhiteSpace(sourceValue) || sourceValue == "-")
+        {
+            return null;
+        }
+
+        if (!Views.SchematicPreviewControl.TryParseNumericValue(sourceValue, out System.Numerics.BigInteger numeric))
+        {
+            return null;
+        }
+
+        Bistable.Core.Design.DesignBitRange range = assign.SourceRange!.Value;
+        System.Numerics.BigInteger mask = (System.Numerics.BigInteger.One << range.Width) - 1;
+        System.Numerics.BigInteger sliceValue = (numeric >> range.Lo) & mask;
+        return range.Width == 1
+            ? sliceValue.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : $"0x{sliceValue:X}";
+    }
 
     private HierarchyScopeLocalSignalViewModel? SelectedSchematicLocalSignal =>
         string.IsNullOrWhiteSpace(_selectedSchematicReferenceName)

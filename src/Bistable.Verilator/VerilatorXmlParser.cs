@@ -243,6 +243,13 @@ public sealed class VerilatorXmlParser
             return null;
         }
 
+        // Bit-range select: first non-varref child is <sel> — parse range and route to a splitter node.
+        XElement? rhs = element.Elements().FirstOrDefault(static e => e.Name.LocalName != VarRefElement);
+        if (rhs?.Name.LocalName == "sel")
+        {
+            return ParseSelContAssign(targetName, rhs);
+        }
+
         List<string> sourceNames = element
             .Descendants(VarRefElement)
             .Where(varref => !ReferenceEquals(varref, target))
@@ -260,6 +267,69 @@ public sealed class VerilatorXmlParser
 
         string? operatorSymbol = DetectOperatorSymbol(element);
         return new DesignContAssign(targetName, sourceNames, operatorSymbol);
+    }
+
+    private static DesignContAssign? ParseSelContAssign(string targetName, XElement sel)
+    {
+        // <sel> children: <varref> (bus signal), <const> (lo bit offset), <const> (bit width)
+        string? sourceName = (string?)sel.Element(VarRefElement)?.Attribute("name");
+        if (string.IsNullOrWhiteSpace(sourceName))
+        {
+            return null;
+        }
+
+        List<XElement> consts = sel.Elements("const").ToList();
+        if (consts.Count >= 2)
+        {
+            int lo = ParseVerilogConst(consts[0]);
+            int width = ParseVerilogConst(consts[1]);
+            int hi = lo + Math.Max(1, width) - 1;
+            return new DesignContAssign(targetName, [sourceName!], null, new DesignBitRange(hi, lo));
+        }
+
+        // Fallback: no range info available, fall back to transparent wire alias.
+        return new DesignContAssign(targetName, [sourceName!]);
+    }
+
+    private static int ParseVerilogConst(XElement element)
+    {
+        // Verilog constant format: "32'hc" (hex), "4'b1100" (binary), "32'd12" (decimal)
+        string? name = (string?)element.Attribute("name");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return 0;
+        }
+
+        int apostrophe = name!.IndexOf('\'', StringComparison.Ordinal);
+        if (apostrophe < 0)
+        {
+            return ParseInt(name, 0);
+        }
+
+        string rest = name[(apostrophe + 1)..];
+        if (rest.Length < 2)
+        {
+            return 0;
+        }
+
+        return char.ToLowerInvariant(rest[0]) switch
+        {
+            'h' => int.TryParse(rest[1..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int h) ? h : 0,
+            'd' => ParseInt(rest[1..], 0),
+            'b' => ParseBinaryConst(rest[1..]),
+            _ => 0
+        };
+    }
+
+    private static int ParseBinaryConst(string s)
+    {
+        int result = 0;
+        foreach (char c in s.Where(static c => c is '0' or '1'))
+        {
+            result = (result << 1) | (c - '0');
+        }
+
+        return result;
     }
 
     private static string? DetectOperatorSymbol(XElement contassignElement)

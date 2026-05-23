@@ -120,6 +120,64 @@ public sealed class ElkGraphBuilderTests
         Assert.Equal("?", opNode.Labels![0].Text);
     }
 
+    [Fact]
+    public void RoutesBusSplitterToSliceConsumers()
+    {
+        // assign opcode = instruction[15:12];  assign imm = instruction[7:0]
+        HierarchyScopePortViewModel instruction = new("instruction", SignalDirection.Input, 16, isSigned: false);
+        HierarchyScopeInstanceViewModel control = Child(
+            "top.u_ctrl", "u_ctrl",
+            [new HierarchyScopeInstancePortConnectionViewModel("opcode", "opcode", isInput: true, width: 4)]);
+        HierarchyScopeInstanceViewModel alu = Child(
+            "top.u_alu", "u_alu",
+            [new HierarchyScopeInstancePortConnectionViewModel("imm", "imm", isInput: true, width: 8)]);
+        DesignContAssign opcodeAssign = new("opcode", ["instruction"], null, new DesignBitRange(15, 12));
+        DesignContAssign immAssign = new("imm", ["instruction"], null, new DesignBitRange(7, 0));
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData([instruction], [control, alu], [], [opcodeAssign, immAssign]),
+            compactLayout: true);
+
+        // One splitter node for the instruction bus
+        ElkNode splitter = Assert.Single(result.Graph.Children, n => n.Id == "split_instruction");
+        Assert.NotNull(splitter.Ports);
+        Assert.Equal(3, splitter.Ports!.Count);
+        Assert.Contains(splitter.Ports, p => p.Id == "split_instruction.in");
+
+        // Output ports carry bit-range labels; MSB-first ordering ([15:12] before [7:0])
+        ElkPort highPort = Assert.Single(splitter.Ports, p => p.Labels is { Count: > 0 } && p.Labels[0].Text == "[15:12]");
+        ElkPort lowPort = Assert.Single(splitter.Ports, p => p.Labels is { Count: > 0 } && p.Labels[0].Text == "[7:0]");
+        Assert.True(splitter.Ports.IndexOf(highPort) < splitter.Ports.IndexOf(lowPort));
+
+        // 3 edges: bus → splitter.in, splitter.out → each consumer
+        Assert.Equal(3, result.Graph.Edges.Count);
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Sources.Contains("boundary_in.instruction") && e.Targets.Contains("split_instruction.in"));
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Targets.Contains("child_top_u_ctrl.in.opcode"));
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Targets.Contains("child_top_u_alu.in.imm"));
+    }
+
+    [Fact]
+    public void SingleSliceStillCreatesSplitterNode()
+    {
+        // A single sel assign still produces a splitter (shows the bit range, not just a wire)
+        HierarchyScopePortViewModel bus = new("bus", SignalDirection.Input, 8, isSigned: false);
+        HierarchyScopeInstanceViewModel child = Child(
+            "top.u_x", "u_x",
+            [new HierarchyScopeInstancePortConnectionViewModel("lo", "lo", isInput: true, width: 4)]);
+        DesignContAssign assign = new("lo", ["bus"], null, new DesignBitRange(3, 0));
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData([bus], [child], [], [assign]),
+            compactLayout: true);
+
+        ElkNode splitter = Assert.Single(result.Graph.Children, n => n.Id == "split_bus");
+        Assert.Equal(2, splitter.Ports!.Count);
+        Assert.Contains(splitter.Ports, p => p.Labels is { Count: > 0 } && p.Labels[0].Text == "[3:0]");
+    }
+
     private static HierarchyScopeInstanceViewModel Child(
         string hierarchyPath,
         string instanceName,

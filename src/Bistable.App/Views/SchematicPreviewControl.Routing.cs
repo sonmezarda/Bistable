@@ -1,7 +1,10 @@
+using System.Globalization;
+using System.Numerics;
 using Avalonia;
 using Avalonia.Media;
 using Bistable.App.Services;
 using Bistable.App.ViewModels;
+using Bistable.Core.Design;
 
 namespace Bistable.App.Views;
 
@@ -220,12 +223,82 @@ public sealed partial class SchematicPreviewControl
         }
     }
 
-    private IReadOnlyDictionary<string, string> BuildSignalValueLookup()
+    private IReadOnlyDictionary<string, string> BuildSignalValueLookup(
+        IReadOnlyList<DesignContAssign>? contAssigns = null)
     {
         Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
         AddSignalValues(values, Signals);
         AddSignalValues(values, ScopeSignals);
+        if (contAssigns is not null)
+        {
+            EnrichWithSliceValues(values, contAssigns);
+        }
+
         return values;
+    }
+
+    // For each sel-based contassign whose source signal has a known value, compute and store
+    // the slice value so that edges and probes downstream show correct data.
+    private static void EnrichWithSliceValues(
+        Dictionary<string, string> values,
+        IReadOnlyList<DesignContAssign> contAssigns)
+    {
+        foreach (DesignContAssign assign in contAssigns
+                     .Where(static a => a.SourceRange.HasValue && a.SourceNames.Count == 1))
+        {
+            if (values.TryGetValue(assign.TargetName, out string? existing)
+                && !string.IsNullOrWhiteSpace(existing) && existing != "-")
+            {
+                continue; // already has a live value from the simulator
+            }
+
+            string sourceName = assign.SourceNames[0];
+            if (!values.TryGetValue(sourceName, out string? sourceValue)
+                || string.IsNullOrWhiteSpace(sourceValue) || sourceValue == "-")
+            {
+                continue;
+            }
+
+            if (!TryParseNumericValue(sourceValue, out BigInteger numeric))
+            {
+                continue;
+            }
+
+            DesignBitRange range = assign.SourceRange!.Value;
+            BigInteger mask = (BigInteger.One << range.Width) - 1;
+            BigInteger sliceValue = (numeric >> range.Lo) & mask;
+            values[assign.TargetName] = range.Width == 1
+                ? sliceValue.ToString(CultureInfo.InvariantCulture)
+                : $"0x{sliceValue:X}";
+        }
+    }
+
+    internal static bool TryParseNumericValue(string value, out BigInteger result)
+    {
+        result = BigInteger.Zero;
+        string s = value.Trim();
+        if (s is "-" or "" or "x" or "X" or "z" or "Z")
+        {
+            return false;
+        }
+
+        if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            return BigInteger.TryParse(s[2..], NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out result);
+        }
+
+        if (s.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
+        {
+            result = BigInteger.Zero;
+            foreach (char c in s[2..])
+            {
+                if (c is not '0' and not '1') return false;
+                result = (result << 1) | (c == '1' ? BigInteger.One : BigInteger.Zero);
+            }
+            return true;
+        }
+
+        return BigInteger.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
     }
 
     private static void AddSignalValues(Dictionary<string, string> values, IEnumerable<SignalViewModel>? signals)
