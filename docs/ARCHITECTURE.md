@@ -50,8 +50,14 @@ Bistable.App  ──depends on──>  Bistable.Verilator  ──depends on─�
 - `Bistable.Core.Design.ElaboratedDesign` — root of the parsed design (catalog + hierarchy).
 - `Bistable.Core.Design.ModuleMetadata`, `SignalPort`, `DesignParameter`, `DesignHierarchyNode`.
 - `Bistable.Core.Design.DesignModuleDefinition`, `DesignInstanceDefinition`, `DesignContAssign`, `DesignLocalSignal`, `DesignBitRange`.
-
-Phase 1 will introduce `Bistable.Core.Design.Ast.*` here.
+- **`Bistable.Core.Design.Ast.*`** (Phase 1) — backend-agnostic Design IR. Key types:
+  - `DesignAst` / `ModuleAst` — root and per-module containers.
+  - `SignalDecl` — local signal with `IsRegistered` (derived post-parse).
+  - `ContAssignAst` — continuous assignment with full expression tree.
+  - `SequentialBlockAst` / `CombinationalBlockAst` — always-block representations.
+  - `StatementAst` hierarchy: `BeginAst`, `IfAst`, `CaseAst`, `AssignAst`.
+  - `ExpressionAst` hierarchy: `SignalRef`, `ConstExpr`, `BitSelectExpr`, `ConcatExpr`, `CondExpr`, `BinaryExpr`, `UnaryExpr`, and more.
+  - Full spec: `docs/DESIGN_AST.md`.
 
 ### `Bistable.Protocol`
 - `SimulationCommand` (request: `Type`, `Signal?`, `Value?`, `Cycles`).
@@ -67,7 +73,9 @@ Phase 3 will extend this with `ReadSignal`, `WriteSignal`, `ForceSignal`, `Relea
 - `SimulationWorkerBuilder` — generates C++ worker source, compiles via Verilator.
 - `SimulationWorkerClient` — JSON IPC over stdin/stdout to the compiled worker.
 
-Phase 1 will add `VerilatorXmlAstReader` here (alongside, not replacing, the legacy parser).
+**Phase 1 additions:**
+  - `VerilatorXmlAstReader` — recursive-descent XML → `DesignAst`. Runs alongside the legacy parser.
+  - `LegacyDesignFlattener` — `DesignAst` → `ElaboratedDesign`. Compatibility seam; `DesignLoadService` now calls reader + flattener instead of `VerilatorXmlParser` directly.
 
 ### `Bistable.App`
 - `ViewModels/MainWindowViewModel.cs` — the main VM (large; refactor candidate).

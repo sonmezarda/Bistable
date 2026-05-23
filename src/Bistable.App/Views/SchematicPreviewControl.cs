@@ -71,6 +71,9 @@ public sealed partial class SchematicPreviewControl : Control
     public static readonly StyledProperty<IEnumerable<DesignContAssign>?> ScopeContAssignsProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<DesignContAssign>?>(nameof(ScopeContAssigns));
 
+    public static readonly StyledProperty<IEnumerable<Bistable.Core.Design.Schematic.SchematicPrimitive>?> ScopePrimitivesProperty =
+        AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<Bistable.Core.Design.Schematic.SchematicPrimitive>?>(nameof(ScopePrimitives));
+
     public static readonly StyledProperty<IEnumerable<SignalViewModel>?> ScopeSignalsProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<SignalViewModel>?>(nameof(ScopeSignals));
 
@@ -285,6 +288,12 @@ public sealed partial class SchematicPreviewControl : Control
         set => SetValue(ScopeContAssignsProperty, value);
     }
 
+    public IEnumerable<Bistable.Core.Design.Schematic.SchematicPrimitive>? ScopePrimitives
+    {
+        get => GetValue(ScopePrimitivesProperty);
+        set => SetValue(ScopePrimitivesProperty, value);
+    }
+
     public SchematicRoutingEngine RoutingEngine
     {
         get => GetValue(RoutingEngineProperty);
@@ -360,6 +369,8 @@ public sealed partial class SchematicPreviewControl : Control
         IReadOnlyList<HierarchyScopePortViewModel> scopePorts = ScopePorts?.ToList() ?? [];
         IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals = ScopeLocalSignals?.ToList() ?? [];
         IReadOnlyList<DesignContAssign> contAssigns = ScopeContAssigns?.ToList() ?? [];
+        IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive> scopePrimitives =
+            ScopePrimitives?.ToList() ?? [];
         HierarchyScopeNodeViewModel? parentScope = ScopeParent;
         bool hasScopeFocus = HasScopeContext(scopeSignals, childScopes, parentScope);
         bool expandedScope = IsActiveScopeExpanded && hasScopeFocus;
@@ -414,7 +425,7 @@ public sealed partial class SchematicPreviewControl : Control
 
             if (expandedScope)
             {
-                DrawExpandedScopePanel(context, worldBounds, moduleRect, scopeCard, scopeSignals, childScopes, scopePorts, localSignals, contAssigns);
+                DrawExpandedScopePanel(context, worldBounds, moduleRect, scopeCard, scopeSignals, childScopes, scopePorts, localSignals, contAssigns, scopePrimitives);
             }
             else if (hasScopeFocus && !string.Equals(ActiveScopePath, ModuleName, StringComparison.OrdinalIgnoreCase) && scopePorts.Count > 0)
             {

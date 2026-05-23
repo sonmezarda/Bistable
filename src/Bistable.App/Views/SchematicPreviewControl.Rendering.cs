@@ -211,11 +211,12 @@ public sealed partial class SchematicPreviewControl
         IReadOnlyList<HierarchyScopeInstanceViewModel> childScopes,
         IReadOnlyList<HierarchyScopePortViewModel> scopePorts,
         IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals,
-        IReadOnlyList<DesignContAssign> contAssigns)
+        IReadOnlyList<DesignContAssign> contAssigns,
+        IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive> scopePrimitives)
     {
         if (RoutingEngine == SchematicRoutingEngine.Elk)
         {
-            DrawElkScopePanel(context, bounds, moduleRect, scopeSignals, childScopes, scopePorts, localSignals, contAssigns);
+            DrawElkScopePanel(context, bounds, moduleRect, scopeSignals, childScopes, scopePorts, localSignals, contAssigns, scopePrimitives);
             return;
         }
 

@@ -19,7 +19,8 @@ public sealed partial class SchematicPreviewControl
         IReadOnlyList<HierarchyScopeInstanceViewModel> childScopes,
         IReadOnlyList<HierarchyScopePortViewModel> scopePorts,
         IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals,
-        IReadOnlyList<DesignContAssign> contAssigns)
+        IReadOnlyList<DesignContAssign> contAssigns,
+        IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>? scopePrimitives = null)
     {
         Rect panel = ComputeElkPanelRect(bounds, moduleRect);
         _lastFocusedScopePanelRect = panel;
@@ -29,7 +30,7 @@ public sealed partial class SchematicPreviewControl
         HashSet<string> expandedPaths = ExpandedScopePaths is null
             ? []
             : new HashSet<string>(ExpandedScopePaths, StringComparer.OrdinalIgnoreCase);
-        ElkScopeData scope = new(scopePorts, childScopes, localSignals, contAssigns, expandedPaths);
+        ElkScopeData scope = new(scopePorts, childScopes, localSignals, contAssigns, expandedPaths, scopePrimitives);
         ElkLayoutResult layoutResult;
         try
         {

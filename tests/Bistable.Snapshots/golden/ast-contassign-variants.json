@@ -1,0 +1,272 @@
+{
+  "Modules": [
+    {
+      "Name": "top",
+      "IsTop": true,
+      "Ports": [
+        {
+          "Name": "bus",
+          "Direction": "Input",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 1
+        },
+        {
+          "Name": "sel",
+          "Direction": "Input",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 2
+        },
+        {
+          "Name": "a",
+          "Direction": "Input",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 3
+        },
+        {
+          "Name": "b",
+          "Direction": "Input",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 4
+        },
+        {
+          "Name": "hi",
+          "Direction": "Input",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 5
+        },
+        {
+          "Name": "lo",
+          "Direction": "Input",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 6
+        },
+        {
+          "Name": "result",
+          "Direction": "Output",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 7
+        },
+        {
+          "Name": "sliced",
+          "Direction": "Output",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 8
+        },
+        {
+          "Name": "joined",
+          "Direction": "Output",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 9
+        }
+      ],
+      "Parameters": [],
+      "LocalSignals": [],
+      "Instances": [],
+      "ContAssigns": [
+        {
+          "Target": {
+            "$type": "VarRefLValue",
+            "Name": "result"
+          },
+          "Source": {
+            "$type": "CondExpr",
+            "Condition": {
+              "$type": "SignalRef",
+              "Name": "sel"
+            },
+            "IfTrue": {
+              "$type": "SignalRef",
+              "Name": "a"
+            },
+            "IfFalse": {
+              "$type": "SignalRef",
+              "Name": "b"
+            }
+          }
+        },
+        {
+          "Target": {
+            "$type": "VarRefLValue",
+            "Name": "sliced"
+          },
+          "Source": {
+            "$type": "BitSelectExpr",
+            "Base": {
+              "$type": "SignalRef",
+              "Name": "bus"
+            },
+            "Range": {
+              "Hi": 5,
+              "Lo": 4,
+              "Width": 2
+            }
+          }
+        },
+        {
+          "Target": {
+            "$type": "VarRefLValue",
+            "Name": "joined"
+          },
+          "Source": {
+            "$type": "ConcatExpr",
+            "Parts": [
+              {
+                "$type": "SignalRef",
+                "Name": "hi"
+              },
+              {
+                "$type": "SignalRef",
+                "Name": "lo"
+              }
+            ]
+          }
+        }
+      ],
+      "SequentialBlocks": [],
+      "CombinationalBlocks": []
+    }
+  ],
+  "TopModule": {
+    "Name": "top",
+    "IsTop": true,
+    "Ports": [
+      {
+        "Name": "bus",
+        "Direction": "Input",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 1
+      },
+      {
+        "Name": "sel",
+        "Direction": "Input",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 2
+      },
+      {
+        "Name": "a",
+        "Direction": "Input",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 3
+      },
+      {
+        "Name": "b",
+        "Direction": "Input",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 4
+      },
+      {
+        "Name": "hi",
+        "Direction": "Input",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 5
+      },
+      {
+        "Name": "lo",
+        "Direction": "Input",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 6
+      },
+      {
+        "Name": "result",
+        "Direction": "Output",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 7
+      },
+      {
+        "Name": "sliced",
+        "Direction": "Output",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 8
+      },
+      {
+        "Name": "joined",
+        "Direction": "Output",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 9
+      }
+    ],
+    "Parameters": [],
+    "LocalSignals": [],
+    "Instances": [],
+    "ContAssigns": [
+      {
+        "Target": {
+          "$type": "VarRefLValue",
+          "Name": "result"
+        },
+        "Source": {
+          "$type": "CondExpr",
+          "Condition": {
+            "$type": "SignalRef",
+            "Name": "sel"
+          },
+          "IfTrue": {
+            "$type": "SignalRef",
+            "Name": "a"
+          },
+          "IfFalse": {
+            "$type": "SignalRef",
+            "Name": "b"
+          }
+        }
+      },
+      {
+        "Target": {
+          "$type": "VarRefLValue",
+          "Name": "sliced"
+        },
+        "Source": {
+          "$type": "BitSelectExpr",
+          "Base": {
+            "$type": "SignalRef",
+            "Name": "bus"
+          },
+          "Range": {
+            "Hi": 5,
+            "Lo": 4,
+            "Width": 2
+          }
+        }
+      },
+      {
+        "Target": {
+          "$type": "VarRefLValue",
+          "Name": "joined"
+        },
+        "Source": {
+          "$type": "ConcatExpr",
+          "Parts": [
+            {
+              "$type": "SignalRef",
+              "Name": "hi"
+            },
+            {
+              "$type": "SignalRef",
+              "Name": "lo"
+            }
+          ]
+        }
+      }
+    ],
+    "SequentialBlocks": [],
+    "CombinationalBlocks": []
+  }
+}

@@ -1,0 +1,186 @@
+{
+  "Modules": [
+    {
+      "Name": "arnicomp_top",
+      "IsTop": true,
+      "Ports": [
+        {
+          "Name": "clk",
+          "Direction": "Input",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 1
+        },
+        {
+          "Name": "rst_n",
+          "Direction": "Input",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 2
+        },
+        {
+          "Name": "instruction",
+          "Direction": "Input",
+          "Width": 1,
+          "IsSigned": false,
+          "PinIndex": 3
+        }
+      ],
+      "Parameters": [],
+      "LocalSignals": [
+        {
+          "Name": "inst_q",
+          "Width": 1,
+          "IsSigned": false,
+          "ArrayDims": [],
+          "IsRegistered": true
+        }
+      ],
+      "Instances": [],
+      "ContAssigns": [],
+      "SequentialBlocks": [
+        {
+          "Triggers": [
+            {
+              "Edge": "Rising",
+              "SignalName": "clk"
+            },
+            {
+              "Edge": "Falling",
+              "SignalName": "rst_n"
+            }
+          ],
+          "Body": {
+            "$type": "BeginAst",
+            "Statements": [
+              {
+                "$type": "AssignAst",
+                "Target": {
+                  "$type": "VarRefLValue",
+                  "Name": "inst_q"
+                },
+                "Source": {
+                  "$type": "CondExpr",
+                  "Condition": {
+                    "$type": "SignalRef",
+                    "Name": "rst_n"
+                  },
+                  "IfTrue": {
+                    "$type": "SignalRef",
+                    "Name": "instruction"
+                  },
+                  "IfFalse": {
+                    "$type": "ConstExpr",
+                    "Value": {
+                      "IsPowerOfTwo": false,
+                      "IsZero": true,
+                      "IsOne": false,
+                      "IsEven": true,
+                      "Sign": 0
+                    },
+                    "Width": 8,
+                    "IsSigned": false
+                  }
+                },
+                "IsNonBlocking": true
+              }
+            ]
+          },
+          "HasAsynchronousReset": true
+        }
+      ],
+      "CombinationalBlocks": []
+    }
+  ],
+  "TopModule": {
+    "Name": "arnicomp_top",
+    "IsTop": true,
+    "Ports": [
+      {
+        "Name": "clk",
+        "Direction": "Input",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 1
+      },
+      {
+        "Name": "rst_n",
+        "Direction": "Input",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 2
+      },
+      {
+        "Name": "instruction",
+        "Direction": "Input",
+        "Width": 1,
+        "IsSigned": false,
+        "PinIndex": 3
+      }
+    ],
+    "Parameters": [],
+    "LocalSignals": [
+      {
+        "Name": "inst_q",
+        "Width": 1,
+        "IsSigned": false,
+        "ArrayDims": [],
+        "IsRegistered": true
+      }
+    ],
+    "Instances": [],
+    "ContAssigns": [],
+    "SequentialBlocks": [
+      {
+        "Triggers": [
+          {
+            "Edge": "Rising",
+            "SignalName": "clk"
+          },
+          {
+            "Edge": "Falling",
+            "SignalName": "rst_n"
+          }
+        ],
+        "Body": {
+          "$type": "BeginAst",
+          "Statements": [
+            {
+              "$type": "AssignAst",
+              "Target": {
+                "$type": "VarRefLValue",
+                "Name": "inst_q"
+              },
+              "Source": {
+                "$type": "CondExpr",
+                "Condition": {
+                  "$type": "SignalRef",
+                  "Name": "rst_n"
+                },
+                "IfTrue": {
+                  "$type": "SignalRef",
+                  "Name": "instruction"
+                },
+                "IfFalse": {
+                  "$type": "ConstExpr",
+                  "Value": {
+                    "IsPowerOfTwo": false,
+                    "IsZero": true,
+                    "IsOne": false,
+                    "IsEven": true,
+                    "Sign": 0
+                  },
+                  "Width": 8,
+                  "IsSigned": false
+                }
+              },
+              "IsNonBlocking": true
+            }
+          ]
+        },
+        "HasAsynchronousReset": true
+      }
+    ],
+    "CombinationalBlocks": []
+  }
+}

@@ -26,6 +26,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private ProjectConfiguration? _currentProject;
     private ModuleMetadata? _currentMetadata;
     private ElaboratedDesign? _currentDesign;
+    private Bistable.Core.Design.Ast.DesignAst? _currentAst;
     private string? _currentProjectDirectory;
     private SimulationWorkerClient? _worker;
     private readonly DockPanelViewModel _projectPanel = new(DockPanelKind.Project, "Project");
@@ -78,6 +79,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private string? _savedTopModule;
     private string? _savedTopTraceFilePath;
     private ElaboratedDesign? _savedTopDesign;
+    private Bistable.Core.Design.Ast.DesignAst? _savedTopAst;
     private HierarchyNodeViewModel? _savedTopHierarchyRoot;
     private HierarchyNodeViewModel? _savedTopSelectedHierarchyNode;
     private List<string>? _savedTopExpandedPaths;
@@ -146,6 +148,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ObservableCollection<HierarchyScopeLocalSignalViewModel> SelectedHierarchyLocalSignals { get; } = [];
 
     public ObservableCollection<Bistable.Core.Design.DesignContAssign> SelectedHierarchyContAssigns { get; } = [];
+
+    public ObservableCollection<Bistable.Core.Design.Schematic.SchematicPrimitive> SelectedHierarchyPrimitives { get; } = [];
 
     public ObservableCollection<string> SchematicExpandedPaths { get; } = [];
 
@@ -988,6 +992,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             _currentProject = result.Project;
             _currentMetadata = result.Metadata;
             _currentDesign = result.Design;
+            _currentAst = result.Ast;
             _currentProjectDirectory = result.ProjectDirectory;
             SchematicExpandedPaths.Clear();
             OnPropertyChanged(nameof(IsSelectedHierarchyScopeExpanded));
@@ -1129,6 +1134,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         _savedTopModule     = TopModule;
         _savedTopTraceFilePath = _traceFilePath;
         _savedTopDesign = _currentDesign;
+        _savedTopAst = _currentAst;
         _savedTopHierarchyRoot = HierarchyRoot;
         _savedTopSelectedHierarchyNode = SelectedHierarchyNode;
         _savedTopExpandedPaths = [.. SchematicExpandedPaths];
@@ -1137,6 +1143,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         _worker = new SimulationWorkerClient(subBuild.ExecutablePath);
         _traceFilePath = subBuild.TraceFilePath;
         _currentDesign = subElab.Design;
+        _currentAst = subElab.Ast;
 
         Inputs.Clear();
         Outputs.Clear();
@@ -1178,6 +1185,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         _traceFilePath = _savedTopTraceFilePath;
         _subSimProject = null;
         _currentDesign = _savedTopDesign;
+        _currentAst = _savedTopAst;
 
         RestoreTopSimulationCollections();
         HierarchyRoot = _savedTopHierarchyRoot;
@@ -1185,6 +1193,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         _savedTopInputs = _savedTopOutputs = _savedTopAllSignals = _savedTopTraceSignals = null;
         _savedTopDesign = null;
+        _savedTopAst = null;
         _savedTopHierarchyRoot = null;
         _savedTopSelectedHierarchyNode = null;
         _savedTopExpandedPaths = null;
@@ -1951,6 +1960,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         SelectedHierarchyPorts.Clear();
         SelectedHierarchyContAssigns.Clear();
+        SelectedHierarchyPrimitives.Clear();
         if (SelectedHierarchyNode is null || _currentDesign is null)
         {
             return;
@@ -1975,6 +1985,24 @@ public sealed class MainWindowViewModel : ViewModelBase
             foreach (Bistable.Core.Design.DesignContAssign assign in definition.ContAssigns)
             {
                 SelectedHierarchyContAssigns.Add(assign);
+            }
+        }
+
+        // Phase 2: decode primitives from the AST when available. The renderer consumes
+        // these alongside ContAssigns to draw FF/Mux/etc symbols that the legacy flat
+        // model cannot represent.
+        if (_currentAst is not null)
+        {
+            Bistable.Core.Design.Ast.ModuleAst? moduleAst = _currentAst.Modules
+                .FirstOrDefault(m => string.Equals(m.Name, SelectedHierarchyNode.ModuleName, StringComparison.OrdinalIgnoreCase));
+            if (moduleAst is not null)
+            {
+                Bistable.Core.Design.Schematic.SchematicPrimitiveList primitives =
+                    Bistable.Core.Design.Schematic.SchematicDecoder.Decode(moduleAst);
+                foreach (Bistable.Core.Design.Schematic.SchematicPrimitive primitive in primitives.Logic)
+                {
+                    SelectedHierarchyPrimitives.Add(primitive);
+                }
             }
         }
     }

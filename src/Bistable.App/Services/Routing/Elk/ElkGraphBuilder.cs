@@ -1,6 +1,7 @@
 using System.Globalization;
 using Bistable.App.ViewModels;
 using Bistable.Core.Design;
+using Bistable.Core.Design.Schematic;
 
 namespace Bistable.App.Services.Routing.Elk;
 
@@ -62,8 +63,65 @@ internal sealed class ElkGraphBuilder
             AddSplitterNode(graph, scope, group.Key, [.. group.OrderByDescending(static a => a.SourceRange!.Value.Hi)], portRefs);
         }
 
+        // Phase 2: emit flip-flop nodes from primitives (Phase 1 AST decoder output).
+        // This adds visible FF symbols for signals previously invisible to the legacy
+        // contassign-only path. No-op when scope.Primitives is null/empty.
+        if (scope.Primitives is not null)
+        {
+            foreach (FlipFlopPrimitive ff in scope.Primitives.OfType<FlipFlopPrimitive>())
+            {
+                AddFlipFlopNode(graph, ff, portRefs);
+            }
+        }
+
         AddEdges(graph, scope, portRefs);
         return new ElkBuildResult(graph, portRefs);
+    }
+
+    private static void AddFlipFlopNode(
+        ElkGraph graph,
+        FlipFlopPrimitive ff,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        string nodeId = ElkNodeIds.ForFlipFlop(ff.QSignal);
+        bool hasReset = !string.IsNullOrEmpty(ff.AsyncResetSignal);
+
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = 64,
+            Height = hasReset ? 60 : 48,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [new ElkLabel { Text = "FF " + ff.QSignal }],
+            Ports = []
+        };
+
+        // West side ports: D (top), Clk (middle), Rst (bottom, optional)
+        string dPortId = $"{nodeId}.d";
+        node.Ports!.Add(new ElkPort { Id = dPortId, LayoutOptions = PortLayout(PortSideWest, 0) });
+        portRefs[ElkSignalKey.FlipFlopD(ff.QSignal)] =
+            new ElkPortRef(nodeId, dPortId, ElkPortRole.FlipFlopD, ff.Width);
+
+        string clkPortId = $"{nodeId}.clk";
+        node.Ports!.Add(new ElkPort { Id = clkPortId, LayoutOptions = PortLayout(PortSideWest, 1) });
+        portRefs[ElkSignalKey.FlipFlopClock(ff.QSignal)] =
+            new ElkPortRef(nodeId, clkPortId, ElkPortRole.FlipFlopClock, 1);
+
+        if (hasReset)
+        {
+            string rstPortId = $"{nodeId}.rst";
+            node.Ports!.Add(new ElkPort { Id = rstPortId, LayoutOptions = PortLayout(PortSideWest, 2) });
+            portRefs[ElkSignalKey.FlipFlopReset(ff.QSignal)] =
+                new ElkPortRef(nodeId, rstPortId, ElkPortRole.FlipFlopReset, 1);
+        }
+
+        // East side: Q output
+        string qPortId = $"{nodeId}.q";
+        node.Ports!.Add(new ElkPort { Id = qPortId, LayoutOptions = PortLayout(PortSideEast, 0) });
+        portRefs[ElkSignalKey.FlipFlopQ(ff.QSignal)] =
+            new ElkPortRef(nodeId, qPortId, ElkPortRole.FlipFlopQ, ff.Width);
+
+        graph.Children.Add(node);
     }
 
     private static void AddOperatorNode(
@@ -467,6 +525,7 @@ internal sealed class ElkGraphBuilder
         CollectChildEndpoints(scope, portRefs, producers, consumers);
         CollectOperatorEndpoints(scope, portRefs, producers, consumers);
         CollectSplitterEndpoints(scope, portRefs, producers, consumers);
+        CollectFlipFlopEndpoints(scope, portRefs, producers, consumers);
         CollectExpandedCompoundEndpoints(scope, portRefs, producers, consumers);
         ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers);
         EmitEdges(graph, producers, consumers);
@@ -601,6 +660,43 @@ internal sealed class ElkGraphBuilder
             if (portRefs.TryGetValue(ElkSignalKey.JoinerInput(assign.TargetName, i), out ElkPortRef? inRef))
             {
                 AddTo(consumers, assign.SourceNames[i], inRef);
+            }
+        }
+    }
+
+    private static void CollectFlipFlopEndpoints(
+        ElkScopeData scope,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        if (scope.Primitives is null) return;
+
+        foreach (FlipFlopPrimitive ff in scope.Primitives.OfType<FlipFlopPrimitive>())
+        {
+            // Q output is a producer of the QSignal
+            if (portRefs.TryGetValue(ElkSignalKey.FlipFlopQ(ff.QSignal), out ElkPortRef? qRef))
+            {
+                AddTo(producers, ff.QSignal, qRef);
+            }
+
+            // D input consumes the DSignal
+            if (portRefs.TryGetValue(ElkSignalKey.FlipFlopD(ff.QSignal), out ElkPortRef? dRef))
+            {
+                AddTo(consumers, ff.DSignal, dRef);
+            }
+
+            // Clk input consumes the clock signal
+            if (portRefs.TryGetValue(ElkSignalKey.FlipFlopClock(ff.QSignal), out ElkPortRef? clkRef))
+            {
+                AddTo(consumers, ff.ClockSignal, clkRef);
+            }
+
+            // Async reset (optional) consumes the reset signal
+            if (!string.IsNullOrEmpty(ff.AsyncResetSignal) &&
+                portRefs.TryGetValue(ElkSignalKey.FlipFlopReset(ff.QSignal), out ElkPortRef? rstRef))
+            {
+                AddTo(consumers, ff.AsyncResetSignal, rstRef);
             }
         }
     }
@@ -846,7 +942,8 @@ public sealed record ElkScopeData(
     IReadOnlyList<HierarchyScopeInstanceViewModel> ChildScopes,
     IReadOnlyList<HierarchyScopeLocalSignalViewModel> LocalSignals,
     IReadOnlyList<DesignContAssign> ContAssigns,
-    IReadOnlySet<string>? ExpandedPaths = null);
+    IReadOnlySet<string>? ExpandedPaths = null,
+    IReadOnlyList<SchematicPrimitive>? Primitives = null);
 
 public sealed record ElkBuildResult(ElkGraph Graph, IReadOnlyDictionary<string, ElkPortRef> PortRefs);
 
@@ -863,7 +960,11 @@ public enum ElkPortRole
     SplitterInput,
     SplitterOutput,
     JoinerInput,
-    JoinerOutput
+    JoinerOutput,
+    FlipFlopD,
+    FlipFlopClock,
+    FlipFlopReset,
+    FlipFlopQ
 }
 
 internal static class ElkNodeIds
@@ -876,6 +977,7 @@ internal static class ElkNodeIds
     public static string ForOperator(string targetName) => "op_" + SanitizeId(targetName);
     public static string ForSplitter(string sourceName) => "split_" + SanitizeId(sourceName);
     public static string ForJoiner(string targetName) => "join_" + SanitizeId(targetName);
+    public static string ForFlipFlop(string qSignal) => "ff_" + SanitizeId(qSignal);
 
     public static bool IsOperator(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("op_", StringComparison.Ordinal);
@@ -885,6 +987,9 @@ internal static class ElkNodeIds
 
     public static bool IsJoiner(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("join_", StringComparison.Ordinal);
+
+    public static bool IsFlipFlop(string? nodeId) =>
+        nodeId is not null && nodeId.StartsWith("ff_", StringComparison.Ordinal);
 
     private static string SanitizeId(string raw) =>
         raw.Replace('.', '_').Replace('/', '_').Replace(':', '_').Replace('[', '_').Replace(']', '_');
@@ -901,4 +1006,8 @@ internal static class ElkSignalKey
     public static string SplitterOutput(string sourceName, string targetName) => $"::split_out::{sourceName}::{targetName}";
     public static string JoinerInput(string targetName, int index) => $"::join_in::{targetName}::{index}";
     public static string JoinerOutput(string targetName) => $"::join_out::{targetName}";
+    public static string FlipFlopD(string qSignal) => $"::ff_d::{qSignal}";
+    public static string FlipFlopClock(string qSignal) => $"::ff_clk::{qSignal}";
+    public static string FlipFlopReset(string qSignal) => $"::ff_rst::{qSignal}";
+    public static string FlipFlopQ(string qSignal) => $"::ff_q::{qSignal}";
 }

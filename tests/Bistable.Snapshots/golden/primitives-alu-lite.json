@@ -1,0 +1,114 @@
+{
+  "ModuleName": "alu_lite",
+  "Ports": [
+    {
+      "Name": "op_sel",
+      "Direction": "Input",
+      "Width": 1,
+      "Id": "port_op_sel"
+    },
+    {
+      "Name": "a",
+      "Direction": "Input",
+      "Width": 1,
+      "Id": "port_a"
+    },
+    {
+      "Name": "b",
+      "Direction": "Input",
+      "Width": 1,
+      "Id": "port_b"
+    },
+    {
+      "Name": "result",
+      "Direction": "Output",
+      "Width": 1,
+      "Id": "port_result"
+    }
+  ],
+  "Signals": [
+    {
+      "Name": "sum",
+      "Width": 1,
+      "IsRegistered": false,
+      "Id": "sig_sum"
+    },
+    {
+      "Name": "diff",
+      "Width": 1,
+      "IsRegistered": false,
+      "Id": "sig_diff"
+    },
+    {
+      "Name": "and_v",
+      "Width": 1,
+      "IsRegistered": false,
+      "Id": "sig_and_v"
+    }
+  ],
+  "Instances": [],
+  "Logic": [
+    {
+      "$type": "Arith",
+      "OutputSignal": "sum",
+      "Kind": "Add",
+      "LeftSignal": "a",
+      "RightSignal": "b",
+      "Width": 1,
+      "Id": "op_sum_0"
+    },
+    {
+      "$type": "Arith",
+      "OutputSignal": "diff",
+      "Kind": "Sub",
+      "LeftSignal": "a",
+      "RightSignal": "b",
+      "Width": 1,
+      "Id": "op_diff_1"
+    },
+    {
+      "$type": "Gate",
+      "OutputSignal": "and_v",
+      "Kind": "And",
+      "InputSignals": [
+        "a",
+        "b"
+      ],
+      "Width": 1,
+      "Id": "op_and_v_2"
+    },
+    {
+      "$type": "Mux",
+      "OutputSignal": "result",
+      "SelectSignals": [
+        "op_sel",
+        "op_sel"
+      ],
+      "Inputs": [
+        {
+          "Label": "1",
+          "Source": {
+            "$type": "Signal",
+            "SignalName": "sum"
+          }
+        },
+        {
+          "Label": "1",
+          "Source": {
+            "$type": "Signal",
+            "SignalName": "diff"
+          }
+        },
+        {
+          "Label": "0",
+          "Source": {
+            "$type": "Signal",
+            "SignalName": "and_v"
+          }
+        }
+      ],
+      "Width": 1,
+      "Id": "mux_result_3"
+    }
+  ]
+}
