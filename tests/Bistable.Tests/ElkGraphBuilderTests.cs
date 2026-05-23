@@ -51,8 +51,9 @@ public sealed class ElkGraphBuilderTests
     }
 
     [Fact]
-    public void DoesNotTreatMultiSourceContinuousAssignmentAsAlias()
+    public void RoutesCombinationalFanInFromAllContributingSources()
     {
+        // assign mem_addr = pc + instruction  — two contributing signals
         HierarchyScopePortViewModel instruction = new("instruction", SignalDirection.Input, 32, isSigned: false);
         HierarchyScopePortViewModel memAddr = new("mem_addr", SignalDirection.Output, 32, isSigned: false);
         HierarchyScopeInstanceViewModel registers = Child(
@@ -65,7 +66,20 @@ public sealed class ElkGraphBuilderTests
             new ElkScopeData([instruction, memAddr], [registers], [], [assign]),
             compactLayout: true);
 
-        Assert.Empty(result.Graph.Edges);
+        // Both contributing signals produce a dashed (fanin) cable to the output.
+        Assert.Equal(2, result.Graph.Edges.Count);
+        Assert.All(result.Graph.Edges, e =>
+        {
+            Assert.NotNull(e.Labels);
+            Assert.True(e.Labels.Count >= 3, "fan-in edges must carry a third 'fanin' label");
+            Assert.Equal("fanin", e.Labels[2].Text);
+        });
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Sources.Contains("boundary_in.instruction") &&
+            e.Targets.Contains("boundary_out.mem_addr"));
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Sources.Contains("child_top_u_registers.out.pc") &&
+            e.Targets.Contains("boundary_out.mem_addr"));
     }
 
     private static HierarchyScopeInstanceViewModel Child(

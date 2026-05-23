@@ -204,11 +204,12 @@ internal sealed class ElkGraphBuilder
     {
         Dictionary<string, List<ElkPortRef>> producers = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, List<ElkPortRef>> consumers = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> fanInPairs = new(StringComparer.OrdinalIgnoreCase);
 
         CollectBoundaryEndpoints(scope, portRefs, producers, consumers);
         CollectChildEndpoints(scope, portRefs, producers, consumers);
-        ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers);
-        EmitEdges(graph, producers, consumers);
+        ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers, fanInPairs);
+        EmitEdges(graph, producers, consumers, fanInPairs);
     }
 
     private static void CollectBoundaryEndpoints(
@@ -258,7 +259,8 @@ internal sealed class ElkGraphBuilder
     private static void EmitEdges(
         ElkGraph graph,
         Dictionary<string, List<ElkPortRef>> producers,
-        Dictionary<string, List<ElkPortRef>> consumers)
+        Dictionary<string, List<ElkPortRef>> consumers,
+        HashSet<string> fanInPairs)
     {
         int edgeCounter = 0;
         foreach ((string signal, List<ElkPortRef> sourceList) in producers)
@@ -278,24 +280,27 @@ internal sealed class ElkGraphBuilder
                     }
 
                     int width = ResolveEdgeWidth(source, target);
+                    bool isFanIn = fanInPairs.Contains(FanInKey(signal, target.PortId));
+                    // labels[0] = signal name (rendered + selection key)
+                    // labels[1] = bit width metadata (Logisim colour selection)
+                    // labels[2] = "fanin" when edge represents a combinational fan-in
+                    //             contribution rather than a direct wire (renderer draws dashed)
+                    List<ElkLabel> labels = isFanIn
+                        ? [new ElkLabel { Text = signal }, new ElkLabel { Text = width.ToString(CultureInfo.InvariantCulture) }, new ElkLabel { Text = "fanin" }]
+                        : [new ElkLabel { Text = signal }, new ElkLabel { Text = width.ToString(CultureInfo.InvariantCulture) }];
                     graph.Edges.Add(new ElkEdge
                     {
                         Id = $"e{edgeCounter++}",
                         Sources = [source.PortId],
                         Targets = [target.PortId],
-                        // labels[0] = signal name (rendered + selection key)
-                        // labels[1] = bit width metadata (used by the renderer to pick the
-                        // correct Logisim palette colour without re-deriving width from name)
-                        Labels =
-                        [
-                            new ElkLabel { Text = signal },
-                            new ElkLabel { Text = width.ToString(CultureInfo.InvariantCulture) }
-                        ]
+                        Labels = labels
                     });
                 }
             }
         }
     }
+
+    private static string FanInKey(string signal, string targetPortId) => $"{signal}|{targetPortId}";
 
     private static int ResolveEdgeWidth(ElkPortRef source, ElkPortRef target)
     {
@@ -310,7 +315,8 @@ internal sealed class ElkGraphBuilder
     private static void ExpandConsumersThroughContAssigns(
         IReadOnlyList<DesignContAssign> contAssigns,
         IReadOnlyDictionary<string, List<ElkPortRef>> producers,
-        Dictionary<string, List<ElkPortRef>> consumers)
+        Dictionary<string, List<ElkPortRef>> consumers,
+        HashSet<string> fanInPairs)
     {
         if (contAssigns.Count == 0 || consumers.Count == 0)
         {
@@ -318,24 +324,63 @@ internal sealed class ElkGraphBuilder
         }
 
         Dictionary<string, List<string>> sourcesByTarget = BuildSourcesByTarget(contAssigns);
+        if (sourcesByTarget.Count == 0)
+        {
+            return;
+        }
+
         foreach ((string signal, List<ElkPortRef> signalConsumers) in consumers.ToArray())
         {
-            if (producers.ContainsKey(signal))
+            if (producers.ContainsKey(signal) || !sourcesByTarget.TryGetValue(signal, out List<string>? sources))
             {
                 continue;
             }
 
-            foreach (string source in ResolveAssignSources(signal, sourcesByTarget))
+            if (sources.Count == 1)
             {
-                if (string.Equals(source, signal, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
+                ExpandAlias(signal, signalConsumers, sourcesByTarget, consumers);
+            }
+            else
+            {
+                ExpandFanIn(sources, signalConsumers, producers, consumers, fanInPairs);
+            }
+        }
+    }
 
-                foreach (ElkPortRef consumer in signalConsumers)
-                {
-                    AddTo(consumers, source, consumer);
-                }
+    // Single-source: transparent wire alias — follow the full chain so that e.g.
+    // assign opcode = instruction[15:12] draws a cable from the instruction port.
+    private static void ExpandAlias(
+        string signal,
+        List<ElkPortRef> signalConsumers,
+        IReadOnlyDictionary<string, List<string>> sourcesByTarget,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        foreach (string source in ResolveAssignSources(signal, sourcesByTarget)
+            .Where(s => !string.Equals(s, signal, StringComparison.OrdinalIgnoreCase)))
+        {
+            foreach (ElkPortRef consumer in signalConsumers)
+            {
+                AddTo(consumers, source, consumer);
+            }
+        }
+    }
+
+    // Multi-source (combinational fan-in): only connect sources that already have producers.
+    // Following alias chains here would create false long-range edges.
+    // Fan-in edges are tagged in fanInPairs so the renderer can draw them dashed.
+    private static void ExpandFanIn(
+        List<string> sources,
+        List<ElkPortRef> signalConsumers,
+        IReadOnlyDictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers,
+        HashSet<string> fanInPairs)
+    {
+        foreach (string source in sources.Where(producers.ContainsKey))
+        {
+            foreach (ElkPortRef consumer in signalConsumers)
+            {
+                AddTo(consumers, source, consumer);
+                fanInPairs.Add(FanInKey(source, consumer.PortId));
             }
         }
     }
@@ -345,17 +390,10 @@ internal sealed class ElkGraphBuilder
         Dictionary<string, List<string>> sourcesByTarget = new(StringComparer.OrdinalIgnoreCase);
         foreach (DesignContAssign assign in contAssigns)
         {
-            string[] sourceNames = assign.SourceNames
-                .Where(static source => !string.IsNullOrWhiteSpace(source))
+            foreach (string source in assign.SourceNames
+                .Where(static s => !string.IsNullOrWhiteSpace(s))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            if (sourceNames.Length != 1)
-            {
-                continue;
-            }
-
-            string source = sourceNames[0];
-            if (!string.Equals(source, assign.TargetName, StringComparison.OrdinalIgnoreCase))
+                .Where(s => !string.Equals(s, assign.TargetName, StringComparison.OrdinalIgnoreCase)))
             {
                 AddTo(sourcesByTarget, assign.TargetName, source);
             }
