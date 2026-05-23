@@ -103,10 +103,41 @@ public sealed partial class SchematicPreviewControl
             {
                 DrawElkBoundaryPins(context, node, rect, transform.Scale, isInput: false);
             }
+            else if (ElkNodeIds.IsOperator(node.Id))
+            {
+                DrawElkOperatorNode(context, node, rect, transform.Scale);
+            }
             else
             {
                 DrawElkNodeCard(context, node, rect, transform.Scale);
             }
+        }
+    }
+
+    private void DrawElkOperatorNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    {
+        double cx = rect.X + rect.Width / 2;
+        double cy = rect.Y + rect.Height / 2;
+        double radius = Math.Min(rect.Width, rect.Height) / 2 - 1 * scale;
+
+        context.DrawEllipse(Palette.NodeFill, new Pen(Palette.ModuleStroke, 1.4), new Point(cx, cy), radius, radius);
+
+        string? symbol = node.Labels is { Count: > 0 } ? node.Labels[0].Text : null;
+        if (!string.IsNullOrWhiteSpace(symbol))
+        {
+            double fontSize = Math.Clamp(radius * 0.7, 8, 16);
+            double textW = MeasureLabelWidth(symbol!, fontSize);
+            DrawText(context, symbol!, cx - textW / 2, cy - fontSize * 0.6, Palette.Text, fontSize);
+        }
+
+        if (node.Ports is null)
+        {
+            return;
+        }
+
+        foreach (ElkPort port in node.Ports)
+        {
+            DrawElkPort(context, rect, port, scale, node.Width);
         }
     }
 
@@ -276,8 +307,7 @@ public sealed partial class SchematicPreviewControl
 
         string? signalName = edge.Labels is { Count: > 0 } ? edge.Labels[0].Text : null;
         int bitWidth = ReadEdgeBitWidth(edge);
-        bool isFanIn = IsFanInEdge(edge);
-        ElkEdgeStyle style = BuildElkEdgeStyle(signalName, bitWidth, isFanIn, signalValues, anyHovered);
+        ElkEdgeStyle style = BuildElkEdgeStyle(signalName, bitWidth, signalValues, anyHovered);
         IReadOnlyList<Point> polyline = BuildEdgePolyline(edge.Sections, transform);
 
         IDisposable? dimScope = style.ShouldDim ? context.PushOpacity(0.22) : null;
@@ -300,7 +330,6 @@ public sealed partial class SchematicPreviewControl
     private ElkEdgeStyle BuildElkEdgeStyle(
         string? signalName,
         int bitWidth,
-        bool isFanIn,
         IReadOnlyDictionary<string, string> signalValues,
         bool anyHovered)
     {
@@ -314,8 +343,7 @@ public sealed partial class SchematicPreviewControl
             ? Palette.Selected
             : ResolveLogisimBrush(signalName, bitWidth, signalValues);
         double thickness = ResolveEdgeThickness(bitWidth > 1, isSelected);
-        DashStyle? dash = isFanIn ? new DashStyle([4, 4], 0) : null;
-        Pen pen = new(brush, thickness, dash, lineCap: PenLineCap.Square);
+        Pen pen = new(brush, thickness, lineCap: PenLineCap.Square);
         return new ElkEdgeStyle(pen, shouldDim);
     }
 
@@ -330,10 +358,6 @@ public sealed partial class SchematicPreviewControl
 
         return 1;
     }
-
-    private static bool IsFanInEdge(ElkEdge edge) =>
-        edge.Labels is { Count: > 2 }
-        && string.Equals(edge.Labels[2].Text, "fanin", StringComparison.OrdinalIgnoreCase);
 
     private static void DrawPolyline(DrawingContext context, IReadOnlyList<Point> polyline, Pen pen)
     {

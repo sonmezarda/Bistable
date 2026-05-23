@@ -89,7 +89,7 @@ public sealed class ElkSchematicEngine
 
         foreach (Bistable.Core.Design.DesignContAssign assign in scope.ContAssigns.OrderBy(a => a.TargetName, StringComparer.OrdinalIgnoreCase))
         {
-            sb.Append("A:").Append(assign.TargetName).Append(':');
+            sb.Append("A:").Append(assign.TargetName).Append(':').Append(assign.OperatorSymbol ?? "").Append(':');
             foreach (string source in assign.SourceNames.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))
             {
                 sb.Append(source).Append(',');

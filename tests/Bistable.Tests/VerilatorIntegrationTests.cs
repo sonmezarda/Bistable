@@ -48,7 +48,7 @@ public sealed class VerilatorIntegrationTests
 
         try
         {
-            Bistable.Core.Design.ModuleMetadata metadata = new VerilatorXmlParser().Parse(outputXml);
+            Bistable.Core.Design.ModuleMetadata metadata = VerilatorXmlParser.Parse(outputXml);
             SimulationWorkerBuildResult result = await new SimulationWorkerBuilder().BuildAsync(
                 configuration,
                 metadata,
@@ -79,7 +79,7 @@ public sealed class VerilatorIntegrationTests
 
         try
         {
-            Bistable.Core.Design.ModuleMetadata metadata = new VerilatorXmlParser().Parse(outputXml);
+            Bistable.Core.Design.ModuleMetadata metadata = VerilatorXmlParser.Parse(outputXml);
             SimulationWorkerBuilder builder = new();
 
             Task<SimulationWorkerBuildResult> first = builder.BuildAsync(configuration, metadata, sampleDirectory, CancellationToken.None);
@@ -114,7 +114,7 @@ public sealed class VerilatorIntegrationTests
 
         try
         {
-            Bistable.Core.Design.ModuleMetadata metadata = new VerilatorXmlParser().Parse(outputXml);
+            Bistable.Core.Design.ModuleMetadata metadata = VerilatorXmlParser.Parse(outputXml);
             SimulationWorkerBuildResult result = await new SimulationWorkerBuilder().BuildAsync(
                 configuration,
                 metadata,
@@ -157,7 +157,7 @@ public sealed class VerilatorIntegrationTests
 
         try
         {
-            Bistable.Core.Design.ModuleMetadata metadata = new VerilatorXmlParser().Parse(outputXml);
+            Bistable.Core.Design.ModuleMetadata metadata = VerilatorXmlParser.Parse(outputXml);
             SimulationWorkerBuildResult result = await new SimulationWorkerBuilder().BuildAsync(
                 configuration,
                 metadata,
@@ -204,7 +204,7 @@ public sealed class VerilatorIntegrationTests
 
         try
         {
-            Bistable.Core.Design.ElaboratedDesign design = new VerilatorXmlParser().ParseDesign(outputXml);
+            Bistable.Core.Design.ElaboratedDesign design = VerilatorXmlParser.ParseDesign(outputXml);
 
             Assert.Equal("system_top", design.TopModule.Name);
             Bistable.Core.Design.DesignHierarchyNode core = Assert.Single(design.HierarchyRoot.Children);
@@ -235,7 +235,7 @@ public sealed class VerilatorIntegrationTests
 
         try
         {
-            Bistable.Core.Design.ElaboratedDesign design = new VerilatorXmlParser().ParseDesign(outputXml);
+            Bistable.Core.Design.ElaboratedDesign design = VerilatorXmlParser.ParseDesign(outputXml);
 
             Assert.Equal("tiny_cpu_top", design.TopModule.Name);
             Assert.Contains(design.HierarchyRoot.Children, static child => child.InstanceName == "u_control");
@@ -265,7 +265,7 @@ public sealed class VerilatorIntegrationTests
 
         try
         {
-            Bistable.Core.Design.ModuleMetadata metadata = new VerilatorXmlParser().Parse(outputXml);
+            Bistable.Core.Design.ModuleMetadata metadata = VerilatorXmlParser.Parse(outputXml);
             SimulationWorkerBuildResult result = await new SimulationWorkerBuilder().BuildAsync(
                 configuration,
                 metadata,

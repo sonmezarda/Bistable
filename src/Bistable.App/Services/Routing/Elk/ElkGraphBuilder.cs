@@ -17,6 +17,7 @@ internal sealed class ElkGraphBuilder
     private const double ModuleMinWidth = 180;
     private const double ModuleSidePadding = 24;
     private const double BoundaryNodeWidth = 88;
+    private const double OperatorNodeSize = 40;
 
     private const string ElkPortSideKey = "elk.port.side";
     private const string ElkPortIndexKey = "elk.port.index";
@@ -42,8 +43,70 @@ internal sealed class ElkGraphBuilder
             AddChildNode(graph, child, portRefs);
         }
 
+        foreach (DesignContAssign assign in scope.ContAssigns.Where(a => a.SourceNames.Count >= 2))
+        {
+            AddOperatorNode(graph, scope, assign, portRefs);
+        }
+
         AddEdges(graph, scope, portRefs);
         return new ElkBuildResult(graph, portRefs);
+    }
+
+    private static void AddOperatorNode(
+        ElkGraph graph,
+        ElkScopeData scope,
+        DesignContAssign assign,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        string nodeId = ElkNodeIds.ForOperator(assign.TargetName);
+        int targetWidth = ResolveSignalWidth(scope, assign.TargetName);
+        string symbol = assign.OperatorSymbol ?? "?";
+
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = OperatorNodeSize,
+            Height = OperatorNodeSize,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [new ElkLabel { Text = symbol }],
+            Ports = []
+        };
+
+        for (int i = 0; i < assign.SourceNames.Count; i++)
+        {
+            string portId = $"{nodeId}.in.{i}";
+            int sourceWidth = ResolveSignalWidth(scope, assign.SourceNames[i]);
+            node.Ports!.Add(new ElkPort { Id = portId, LayoutOptions = PortLayout(PortSideWest, i) });
+            portRefs[ElkSignalKey.OpInput(assign.TargetName, i)] =
+                new ElkPortRef(nodeId, portId, ElkPortRole.OperatorInput, sourceWidth);
+        }
+
+        string outPortId = $"{nodeId}.out";
+        node.Ports!.Add(new ElkPort { Id = outPortId, LayoutOptions = PortLayout(PortSideEast, 0) });
+        portRefs[ElkSignalKey.OpOutput(assign.TargetName)] =
+            new ElkPortRef(nodeId, outPortId, ElkPortRole.OperatorOutput, targetWidth);
+
+        graph.Children.Add(node);
+    }
+
+    private static int ResolveSignalWidth(ElkScopeData scope, string signalName)
+    {
+        HierarchyScopePortViewModel? boundary = scope.BoundaryPorts
+            .FirstOrDefault(p => string.Equals(p.Name, signalName, StringComparison.OrdinalIgnoreCase));
+        if (boundary is not null) return boundary.Width;
+
+        HierarchyScopeLocalSignalViewModel? local = scope.LocalSignals
+            .FirstOrDefault(s => string.Equals(s.Name, signalName, StringComparison.OrdinalIgnoreCase));
+        if (local is not null) return local.Width;
+
+        foreach (HierarchyScopeInstanceViewModel child in scope.ChildScopes)
+        {
+            HierarchyScopeInstancePortConnectionViewModel? pin = child.PortConnections
+                .FirstOrDefault(p => string.Equals(p.SignalName, signalName, StringComparison.OrdinalIgnoreCase));
+            if (pin is not null) return pin.Width;
+        }
+
+        return 1;
     }
 
     private static Dictionary<string, string> BuildRootOptions(bool compactLayout)
@@ -204,12 +267,37 @@ internal sealed class ElkGraphBuilder
     {
         Dictionary<string, List<ElkPortRef>> producers = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, List<ElkPortRef>> consumers = new(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> fanInPairs = new(StringComparer.OrdinalIgnoreCase);
 
         CollectBoundaryEndpoints(scope, portRefs, producers, consumers);
         CollectChildEndpoints(scope, portRefs, producers, consumers);
-        ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers, fanInPairs);
-        EmitEdges(graph, producers, consumers, fanInPairs);
+        CollectOperatorEndpoints(scope, portRefs, producers, consumers);
+        ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers);
+        EmitEdges(graph, producers, consumers);
+    }
+
+    private static void CollectOperatorEndpoints(
+        ElkScopeData scope,
+        Dictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        foreach (DesignContAssign assign in scope.ContAssigns.Where(a => a.SourceNames.Count >= 2))
+        {
+            // Operator output is a producer of the target signal.
+            if (portRefs.TryGetValue(ElkSignalKey.OpOutput(assign.TargetName), out ElkPortRef? outRef))
+            {
+                AddTo(producers, assign.TargetName, outRef);
+            }
+
+            // Each operator input consumes its respective source signal.
+            for (int i = 0; i < assign.SourceNames.Count; i++)
+            {
+                if (portRefs.TryGetValue(ElkSignalKey.OpInput(assign.TargetName, i), out ElkPortRef? inRef))
+                {
+                    AddTo(consumers, assign.SourceNames[i], inRef);
+                }
+            }
+        }
     }
 
     private static void CollectBoundaryEndpoints(
@@ -259,8 +347,7 @@ internal sealed class ElkGraphBuilder
     private static void EmitEdges(
         ElkGraph graph,
         Dictionary<string, List<ElkPortRef>> producers,
-        Dictionary<string, List<ElkPortRef>> consumers,
-        HashSet<string> fanInPairs)
+        Dictionary<string, List<ElkPortRef>> consumers)
     {
         int edgeCounter = 0;
         foreach ((string signal, List<ElkPortRef> sourceList) in producers)
@@ -280,27 +367,19 @@ internal sealed class ElkGraphBuilder
                     }
 
                     int width = ResolveEdgeWidth(source, target);
-                    bool isFanIn = fanInPairs.Contains(FanInKey(signal, target.PortId));
                     // labels[0] = signal name (rendered + selection key)
                     // labels[1] = bit width metadata (Logisim colour selection)
-                    // labels[2] = "fanin" when edge represents a combinational fan-in
-                    //             contribution rather than a direct wire (renderer draws dashed)
-                    List<ElkLabel> labels = isFanIn
-                        ? [new ElkLabel { Text = signal }, new ElkLabel { Text = width.ToString(CultureInfo.InvariantCulture) }, new ElkLabel { Text = "fanin" }]
-                        : [new ElkLabel { Text = signal }, new ElkLabel { Text = width.ToString(CultureInfo.InvariantCulture) }];
                     graph.Edges.Add(new ElkEdge
                     {
                         Id = $"e{edgeCounter++}",
                         Sources = [source.PortId],
                         Targets = [target.PortId],
-                        Labels = labels
+                        Labels = [new ElkLabel { Text = signal }, new ElkLabel { Text = width.ToString(CultureInfo.InvariantCulture) }]
                     });
                 }
             }
         }
     }
-
-    private static string FanInKey(string signal, string targetPortId) => $"{signal}|{targetPortId}";
 
     private static int ResolveEdgeWidth(ElkPortRef source, ElkPortRef target)
     {
@@ -312,11 +391,13 @@ internal sealed class ElkGraphBuilder
         return Math.Max(1, Math.Min(source.Width, target.Width));
     }
 
+    // Expands alias chains for single-source contassigns so that e.g.
+    // assign opcode = instruction[15:12] draws a cable directly from the instruction port.
+    // Multi-source assigns are handled by operator nodes added during the graph build phase.
     private static void ExpandConsumersThroughContAssigns(
         IReadOnlyList<DesignContAssign> contAssigns,
         IReadOnlyDictionary<string, List<ElkPortRef>> producers,
-        Dictionary<string, List<ElkPortRef>> consumers,
-        HashSet<string> fanInPairs)
+        Dictionary<string, List<ElkPortRef>> consumers)
     {
         if (contAssigns.Count == 0 || consumers.Count == 0)
         {
@@ -331,24 +412,17 @@ internal sealed class ElkGraphBuilder
 
         foreach ((string signal, List<ElkPortRef> signalConsumers) in consumers.ToArray())
         {
-            if (producers.ContainsKey(signal) || !sourcesByTarget.TryGetValue(signal, out List<string>? sources))
+            if (producers.ContainsKey(signal)
+                || !sourcesByTarget.TryGetValue(signal, out List<string>? sources)
+                || sources.Count != 1)
             {
                 continue;
             }
 
-            if (sources.Count == 1)
-            {
-                ExpandAlias(signal, signalConsumers, sourcesByTarget, consumers);
-            }
-            else
-            {
-                ExpandFanIn(sources, signalConsumers, producers, consumers, fanInPairs);
-            }
+            ExpandAlias(signal, signalConsumers, sourcesByTarget, consumers);
         }
     }
 
-    // Single-source: transparent wire alias — follow the full chain so that e.g.
-    // assign opcode = instruction[15:12] draws a cable from the instruction port.
     private static void ExpandAlias(
         string signal,
         List<ElkPortRef> signalConsumers,
@@ -361,26 +435,6 @@ internal sealed class ElkGraphBuilder
             foreach (ElkPortRef consumer in signalConsumers)
             {
                 AddTo(consumers, source, consumer);
-            }
-        }
-    }
-
-    // Multi-source (combinational fan-in): only connect sources that already have producers.
-    // Following alias chains here would create false long-range edges.
-    // Fan-in edges are tagged in fanInPairs so the renderer can draw them dashed.
-    private static void ExpandFanIn(
-        List<string> sources,
-        List<ElkPortRef> signalConsumers,
-        IReadOnlyDictionary<string, List<ElkPortRef>> producers,
-        Dictionary<string, List<ElkPortRef>> consumers,
-        HashSet<string> fanInPairs)
-    {
-        foreach (string source in sources.Where(producers.ContainsKey))
-        {
-            foreach (ElkPortRef consumer in signalConsumers)
-            {
-                AddTo(consumers, source, consumer);
-                fanInPairs.Add(FanInKey(source, consumer.PortId));
             }
         }
     }
@@ -470,7 +524,9 @@ public enum ElkPortRole
     BoundaryInput,
     BoundaryOutput,
     ChildInput,
-    ChildOutput
+    ChildOutput,
+    OperatorInput,
+    OperatorOutput
 }
 
 internal static class ElkNodeIds
@@ -478,8 +534,12 @@ internal static class ElkNodeIds
     public const string BoundaryIn = "boundary_in";
     public const string BoundaryOut = "boundary_out";
 
-    public static string ForChild(string hierarchyPath) =>
-        "child_" + SanitizeId(hierarchyPath);
+    public static string ForChild(string hierarchyPath) => "child_" + SanitizeId(hierarchyPath);
+
+    public static string ForOperator(string targetName) => "op_" + SanitizeId(targetName);
+
+    public static bool IsOperator(string? nodeId) =>
+        nodeId is not null && nodeId.StartsWith("op_", StringComparison.Ordinal);
 
     private static string SanitizeId(string raw) =>
         raw.Replace('.', '_').Replace('/', '_').Replace(':', '_').Replace('[', '_').Replace(']', '_');
@@ -490,4 +550,6 @@ internal static class ElkSignalKey
     public static string BoundaryOutput(string portName) => $"::boundary_out::{portName}";
     public static string ChildInput(string hierarchyPath, string portName) => $"{hierarchyPath}::in::{portName}";
     public static string ChildOutput(string hierarchyPath, string portName) => $"{hierarchyPath}::out::{portName}";
+    public static string OpInput(string targetName, int index) => $"::op_in::{targetName}::{index}";
+    public static string OpOutput(string targetName) => $"::op_out::{targetName}";
 }

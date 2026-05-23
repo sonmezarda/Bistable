@@ -6,10 +6,12 @@ namespace Bistable.Verilator;
 
 public sealed class VerilatorXmlParser
 {
-    public ModuleMetadata Parse(string xmlPath)
+    private const string VarRefElement = "varref";
+
+    public static ModuleMetadata Parse(string xmlPath)
         => ParseDesign(xmlPath).TopModule;
 
-    public ElaboratedDesign ParseDesign(string xmlPath)
+    public static ElaboratedDesign ParseDesign(string xmlPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(xmlPath);
 
@@ -219,7 +221,7 @@ public sealed class VerilatorXmlParser
 
     private static DesignInstancePortConnection ParseInstancePortConnection(XElement element)
     {
-        string signalName = (string?)element.Element("varref")?.Attribute("name")
+        string signalName = (string?)element.Element(VarRefElement)?.Attribute("name")
             ?? (string?)element.Element("const")?.Attribute("name")
             ?? "?";
         return new DesignInstancePortConnection(
@@ -231,8 +233,10 @@ public sealed class VerilatorXmlParser
 
     private static DesignContAssign? ParseContAssign(XElement element)
     {
-        XElement? target = element.Elements("varref").FirstOrDefault()
-            ?? element.Descendants("varref").FirstOrDefault();
+        // In Verilator XML, <contassign> children are ordered [RHS expr] [LHS varref].
+        // The LHS target is always the last direct <varref> child.
+        XElement? target = element.Elements(VarRefElement).LastOrDefault()
+            ?? element.Descendants(VarRefElement).LastOrDefault();
         string? targetName = (string?)target?.Attribute("name");
         if (string.IsNullOrWhiteSpace(targetName))
         {
@@ -240,7 +244,7 @@ public sealed class VerilatorXmlParser
         }
 
         List<string> sourceNames = element
-            .Descendants("varref")
+            .Descendants(VarRefElement)
             .Where(varref => !ReferenceEquals(varref, target))
             .Select(static varref => (string?)varref.Attribute("name"))
             .Where(static name => !string.IsNullOrWhiteSpace(name))
@@ -249,7 +253,50 @@ public sealed class VerilatorXmlParser
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return sourceNames.Count == 0 ? null : new DesignContAssign(targetName, sourceNames);
+        if (sourceNames.Count == 0)
+        {
+            return null;
+        }
+
+        string? operatorSymbol = DetectOperatorSymbol(element);
+        return new DesignContAssign(targetName, sourceNames, operatorSymbol);
+    }
+
+    private static string? DetectOperatorSymbol(XElement contassignElement)
+    {
+        // The RHS expression is the first non-varref direct child.
+        XElement? rhs = contassignElement.Elements()
+            .FirstOrDefault(static e => e.Name.LocalName != VarRefElement);
+
+        return rhs?.Name.LocalName switch
+        {
+            "add" => "+",
+            "sub" => "-",
+            "mul" => "*",
+            "div" => "/",
+            "moddiv" => "%",
+            "and" => "&",
+            "or" => "|",
+            "xor" => "^",
+            "not" => "~",
+            "logand" => "&&",
+            "logor" => "||",
+            "lognot" => "!",
+            "eq" => "=",
+            "neq" => "≠",
+            "lt" => "<",
+            "gt" => ">",
+            "lte" => "≤",
+            "gte" => "≥",
+            "shiftl" => "<<",
+            "shiftr" => ">>",
+            "shiftrs" => ">>>",
+            "concat" => "{}",
+            "cond" => "?:",
+            // sel (bit-range select) is a single-source wire alias, not a combinational operator
+            "sel" => null,
+            _ => null
+        };
     }
 
     private static DType ParseDType(XElement element)

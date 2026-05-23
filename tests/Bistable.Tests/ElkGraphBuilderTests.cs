@@ -51,7 +51,7 @@ public sealed class ElkGraphBuilderTests
     }
 
     [Fact]
-    public void RoutesCombinationalFanInFromAllContributingSources()
+    public void RoutesCombinationalFanInThroughOperatorNode()
     {
         // assign mem_addr = pc + instruction  — two contributing signals
         HierarchyScopePortViewModel instruction = new("instruction", SignalDirection.Input, 32, isSigned: false);
@@ -60,26 +60,64 @@ public sealed class ElkGraphBuilderTests
             "top.u_registers",
             "u_registers",
             [new HierarchyScopeInstancePortConnectionViewModel("pc", "pc", isInput: false, width: 32)]);
-        DesignContAssign assign = new("mem_addr", ["pc", "instruction"]);
+        DesignContAssign assign = new("mem_addr", ["pc", "instruction"], "+");
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
             new ElkScopeData([instruction, memAddr], [registers], [], [assign]),
             compactLayout: true);
 
-        // Both contributing signals produce a dashed (fanin) cable to the output.
-        Assert.Equal(2, result.Graph.Edges.Count);
-        Assert.All(result.Graph.Edges, e =>
-        {
-            Assert.NotNull(e.Labels);
-            Assert.True(e.Labels.Count >= 3, "fan-in edges must carry a third 'fanin' label");
-            Assert.Equal("fanin", e.Labels[2].Text);
-        });
-        Assert.Contains(result.Graph.Edges, e =>
-            e.Sources.Contains("boundary_in.instruction") &&
-            e.Targets.Contains("boundary_out.mem_addr"));
+        // An operator node "op_mem_addr" must be present.
+        ElkNode opNode = Assert.Single(result.Graph.Children, n => n.Id == "op_mem_addr");
+        Assert.NotNull(opNode.Ports);
+        Assert.Equal(3, opNode.Ports!.Count);
+        Assert.Contains(opNode.Ports, p => p.Id == "op_mem_addr.in.0");
+        Assert.Contains(opNode.Ports, p => p.Id == "op_mem_addr.in.1");
+        Assert.Contains(opNode.Ports, p => p.Id == "op_mem_addr.out");
+
+        // Exactly 3 edges: sources → operator inputs, operator output → boundary.
+        Assert.Equal(3, result.Graph.Edges.Count);
         Assert.Contains(result.Graph.Edges, e =>
             e.Sources.Contains("child_top_u_registers.out.pc") &&
+            e.Targets.Contains("op_mem_addr.in.0"));
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Sources.Contains("boundary_in.instruction") &&
+            e.Targets.Contains("op_mem_addr.in.1"));
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Sources.Contains("op_mem_addr.out") &&
             e.Targets.Contains("boundary_out.mem_addr"));
+    }
+
+    [Fact]
+    public void OperatorNodeCarriesSymbolLabel()
+    {
+        HierarchyScopePortViewModel a = new("a", SignalDirection.Input, 8, isSigned: false);
+        HierarchyScopePortViewModel b = new("b", SignalDirection.Input, 8, isSigned: false);
+        HierarchyScopePortViewModel result_port = new("result", SignalDirection.Output, 8, isSigned: false);
+        DesignContAssign assign = new("result", ["a", "b"], "^");
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData([a, b, result_port], [], [], [assign]),
+            compactLayout: true);
+
+        ElkNode opNode = Assert.Single(result.Graph.Children, n => n.Id == "op_result");
+        Assert.NotNull(opNode.Labels);
+        Assert.Equal("^", opNode.Labels[0].Text);
+    }
+
+    [Fact]
+    public void OperatorNodeFallsBackToQuestionMarkWhenSymbolIsNull()
+    {
+        HierarchyScopePortViewModel a = new("a", SignalDirection.Input, 1, isSigned: false);
+        HierarchyScopePortViewModel b = new("b", SignalDirection.Input, 1, isSigned: false);
+        HierarchyScopePortViewModel y = new("y", SignalDirection.Output, 1, isSigned: false);
+        DesignContAssign assign = new("y", ["a", "b"], null);
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData([a, b, y], [], [], [assign]),
+            compactLayout: true);
+
+        ElkNode opNode = Assert.Single(result.Graph.Children, n => n.Id == "op_y");
+        Assert.Equal("?", opNode.Labels![0].Text);
     }
 
     private static HierarchyScopeInstanceViewModel Child(

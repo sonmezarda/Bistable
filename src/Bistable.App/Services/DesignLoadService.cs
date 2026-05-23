@@ -8,7 +8,7 @@ public sealed class DesignLoadService
 {
     private readonly ProjectConfigurationValidator _validator = new();
     private readonly VerilatorTool _verilator = new();
-    private readonly VerilatorXmlParser _xmlParser = new();
+
 
     public async Task<DesignLoadResult> LoadAsync(string projectFilePath, CancellationToken cancellationToken)
     {
@@ -28,7 +28,7 @@ public sealed class DesignLoadService
         await _verilator.GenerateXmlAsync(project, projectDirectory, xmlPath, cancellationToken);
         string version = await _verilator.GetVersionAsync(cancellationToken);
 
-        ElaboratedDesign design = _xmlParser.ParseDesign(xmlPath);
+        ElaboratedDesign design = VerilatorXmlParser.ParseDesign(xmlPath);
         return new DesignLoadResult(project, design, design.TopModule, version, projectDirectory);
     }
 }

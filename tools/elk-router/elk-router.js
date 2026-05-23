@@ -1,31 +1,35 @@
 #!/usr/bin/env node
-// Reads an ELK graph spec from stdin (JSON), runs the Eclipse Layout Kernel via elkjs,
-// writes the layouted graph back to stdout (JSON). Single-shot, exits when done.
+// Persistent newline-delimited JSON bridge for elkjs.
+// Reads one JSON graph per line from stdin, writes one JSON response per line to stdout.
+// Response format: {"ok":true,"graph":{...}} or {"ok":false,"error":"message"}
+// Keeps the ELK instance alive across requests to avoid re-initialisation overhead.
 
 const ELK = require('elkjs');
+const readline = require('node:readline');
+
+const elk = new ELK();
 
 async function main() {
-  let input = '';
-  process.stdin.setEncoding('utf8');
-  for await (const chunk of process.stdin) {
-    input += chunk;
-  }
+  const rl = readline.createInterface({ input: process.stdin, terminal: false, crlfDelay: Infinity });
 
-  let graph;
-  try {
-    graph = JSON.parse(input);
-  } catch (err) {
-    process.stderr.write(`elk-router: invalid input JSON: ${err.message}\n`);
-    process.exit(2);
-  }
+  for await (const line of rl) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
 
-  const elk = new ELK();
-  try {
-    const layouted = await elk.layout(graph);
-    process.stdout.write(JSON.stringify(layouted));
-  } catch (err) {
-    process.stderr.write(`elk-router: layout failed: ${err.message}\n`);
-    process.exit(3);
+    let graph;
+    try {
+      graph = JSON.parse(trimmed);
+    } catch (err) {
+      process.stdout.write(JSON.stringify({ ok: false, error: `invalid input JSON: ${err.message}` }) + '\n');
+      continue;
+    }
+
+    try {
+      const layouted = await elk.layout(graph);
+      process.stdout.write(JSON.stringify({ ok: true, graph: layouted }) + '\n');
+    } catch (err) {
+      process.stdout.write(JSON.stringify({ ok: false, error: `layout failed: ${err.message}` }) + '\n');
+    }
   }
 }
 

@@ -32,7 +32,7 @@ public sealed class VerilatorXmlParserTests
 
         try
         {
-            ModuleMetadata metadata = new VerilatorXmlParser().Parse(xmlPath);
+            ModuleMetadata metadata = VerilatorXmlParser.Parse(xmlPath);
 
             Assert.Equal("alu", metadata.Name);
             Assert.Equal(3, metadata.Ports.Count);
@@ -98,7 +98,7 @@ public sealed class VerilatorXmlParserTests
 
         try
         {
-            ElaboratedDesign design = new VerilatorXmlParser().ParseDesign(xmlPath);
+            ElaboratedDesign design = VerilatorXmlParser.ParseDesign(xmlPath);
 
             Assert.Equal("system_top", design.HierarchyRoot.InstanceName);
             DesignHierarchyNode core = Assert.Single(design.HierarchyRoot.Children);
@@ -159,7 +159,7 @@ public sealed class VerilatorXmlParserTests
 
         try
         {
-            ElaboratedDesign design = new VerilatorXmlParser().ParseDesign(xmlPath);
+            ElaboratedDesign design = VerilatorXmlParser.ParseDesign(xmlPath);
 
             DesignModuleDefinition definition = design.ModuleDefinitions["decoder"];
             Assert.Equal(2, definition.ContAssigns.Count);
