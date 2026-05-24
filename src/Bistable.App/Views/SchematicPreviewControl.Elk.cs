@@ -169,6 +169,10 @@ public sealed partial class SchematicPreviewControl
             {
                 DrawElkArithNode(context, node, rect, transform.Scale);
             }
+            else if (ElkNodeIds.IsStructFanOut(node.Id))
+            {
+                DrawElkStructFanOutNode(context, node, rect, transform.Scale);
+            }
             else
             {
                 DrawElkNodeCard(context, node, rect, transform.Scale);

@@ -22,6 +22,7 @@ namespace Bistable.Core.Design.Schematic;
 [JsonDerivedType(typeof(InstancePrimitive),  "Instance")]
 [JsonDerivedType(typeof(PortPrimitive),      "Port")]
 [JsonDerivedType(typeof(SignalPrimitive),    "Signal")]
+[JsonDerivedType(typeof(StructFanOutPrimitive), "StructFanOut")]
 public abstract record SchematicPrimitive(string Id);
 
 // ── Sequential ────────────────────────────────────────────────────────────────
@@ -153,3 +154,29 @@ public sealed record SignalPrimitive(
     string Name,
     int Width,
     bool IsRegistered) : SchematicPrimitive(Id);
+
+// ── Fan-out (P2-11) ────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Packed-struct fan-out: a single struct signal (e.g. <c>control_pins</c>) feeds many
+/// consumers, each reading a different field. The renderer paints this as one
+/// inverse wedge with N labelled legs — one per field — instead of N overlapping
+/// edges originating from the same boundary pin.
+/// </summary>
+public sealed record StructFanOutPrimitive(
+    string Id,
+    string StructSignal,
+    string StructTypeName,
+    int StructWidth,
+    IReadOnlyList<StructFanOutLeg> Legs) : SchematicPrimitive(Id);
+
+/// <summary>One fan-out leg = one field of the packed struct being read by at least one consumer in the scope.</summary>
+public sealed record StructFanOutLeg(
+    string FieldName,
+    BitRange Range,
+    // Consumers identifies which downstream targets read this leg. Each entry is the
+    // target signal name (the LHS of the contassign that reads struct.field, or the
+    // instance pin SignalName that wraps a <sel> on the struct). The builder uses
+    // this list to suppress duplicate legacy edges and to wire the leg's output
+    // port to each consumer.
+    IReadOnlyList<string> Consumers);

@@ -330,6 +330,36 @@ public sealed partial class SchematicPreviewControl
             Palette.Text, fontSize);
     }
 
+    // ── Struct fan-out (P2-11): inverse splitter wedge ───────────────────
+    //
+    // Mirrors the existing splitter wedge but reversed: single west input apex,
+    // wide east face holding N labelled output ports — one per packed-struct field.
+    // The struct's qualified type name (e.g. control_pkg::ctrl_t) renders above
+    // the wedge; per-field labels (port.Labels[0]) render inside the wedge body,
+    // right-aligned next to each east port.
+    private void DrawElkStructFanOutNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    {
+        Pen stroke = new(Palette.ModuleStroke, 1.5);
+        double midY = rect.Y + rect.Height / 2;
+        double indentX = Math.Min(rect.Width * 0.32, 12 * scale);
+
+        StreamGeometry geo = new();
+        using (StreamGeometryContext gc = geo.Open())
+        {
+            // Apex on the west (single input); flat right edge (N outputs).
+            gc.BeginFigure(new Point(rect.X, midY), isFilled: true);
+            gc.LineTo(new Point(rect.X + indentX, rect.Y));
+            gc.LineTo(new Point(rect.Right, rect.Y));
+            gc.LineTo(new Point(rect.Right, rect.Bottom));
+            gc.LineTo(new Point(rect.X + indentX, rect.Bottom));
+            gc.EndFigure(isClosed: true);
+        }
+        context.DrawGeometry(Palette.NodeFill, stroke, geo);
+
+        DrawSymbolTitle(context, node, rect);
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+    }
+
     // ── Shared port painter ──────────────────────────────────────────────
     //
     // Draws each port as a small filled dot at its connection coordinate and

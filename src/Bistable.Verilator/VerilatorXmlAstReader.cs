@@ -39,14 +39,82 @@ public sealed class VerilatorXmlAstReader
             throw new InvalidDataException("Verilator XML <netlist> contains zero <module> elements.");
 
         Dictionary<string, DType> dtypes = BuildDTypeMap(doc);
+        // P2-11: resolve packed-struct definitions from <typetable>. Keyed by Verilator
+        // dtype_id so a signal whose dtype is a struct can attach the metadata.
+        Dictionary<string, StructTypeDecl> structTypes = BuildStructTypeMap(doc, dtypes);
 
         List<ModuleAst> modules = moduleElements
-            .Select(e => ParseModule(e, dtypes))
+            .Select(e => ParseModule(e, dtypes, structTypes))
             .ToList();
 
         modules = ComputeIsRegistered(modules);
 
         return new DesignAst(modules);
+    }
+
+    // ── Struct type map (P2-11) ─────────────────────────────────────────────
+
+    // Parses <structdtype id="..." name="..."> entries inside the <typetable>.
+    // Members are listed in declaration order (top-of-struct first). In SystemVerilog
+    // packed structs the first declared field is the MSB-end of the bus, so we
+    // accumulate widths MSB-first to compute each field's (lo, width).
+    private static Dictionary<string, StructTypeDecl> BuildStructTypeMap(XDocument doc, Dictionary<string, DType> dtypes)
+    {
+        Dictionary<string, StructTypeDecl> result = new(StringComparer.Ordinal);
+
+        foreach (XElement structElement in doc.Descendants("structdtype"))
+        {
+            StructTypeDecl? decl = ParseStructType(structElement, dtypes);
+            if (decl is not null && (string?)structElement.Attribute("id") is string id)
+                result[id] = decl;
+        }
+
+        // <refdtype id="58" sub_dtype_id="5"/> means dtype 58 is an alias for the struct
+        // at id 5. Register both ids so signals using either resolve correctly.
+        foreach (XElement refElement in doc.Descendants("refdtype"))
+        {
+            string? refId = (string?)refElement.Attribute("id");
+            string? subId = (string?)refElement.Attribute("sub_dtype_id");
+            if (refId is not null && subId is not null &&
+                result.TryGetValue(subId, out StructTypeDecl? resolved))
+            {
+                result[refId] = resolved;
+            }
+        }
+
+        return result;
+    }
+
+    private static StructTypeDecl? ParseStructType(XElement structElement, Dictionary<string, DType> dtypes)
+    {
+        if ((string?)structElement.Attribute("id") is null) return null;
+        string name = (string?)structElement.Attribute("name") ?? "<anonymous>";
+
+        // Members are declared MSB-first (top of struct = high bits). We collect
+        // (name, width) in declaration order, then assign (Lo, Width) by walking
+        // backward from end to start so the last-declared field sits at Lo=0.
+        List<(string FieldName, int Width)> members = structElement.Elements("memberdtype")
+            .Select(m => (
+                FieldName: (string?)m.Attribute("name") ?? "?",
+                Width: ResolveMemberWidth((string?)m.Attribute("sub_dtype_id"), dtypes)))
+            .ToList();
+
+        int totalWidth = members.Sum(static m => m.Width);
+        List<StructFieldDecl> fields = new(members.Count);
+        int lo = 0;
+        for (int i = members.Count - 1; i >= 0; i--)
+        {
+            (string fieldName, int width) = members[i];
+            fields.Add(new StructFieldDecl(fieldName, lo, width));
+            lo += width;
+        }
+        fields.Reverse();
+        return new StructTypeDecl(name, totalWidth, fields);
+    }
+
+    private static int ResolveMemberWidth(string? subDtypeId, Dictionary<string, DType> dtypes)
+    {
+        return subDtypeId is not null && dtypes.TryGetValue(subDtypeId, out DType? sub) ? sub.Width : 1;
     }
 
     // ── DType map ───────────────────────────────────────────────────────────
@@ -85,7 +153,7 @@ public sealed class VerilatorXmlAstReader
 
     // ── Module ──────────────────────────────────────────────────────────────
 
-    private ModuleAst ParseModule(XElement e, Dictionary<string, DType> dtypes)
+    private ModuleAst ParseModule(XElement e, Dictionary<string, DType> dtypes, Dictionary<string, StructTypeDecl> structTypes)
     {
         string name = (string?)e.Attribute("name") ?? "unknown";
         bool isTop = string.Equals((string?)e.Attribute("topModule"), "1", StringComparison.Ordinal);
@@ -104,7 +172,7 @@ public sealed class VerilatorXmlAstReader
         List<SignalDecl> locals = e.Elements("var")
             .Where(static v => v.Attribute("dir") is null &&
                                !string.Equals((string?)v.Attribute("param"), "true", StringComparison.Ordinal))
-            .Select(v => ParseSignalDecl(v, dtypes))
+            .Select(v => ParseSignalDecl(v, dtypes, structTypes))
             .ToList();
 
         List<InstanceDecl> instances = e.Elements("instance")
@@ -142,11 +210,16 @@ public sealed class VerilatorXmlAstReader
         return new PortDecl(name, dir, dtype.Width, dtype.IsSigned, pin);
     }
 
-    private static SignalDecl ParseSignalDecl(XElement e, Dictionary<string, DType> dtypes)
+    private static SignalDecl ParseSignalDecl(XElement e, Dictionary<string, DType> dtypes, Dictionary<string, StructTypeDecl> structTypes)
     {
         string name = Attr(e, "name");
-        DType dtype = LookupDType(dtypes, (string?)e.Attribute("dtype_id"));
-        return new SignalDecl(name, dtype.Width, dtype.IsSigned, dtype.ArrayDims);
+        string? dtypeId = (string?)e.Attribute("dtype_id");
+        DType dtype = LookupDType(dtypes, dtypeId);
+        // P2-11: when the signal's dtype is a packed struct, attach the resolved
+        // metadata so the schematic decoder can emit per-field fan-out.
+        StructTypeDecl? structType = dtypeId is not null && structTypes.TryGetValue(dtypeId, out StructTypeDecl? s) ? s : null;
+        int width = structType?.TotalWidth ?? dtype.Width;
+        return new SignalDecl(name, width, dtype.IsSigned, dtype.ArrayDims, IsRegistered: false, StructType: structType);
     }
 
     private static DesignParameter ParseParameter(XElement e)
@@ -176,13 +249,30 @@ public sealed class VerilatorXmlAstReader
         int portIndex = ParseInt((string?)e.Attribute("portIndex"), 0);
 
         // Signal name extraction: direct varref > sel-wrapped varref > const literal > "?"
+        XElement? selWrapper = e.Element("sel");
         string? signalName =
             (string?)e.Element("varref")?.Attribute("name")
-            ?? (string?)e.Element("sel")?.Element("varref")?.Attribute("name")
+            ?? (string?)selWrapper?.Element("varref")?.Attribute("name")
             ?? (string?)e.Element("const")?.Attribute("name")
             ?? "?";
 
-        return new PortConnectionDecl(portName, signalName, direction, portIndex);
+        // P2-11: when the connection is wrapped in <sel>, capture the slice range so
+        // the decoder can detect struct field accesses (e.g. control_pins.ops).
+        BitRange? signalRange = ExtractSelRange(selWrapper);
+
+        return new PortConnectionDecl(portName, signalName, direction, portIndex, signalRange);
+    }
+
+    // Returns the [lo, width] range encoded by a <sel> wrapper's two <const> children,
+    // or null when the sel is missing/malformed.
+    private static BitRange? ExtractSelRange(XElement? selWrapper)
+    {
+        if (selWrapper is null) return null;
+        List<XElement> consts = selWrapper.Elements("const").ToList();
+        if (consts.Count < 2) return null;
+        int lo = ParseVerilogConst(consts[0]);
+        int width = Math.Max(1, ParseVerilogConst(consts[1]));
+        return new BitRange(lo + width - 1, lo);
     }
 
     // ── ContAssign ──────────────────────────────────────────────────────────

@@ -43,15 +43,151 @@ public static class SchematicDecoder
             if (primitive is not null) logic.Add(primitive);
         }
 
-        // Continuous assignments → combinational primitives
+        // P2-11: scan struct-typed signals for field accesses, group into fan-out
+        // primitives. The set of "suppressed" contassign targets / instance signals
+        // is computed up-front so the regular DecodeContAssign / DecodeInstance loops
+        // can skip per-field consumers (the fan-out node owns them now).
+        List<StructFanOutPrimitive> fanOuts = BuildStructFanOuts(module);
+        HashSet<string> fanOutSplitterTargets = CollectFanOutContAssignTargets(module, fanOuts);
+        logic.AddRange(fanOuts);
+
+        // Continuous assignments → combinational primitives (skip targets owned by fan-outs)
         int caIndex = 0;
         foreach (ContAssignAst ca in module.ContAssigns)
         {
+            string target = LValueName(ca.Target);
+            if (fanOutSplitterTargets.Contains(target)) { caIndex++; continue; }
             SchematicPrimitive? primitive = DecodeContAssign(ca, caIndex++);
             if (primitive is not null) logic.Add(primitive);
         }
 
         return new SchematicPrimitiveList(module.Name, ports, signals, instances, logic);
+    }
+
+    // ── Struct fan-out (P2-11) ───────────────────────────────────────────────
+
+    private static List<StructFanOutPrimitive> BuildStructFanOuts(ModuleAst module)
+    {
+        // Identify struct-typed local signals (port struct typing is a follow-up).
+        Dictionary<string, StructTypeDecl> structSignals = module.LocalSignals
+            .Where(static s => s.StructType is not null)
+            .ToDictionary(static s => s.Name, static s => s.StructType!, StringComparer.OrdinalIgnoreCase);
+
+        if (structSignals.Count == 0) return [];
+
+        Dictionary<string, Dictionary<BitRange, List<string>>> rangeConsumers = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string structName in structSignals.Keys)
+            rangeConsumers[structName] = [];
+
+        CollectContAssignFieldConsumers(module, rangeConsumers);
+        CollectInstancePinFieldConsumers(module, rangeConsumers);
+
+        return MaterialiseFanOuts(rangeConsumers, structSignals);
+    }
+
+    // Walks every contassign and, when the RHS is a slice on a known struct signal,
+    // records the consumer (the LHS target) under the (struct, range) bucket.
+    private static void CollectContAssignFieldConsumers(
+        ModuleAst module,
+        Dictionary<string, Dictionary<BitRange, List<string>>> rangeConsumers)
+    {
+        foreach (ContAssignAst ca in module.ContAssigns)
+        {
+            if (ca.Source is not BitSelectExpr bs) continue;
+            if (bs.Base is not SignalRef baseRef) continue;
+            if (!rangeConsumers.TryGetValue(baseRef.Name, out Dictionary<BitRange, List<string>>? legMap)) continue;
+            string consumer = LValueName(ca.Target);
+            if (!string.IsNullOrEmpty(consumer))
+                AppendConsumer(legMap, bs.Range, consumer);
+        }
+    }
+
+    // Walks every instance port connection. When the connection is wrapped in a
+    // sel on a known struct signal, the pin reads struct[hi:lo].
+    private static void CollectInstancePinFieldConsumers(
+        ModuleAst module,
+        Dictionary<string, Dictionary<BitRange, List<string>>> rangeConsumers)
+    {
+        foreach (InstanceDecl inst in module.Instances)
+        {
+            foreach (PortConnectionDecl pin in inst.PortConnections)
+            {
+                if (pin.SignalRange is null) continue;
+                if (!rangeConsumers.TryGetValue(pin.SignalName, out Dictionary<BitRange, List<string>>? legMap)) continue;
+                AppendConsumer(legMap, pin.SignalRange.Value, $"{inst.InstanceName}.{pin.PortName}");
+            }
+        }
+    }
+
+    private static void AppendConsumer(
+        Dictionary<BitRange, List<string>> legMap, BitRange range, string consumer)
+    {
+        if (!legMap.TryGetValue(range, out List<string>? list))
+        {
+            list = [];
+            legMap[range] = list;
+        }
+        list.Add(consumer);
+    }
+
+    private static List<StructFanOutPrimitive> MaterialiseFanOuts(
+        Dictionary<string, Dictionary<BitRange, List<string>>> rangeConsumers,
+        Dictionary<string, StructTypeDecl> structSignals)
+    {
+        // Skip struct signals with zero field accesses (they would render as a
+        // regular wire). Each consumed range becomes one leg; the field name is
+        // recovered from the struct definition by (lo, width) match.
+        List<StructFanOutPrimitive> result = [];
+        int index = 0;
+        foreach ((string structName, Dictionary<BitRange, List<string>> legMap) in rangeConsumers)
+        {
+            if (legMap.Count == 0) continue;
+            StructTypeDecl structType = structSignals[structName];
+            List<StructFanOutLeg> legs = legMap
+                .OrderByDescending(static kv => kv.Key.Hi)
+                .Select(kv => new StructFanOutLeg(
+                    FieldName: ResolveFieldName(structType, kv.Key),
+                    Range: kv.Key,
+                    Consumers: kv.Value))
+                .ToList();
+
+            result.Add(new StructFanOutPrimitive(
+                Id: $"fanout_{structName}_{index++}",
+                StructSignal: structName,
+                StructTypeName: structType.Name,
+                StructWidth: structType.TotalWidth,
+                Legs: legs));
+        }
+        return result;
+    }
+
+    private static string ResolveFieldName(StructTypeDecl structType, BitRange range)
+    {
+        StructFieldDecl? match = structType.Fields.FirstOrDefault(f => f.Lo == range.Lo && f.Width == range.Width);
+        return match?.FieldName ?? range.ToString();
+    }
+
+    private static HashSet<string> CollectFanOutContAssignTargets(ModuleAst module, List<StructFanOutPrimitive> fanOuts)
+    {
+        // Targets to suppress in the regular contassign loop. These are the LHS
+        // signals of `assign target = struct[hi:lo];` — the fan-out leg drives
+        // the consumer directly via the renderer, so the redundant SplitterPrimitive
+        // would render the same wire twice.
+        HashSet<string> structBases = new(StringComparer.OrdinalIgnoreCase);
+        foreach (StructFanOutPrimitive f in fanOuts)
+            structBases.Add(f.StructSignal);
+
+        HashSet<string> suppressed = new(StringComparer.OrdinalIgnoreCase);
+        foreach (ContAssignAst ca in module.ContAssigns)
+        {
+            if (ca.Source is not BitSelectExpr bs) continue;
+            if (bs.Base is not SignalRef baseRef) continue;
+            if (!structBases.Contains(baseRef.Name)) continue;
+            string target = LValueName(ca.Target);
+            if (!string.IsNullOrEmpty(target))
+                suppressed.Add(target);
+        }
+        return suppressed;
     }
 
     // ── Instance ─────────────────────────────────────────────────────────────

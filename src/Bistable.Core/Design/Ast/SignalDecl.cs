@@ -5,4 +5,8 @@ public sealed record SignalDecl(
     int Width,
     bool IsSigned,
     IReadOnlyList<BitRange> ArrayDims,
-    bool IsRegistered = false);
+    bool IsRegistered = false,
+    // P2-11: when the signal is declared with a packed struct type, the resolved
+    // type metadata lives here. The schematic decoder uses it to emit per-field
+    // fan-out instead of a single collapsed wire to all consumers.
+    StructTypeDecl? StructType = null);

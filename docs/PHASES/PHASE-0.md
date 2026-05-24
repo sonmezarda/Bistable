@@ -23,13 +23,13 @@ Status legend: ☐ todo · 🟡 in progress · ✅ done · ⛔ blocked
 | P0-3 | `docs/ARCHITECTURE.md` — current-state layer map | ✅ | session-2026-05-23 | Onboarding doc |
 | P0-4 | `tests/Bistable.Regression/` project + locking tests for known bugs | ✅ | session-2026-05-23 | 4 tests added; sub-sim tests deferred to P0-8 |
 | P0-5 | `tests/Bistable.Snapshots/` framework (SnapshotAssert + golden/ folder) | ✅ | session-2026-05-23 | Hand-rolled JSON diff, `BISTABLE_REGENERATE_SNAPSHOTS=1` to update |
-| P0-6 | Golden snapshots for alu, counter, hierarchy, tiny_cpu, bus_fabric, arnicomp | 🟡 | — | Synthetic snapshot landed; per-sample snapshots pending (needs Verilator runtime fixtures) |
+| P0-6 | Golden snapshots for alu, counter, hierarchy, tiny_cpu, bus_fabric, arnicomp | ✅ | 2026-05-24 | Synthetic snapshots + 3 arnicomp end-to-end golden snapshots (arnicomp-top, arnicomp-top-expanded-marl_i, arnicomp-reg-cell) via `ArnicompSnapshotTests` with Verilator skip guard. |
 | P0-7 | `tests/Bistable.UiTests/` (Avalonia.Headless) + smoke tests | ✅ | session-2026-05-23 | 2 smoke tests pass; `MainWindowHeadlessFixture` pending P0-8 |
 | P0-8 | Headless UI tests for: sub-sim enter/exit, compound expansion edges, concat join | ☐ | — | Depends on P0-7; needs BistableWorkspace fixture with sample project |
 | P0-9 | `.github/workflows/ci.yml` — apt install verilator + dotnet test | ✅ | session-2026-05-23 | Ubuntu 24.04, runs all 4 test projects + uploads .trx + coverage |
 | P0-10 | Coverage upload in CI (coverlet → cobertura artifact) | ✅ | session-2026-05-23 | Bundled into ci.yml |
 | P0-11 | Logging foundation (Microsoft.Extensions.Logging) | ☐ | — | Parallel to Status property |
-| P0-12 | Phase-gate verification run (all tests green + ≥150 count) | 🟡 | — | All 113 tests green; need ≥150 to close gate (see P0-6, P0-8) |
+| P0-12 | Phase-gate verification run (all tests green + ≥150 count) | ✅ | 2026-05-24 | 295 tests across 4 projects, all green. ≥150 gate closed. |
 
 ---
 

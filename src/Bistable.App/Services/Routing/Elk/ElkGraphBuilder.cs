@@ -74,8 +74,19 @@ internal sealed class ElkGraphBuilder
             }
         }
 
+        // P2-11 fix: when a StructFanOutPrimitive owns a struct signal, the
+        // legacy `assign target = struct[hi:lo];` contassigns must NOT also produce
+        // a SplitterPrimitive node — the fan-out wedge already serves the same role
+        // with proper field labels, and a duplicate splitter would visually compete.
+        HashSet<string> fanOutStructBases = scope.Primitives is null
+            ? []
+            : new HashSet<string>(
+                scope.Primitives.OfType<StructFanOutPrimitive>().Select(static f => f.StructSignal),
+                StringComparer.OrdinalIgnoreCase);
+
         foreach (IGrouping<string, DesignContAssign> group in scope.ContAssigns
                      .Where(static a => a.SourceRange.HasValue && a.SourceNames.Count == 1)
+                     .Where(a => !fanOutStructBases.Contains(a.SourceNames[0]))
                      .GroupBy(static a => a.SourceNames[0], StringComparer.OrdinalIgnoreCase))
         {
             AddSplitterNode(graph, scope, group.Key, [.. group.OrderByDescending(static a => a.SourceRange!.Value.Hi)], portRefs);
@@ -110,6 +121,7 @@ internal sealed class ElkGraphBuilder
                 case InverterPrimitive inv: AddInverterNode(graph, inv, portRefs); break;
                 case GatePrimitive gate:    AddGateNode(graph, gate, portRefs); break;
                 case ArithPrimitive arith:  AddArithNode(graph, arith, portRefs); break;
+                case StructFanOutPrimitive fanOut: AddStructFanOutNode(graph, fanOut, portRefs); break;
             }
         }
     }
@@ -314,6 +326,84 @@ internal sealed class ElkGraphBuilder
     // IDs are prefixed with the compound child's scope (e.g. "child_top_acc/ff_q")
     // so they cannot collide with outer-scope primitive IDs of the same signal
     // name in a different module.
+    // P2-8b: populate portRefs with scoped keys for each inner primitive port so that
+    // CollectInsidePrimitiveEndpoints can resolve them when building edges.
+    // Key format: "@inner::{compoundPath}" + ElkSignalKey.X(signal) — distinct from outer scope keys.
+    private static void RegisterInnerPrimitivePortRefs(
+        string compoundPath,
+        IReadOnlyList<SchematicPrimitive> innerPrimitives,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        string scope = ElkNodeIds.ForChild(compoundPath);
+        string prefix = "@inner::" + compoundPath;
+
+        foreach (SchematicPrimitive primitive in innerPrimitives)
+        {
+            switch (primitive)
+            {
+                case FlipFlopPrimitive ff:
+                {
+                    string id = $"{scope}/{ElkNodeIds.ForFlipFlop(ff.QSignal)}";
+                    bool hasReset = !string.IsNullOrEmpty(ff.AsyncResetSignal);
+                    portRefs[prefix + ElkSignalKey.FlipFlopD(ff.QSignal)]     = new(id, $"{id}.in.0", ElkPortRole.FlipFlopD, ff.Width);
+                    portRefs[prefix + ElkSignalKey.FlipFlopClock(ff.QSignal)] = new(id, $"{id}.in.1", ElkPortRole.FlipFlopClock, ff.Width);
+                    if (hasReset)
+                        portRefs[prefix + ElkSignalKey.FlipFlopReset(ff.QSignal)] = new(id, $"{id}.in.2", ElkPortRole.FlipFlopReset, ff.Width);
+                    portRefs[prefix + ElkSignalKey.FlipFlopQ(ff.QSignal)] = new(id, $"{id}.out", ElkPortRole.FlipFlopQ, ff.Width);
+                    break;
+                }
+                case LatchPrimitive lt:
+                {
+                    string id = $"{scope}/{ElkNodeIds.ForLatch(lt.QSignal)}";
+                    portRefs[prefix + ElkSignalKey.LatchD(lt.QSignal)]    = new(id, $"{id}.in.0", ElkPortRole.LatchD, lt.Width);
+                    portRefs[prefix + ElkSignalKey.LatchGate(lt.QSignal)] = new(id, $"{id}.in.1", ElkPortRole.LatchGate, lt.Width);
+                    portRefs[prefix + ElkSignalKey.LatchQ(lt.QSignal)]    = new(id, $"{id}.out",  ElkPortRole.LatchQ, lt.Width);
+                    break;
+                }
+                case MuxPrimitive mux:
+                {
+                    string id = $"{scope}/{ElkNodeIds.ForMux(mux.OutputSignal)}";
+                    for (int i = 0; i < mux.Inputs.Count; i++)
+                        portRefs[prefix + ElkSignalKey.MuxInput(mux.OutputSignal, i)] = new(id, $"{id}.in.{i}", ElkPortRole.MuxInput, mux.Width);
+                    for (int i = 0; i < mux.SelectSignals.Count; i++)
+                        portRefs[prefix + ElkSignalKey.MuxSelect(mux.OutputSignal, i)] = new(id, $"{id}.in.{mux.Inputs.Count + i}", ElkPortRole.MuxSelect, 1);
+                    portRefs[prefix + ElkSignalKey.MuxOutput(mux.OutputSignal)] = new(id, $"{id}.out", ElkPortRole.MuxOutput, mux.Width);
+                    break;
+                }
+                case BufferPrimitive buf:
+                {
+                    string id = $"{scope}/{ElkNodeIds.ForBuffer(buf.OutputSignal)}";
+                    portRefs[prefix + ElkSignalKey.BufferIn(buf.OutputSignal)]  = new(id, $"{id}.in.0", ElkPortRole.BufferIn, buf.Width);
+                    portRefs[prefix + ElkSignalKey.BufferOut(buf.OutputSignal)] = new(id, $"{id}.out",  ElkPortRole.BufferOut, buf.Width);
+                    break;
+                }
+                case InverterPrimitive inv:
+                {
+                    string id = $"{scope}/{ElkNodeIds.ForInverter(inv.OutputSignal)}";
+                    portRefs[prefix + ElkSignalKey.InverterIn(inv.OutputSignal)]  = new(id, $"{id}.in.0", ElkPortRole.InverterIn, inv.Width);
+                    portRefs[prefix + ElkSignalKey.InverterOut(inv.OutputSignal)] = new(id, $"{id}.out",  ElkPortRole.InverterOut, inv.Width);
+                    break;
+                }
+                case GatePrimitive gate:
+                {
+                    string id = $"{scope}/{ElkNodeIds.ForGate(gate.OutputSignal)}";
+                    for (int i = 0; i < gate.InputSignals.Count; i++)
+                        portRefs[prefix + ElkSignalKey.GateInput(gate.OutputSignal, i)] = new(id, $"{id}.in.{i}", ElkPortRole.GateInput, gate.Width);
+                    portRefs[prefix + ElkSignalKey.GateOutput(gate.OutputSignal)] = new(id, $"{id}.out", ElkPortRole.GateOutput, gate.Width);
+                    break;
+                }
+                case ArithPrimitive arith:
+                {
+                    string id = $"{scope}/{ElkNodeIds.ForArith(arith.OutputSignal)}";
+                    portRefs[prefix + ElkSignalKey.ArithLeft(arith.OutputSignal)]   = new(id, $"{id}.in.0", ElkPortRole.ArithLeft, arith.Width);
+                    portRefs[prefix + ElkSignalKey.ArithRight(arith.OutputSignal)]  = new(id, $"{id}.in.1", ElkPortRole.ArithRight, arith.Width);
+                    portRefs[prefix + ElkSignalKey.ArithOutput(arith.OutputSignal)] = new(id, $"{id}.out",  ElkPortRole.ArithOutput, arith.Width);
+                    break;
+                }
+            }
+        }
+    }
+
     private static ElkNode? BuildInnerPrimitiveNode(SchematicPrimitive primitive, string compoundIdScope)
     {
         return primitive switch
@@ -561,6 +651,59 @@ internal sealed class ElkGraphBuilder
         });
         portRefs[ElkSignalKey.ArithOutput(arith.OutputSignal)] =
             new ElkPortRef(nodeId, outPortId, ElkPortRole.ArithOutput, arith.Width);
+
+        graph.Children.Add(node);
+    }
+
+    // ── Struct fan-out (P2-11) ───────────────────────────────────────────
+    //
+    // Wider on the east (output) side than the west — the inverse of the splitter
+    // wedge. One west-side input port consumes the struct signal; one east-side
+    // port per leg drives the consumers of that field. Each leg port's label
+    // carries the field name (e.g. "ops") which the renderer paints inside the
+    // wedge body.
+    private static void AddStructFanOutNode(
+        ElkGraph graph, StructFanOutPrimitive fanOut, Dictionary<string, ElkPortRef> portRefs)
+    {
+        string nodeId = ElkNodeIds.ForStructFanOut(fanOut.StructSignal);
+        double height = Math.Max(60, 24 + fanOut.Legs.Count * 18);
+
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = 96,
+            Height = height,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [new ElkLabel { Text = $"{fanOut.StructSignal} ({fanOut.StructTypeName})" }],
+            Ports = []
+        };
+
+        // West-side: single input port consuming the entire struct
+        string inPortId = $"{nodeId}.in";
+        node.Ports!.Add(new ElkPort
+        {
+            Id = inPortId,
+            LayoutOptions = PortLayout(PortSideWest, 0),
+            Labels = [new ElkLabel { Text = fanOut.StructSignal }]
+        });
+        portRefs[ElkSignalKey.StructFanOutInput(fanOut.StructSignal)] =
+            new ElkPortRef(nodeId, inPortId, ElkPortRole.StructFanOutInput, fanOut.StructWidth);
+
+        // East-side: one labelled port per consumed field
+        for (int i = 0; i < fanOut.Legs.Count; i++)
+        {
+            StructFanOutLeg leg = fanOut.Legs[i];
+            string legPortId = $"{nodeId}.leg.{i}";
+            string legLabel = leg.Range.Width == 1 ? leg.FieldName : $"{leg.FieldName}[{leg.Range.Hi}:{leg.Range.Lo}]";
+            node.Ports!.Add(new ElkPort
+            {
+                Id = legPortId,
+                LayoutOptions = PortLayout(PortSideEast, i),
+                Labels = [new ElkLabel { Text = legLabel }]
+            });
+            portRefs[ElkSignalKey.StructFanOutLeg(fanOut.StructSignal, leg.FieldName)] =
+                new ElkPortRef(nodeId, legPortId, ElkPortRole.StructFanOutLeg, leg.Range.Width);
+        }
 
         graph.Children.Add(node);
     }
@@ -992,6 +1135,8 @@ internal sealed class ElkGraphBuilder
                 if (innerNode is not null)
                     parent.Children.Add(innerNode);
             }
+            // P2-8b: register inner port refs so CollectInsidePrimitiveEndpoints can build edges.
+            RegisterInnerPrimitivePortRefs(child.HierarchyPath, innerPrimitives, portRefs);
         }
 
         parent.LayoutOptions ??= new Dictionary<string, string>();
@@ -1020,6 +1165,7 @@ internal sealed class ElkGraphBuilder
         CollectInverterEndpoints(scope, portRefs, producers, consumers);
         CollectGateEndpoints(scope, portRefs, producers, consumers);
         CollectArithEndpoints(scope, portRefs, producers, consumers);
+        CollectStructFanOutEndpoints(scope, portRefs, producers, consumers);
         CollectExpandedCompoundEndpoints(scope, portRefs, producers, consumers);
         ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers);
         EmitEdges(graph, producers, consumers);
@@ -1039,9 +1185,12 @@ internal sealed class ElkGraphBuilder
         if (scope.ExpandedPaths is null || scope.ExpandedPaths.Count == 0) return;
         foreach (HierarchyScopeInstanceViewModel child in scope.ChildScopes)
         {
-            if (child.ChildInstances.Count == 0) continue;
+            bool hasInnerPrims = scope.PrimitivesByModule is not null
+                && scope.PrimitivesByModule.TryGetValue(child.ModuleName, out var prims)
+                && prims.Count > 0;
+            if (child.ChildInstances.Count == 0 && !hasInnerPrims) continue;
             if (!scope.ExpandedPaths.Contains(child.HierarchyPath)) continue;
-            CollectInsideCompound(child, portRefs, producers, consumers, scope.ExpandedPaths);
+            CollectInsideCompound(child, portRefs, producers, consumers, scope.ExpandedPaths, scope.PrimitivesByModule);
         }
     }
 
@@ -1050,15 +1199,29 @@ internal sealed class ElkGraphBuilder
         IReadOnlyDictionary<string, ElkPortRef> portRefs,
         Dictionary<string, List<ElkPortRef>> producers,
         Dictionary<string, List<ElkPortRef>> consumers,
-        IReadOnlySet<string> expandedPaths)
+        IReadOnlySet<string> expandedPaths,
+        IReadOnlyDictionary<string, IReadOnlyList<SchematicPrimitive>>? primitivesByModule = null)
     {
         CollectCompoundBoundaryEndpoints(compound, portRefs, producers, consumers);
+
+        // P2-8b: wire inner primitive pins to boundary signals via @inner:: namespace.
+        if (primitivesByModule is not null
+            && primitivesByModule.TryGetValue(compound.ModuleName, out IReadOnlyList<SchematicPrimitive>? innerPrimitives)
+            && innerPrimitives.Count > 0)
+        {
+            CollectInsidePrimitiveEndpoints(compound.HierarchyPath, innerPrimitives, portRefs, producers, consumers);
+        }
+
         foreach (HierarchyScopeInstanceViewModel grandchild in compound.ChildInstances)
         {
             CollectGrandchildEndpoints(compound.HierarchyPath, grandchild, portRefs, producers, consumers);
-            if (expandedPaths.Contains(grandchild.HierarchyPath) && grandchild.ChildInstances.Count > 0)
+            bool gcHasInnerPrims = primitivesByModule is not null
+                && primitivesByModule.TryGetValue(grandchild.ModuleName, out var gcPrims)
+                && gcPrims.Count > 0;
+            if (expandedPaths.Contains(grandchild.HierarchyPath)
+                && (grandchild.ChildInstances.Count > 0 || gcHasInnerPrims))
             {
-                CollectInsideCompound(grandchild, portRefs, producers, consumers, expandedPaths);
+                CollectInsideCompound(grandchild, portRefs, producers, consumers, expandedPaths, primitivesByModule);
             }
         }
     }
@@ -1081,6 +1244,90 @@ internal sealed class ElkGraphBuilder
                 : ElkSignalKey.ChildOutput(compound.HierarchyPath, pin.PortName);
             if (!portRefs.TryGetValue(portRefKey, out ElkPortRef? portRef)) continue;
             AddTo(pin.IsInput ? producers : consumers, innerKey, portRef);
+        }
+    }
+
+    // P2-8b: for each inner primitive inside an expanded compound, register its ports
+    // as producers/consumers in the compound's @inner:: signal namespace so EmitEdges
+    // can wire them to the compound's boundary inputs/outputs.
+    private static void CollectInsidePrimitiveEndpoints(
+        string compoundPath,
+        IReadOnlyList<SchematicPrimitive> innerPrimitives,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        string keyPrefix = "@inner::" + compoundPath;
+
+        bool TryRef(string portRefKey, out ElkPortRef r)
+        {
+            bool ok = portRefs.TryGetValue(keyPrefix + portRefKey, out ElkPortRef? v);
+            r = v!;
+            return ok;
+        }
+
+        foreach (SchematicPrimitive primitive in innerPrimitives)
+        {
+            switch (primitive)
+            {
+                case FlipFlopPrimitive ff:
+                    if (TryRef(ElkSignalKey.FlipFlopQ(ff.QSignal), out var ffQ))
+                        AddTo(producers, ScopedSignalKey(compoundPath, ff.QSignal), ffQ);
+                    if (TryRef(ElkSignalKey.FlipFlopD(ff.QSignal), out var ffD))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, ff.DSignal), ffD);
+                    if (TryRef(ElkSignalKey.FlipFlopClock(ff.QSignal), out var ffClk))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, ff.ClockSignal), ffClk);
+                    if (!string.IsNullOrEmpty(ff.AsyncResetSignal)
+                        && TryRef(ElkSignalKey.FlipFlopReset(ff.QSignal), out var ffRst))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, ff.AsyncResetSignal!), ffRst);
+                    break;
+                case LatchPrimitive lt:
+                    if (TryRef(ElkSignalKey.LatchQ(lt.QSignal), out var ltQ))
+                        AddTo(producers, ScopedSignalKey(compoundPath, lt.QSignal), ltQ);
+                    if (TryRef(ElkSignalKey.LatchD(lt.QSignal), out var ltD))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, lt.DSignal), ltD);
+                    if (TryRef(ElkSignalKey.LatchGate(lt.QSignal), out var ltG))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, lt.GateSignal), ltG);
+                    break;
+                case MuxPrimitive mux:
+                    if (TryRef(ElkSignalKey.MuxOutput(mux.OutputSignal), out var muxOut))
+                        AddTo(producers, ScopedSignalKey(compoundPath, mux.OutputSignal), muxOut);
+                    for (int i = 0; i < mux.Inputs.Count; i++)
+                        if (mux.Inputs[i].Source is MuxSignalSource sig
+                            && TryRef(ElkSignalKey.MuxInput(mux.OutputSignal, i), out var muxIn))
+                            AddTo(consumers, ScopedSignalKey(compoundPath, sig.SignalName), muxIn);
+                    for (int i = 0; i < mux.SelectSignals.Count; i++)
+                        if (TryRef(ElkSignalKey.MuxSelect(mux.OutputSignal, i), out var muxSel))
+                            AddTo(consumers, ScopedSignalKey(compoundPath, mux.SelectSignals[i]), muxSel);
+                    break;
+                case BufferPrimitive buf:
+                    if (TryRef(ElkSignalKey.BufferOut(buf.OutputSignal), out var bufOut))
+                        AddTo(producers, ScopedSignalKey(compoundPath, buf.OutputSignal), bufOut);
+                    if (TryRef(ElkSignalKey.BufferIn(buf.OutputSignal), out var bufIn))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, buf.InputSignal), bufIn);
+                    break;
+                case InverterPrimitive inv:
+                    if (TryRef(ElkSignalKey.InverterOut(inv.OutputSignal), out var invOut))
+                        AddTo(producers, ScopedSignalKey(compoundPath, inv.OutputSignal), invOut);
+                    if (TryRef(ElkSignalKey.InverterIn(inv.OutputSignal), out var invIn))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, inv.InputSignal), invIn);
+                    break;
+                case GatePrimitive gate:
+                    if (TryRef(ElkSignalKey.GateOutput(gate.OutputSignal), out var gateOut))
+                        AddTo(producers, ScopedSignalKey(compoundPath, gate.OutputSignal), gateOut);
+                    for (int i = 0; i < gate.InputSignals.Count; i++)
+                        if (TryRef(ElkSignalKey.GateInput(gate.OutputSignal, i), out var gateIn))
+                            AddTo(consumers, ScopedSignalKey(compoundPath, gate.InputSignals[i]), gateIn);
+                    break;
+                case ArithPrimitive arith:
+                    if (TryRef(ElkSignalKey.ArithOutput(arith.OutputSignal), out var arithOut))
+                        AddTo(producers, ScopedSignalKey(compoundPath, arith.OutputSignal), arithOut);
+                    if (TryRef(ElkSignalKey.ArithLeft(arith.OutputSignal), out var arithL))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, arith.LeftSignal), arithL);
+                    if (TryRef(ElkSignalKey.ArithRight(arith.OutputSignal), out var arithR))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, arith.RightSignal), arithR);
+                    break;
+            }
         }
     }
 
@@ -1326,6 +1573,114 @@ internal sealed class ElkGraphBuilder
         }
     }
 
+    // P2-11: wire the fan-out node's input port to the struct's producer (boundary
+    // pin or upstream instance output), and each leg port to its declared consumers.
+    // The leg → consumer hop bypasses the per-consumer contassign edges the decoder
+    // already suppressed in this scope, so the visual result is one wedge instead
+    // of N overlapping wires.
+    private static void CollectStructFanOutEndpoints(
+        ElkScopeData scope,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        if (scope.Primitives is null) return;
+        foreach (StructFanOutPrimitive fanOut in scope.Primitives.OfType<StructFanOutPrimitive>())
+        {
+            RegisterFanOutInput(fanOut, portRefs, consumers);
+            foreach (StructFanOutLeg leg in fanOut.Legs)
+                RegisterFanOutLeg(fanOut, leg, scope, portRefs, producers, consumers);
+        }
+    }
+
+    private static void RegisterFanOutInput(
+        StructFanOutPrimitive fanOut,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        // The single west input port consumes the struct signal as a whole.
+        if (portRefs.TryGetValue(ElkSignalKey.StructFanOutInput(fanOut.StructSignal), out ElkPortRef? inRef))
+            AddTo(consumers, fanOut.StructSignal, inRef);
+    }
+
+    // Each east leg produces a synthetic "fanout::struct.field" signal name; consumers
+    // are re-routed to that synthetic key so EmitEdges draws leg → consumer instead of
+    // boundary_in.struct → consumer (the visual that previously created the fat overlap).
+    //
+    // For each consumer there are three cases:
+    //  (a) "instanceName.portName" → look up the ChildInput port ref and consume.
+    //  (b) plain signal name with an existing portRef → consume directly.
+    //  (c) bare local sink (no portRef) → treat the leg port as the producer of the
+    //      ordinary signal name so downstream contassign expansion picks it up.
+    //
+    // Cases (a) and (b) also UN-register the same pin/ref from the struct's consumer
+    // list — otherwise EmitEdges would draw two edges to the same pin (one from the
+    // fan-out leg, one straight from the unsliced boundary struct producer).
+    private static void RegisterFanOutLeg(
+        StructFanOutPrimitive fanOut,
+        StructFanOutLeg leg,
+        ElkScopeData scope,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        if (!portRefs.TryGetValue(
+                ElkSignalKey.StructFanOutLeg(fanOut.StructSignal, leg.FieldName),
+                out ElkPortRef? legRef)) return;
+
+        string syntheticName = FanOutLegSignalKey(fanOut.StructSignal, leg.FieldName);
+        AddTo(producers, syntheticName, legRef);
+
+        foreach (string consumer in leg.Consumers)
+        {
+            if (TryResolveInstancePin(consumer, scope, portRefs, out ElkPortRef? pinRef) && pinRef is not null)
+            {
+                AddTo(consumers, syntheticName, pinRef);
+                RemoveFrom(consumers, fanOut.StructSignal, pinRef);
+            }
+            else if (portRefs.TryGetValue(consumer, out ElkPortRef? plainRef) && plainRef is not null)
+            {
+                AddTo(consumers, syntheticName, plainRef);
+                RemoveFrom(consumers, fanOut.StructSignal, plainRef);
+            }
+            else
+            {
+                AddTo(producers, consumer, legRef);
+            }
+        }
+    }
+
+    private static void RemoveFrom(Dictionary<string, List<ElkPortRef>> map, string key, ElkPortRef value)
+    {
+        if (map.TryGetValue(key, out List<ElkPortRef>? list))
+            list.Remove(value);
+    }
+
+    private static string FanOutLegSignalKey(string structSignal, string fieldName)
+        => $"::fanout::{structSignal}.{fieldName}";
+
+    // Splits "instanceName.portName" and looks up the matching ChildInput port ref.
+    // Returns false (and null) for plain signal names.
+    private static bool TryResolveInstancePin(
+        string consumer,
+        ElkScopeData scope,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        out ElkPortRef? pinRef)
+    {
+        pinRef = null;
+        int dotIndex = consumer.IndexOf('.', StringComparison.Ordinal);
+        if (dotIndex <= 0) return false;
+        string instanceName = consumer[..dotIndex];
+        string portName = consumer[(dotIndex + 1)..];
+
+        // Resolve hierarchy path from the scope's child list (instance name → child)
+        HierarchyScopeInstanceViewModel? child = scope.ChildScopes
+            .FirstOrDefault(c => string.Equals(c.InstanceName, instanceName, StringComparison.OrdinalIgnoreCase));
+        if (child is null) return false;
+
+        return portRefs.TryGetValue(ElkSignalKey.ChildInput(child.HierarchyPath, portName), out pinRef);
+    }
+
     private static void CollectSplitterEndpoints(
         ElkScopeData scope,
         Dictionary<string, ElkPortRef> portRefs,
@@ -1419,6 +1774,7 @@ internal sealed class ElkGraphBuilder
                     }
 
                     int width = ResolveEdgeWidth(source, target);
+                    string displayLabel = PrettifySignalLabel(signal);
                     // labels[0] = signal name (rendered + selection key)
                     // labels[1] = bit width metadata (Logisim colour selection)
                     graph.Edges.Add(new ElkEdge
@@ -1426,11 +1782,29 @@ internal sealed class ElkGraphBuilder
                         Id = $"e{edgeCounter++}",
                         Sources = [source.PortId],
                         Targets = [target.PortId],
-                        Labels = [new ElkLabel { Text = signal }, new ElkLabel { Text = width.ToString(CultureInfo.InvariantCulture) }]
+                        Labels = [new ElkLabel { Text = displayLabel }, new ElkLabel { Text = width.ToString(CultureInfo.InvariantCulture) }]
                     });
                 }
             }
         }
+    }
+
+    // Strips internal namespace prefixes from synthetic signal keys (e.g. "::fanout::ctrl.ops"
+    // becomes "ctrl.ops") so the user sees a clean wire label instead of plumbing details.
+    private static string PrettifySignalLabel(string signal)
+    {
+        const string fanOutPrefix = "::fanout::";
+        if (signal.StartsWith(fanOutPrefix, StringComparison.Ordinal))
+            return signal[fanOutPrefix.Length..];
+        const string innerPrefix = "@inner::";
+        if (signal.StartsWith(innerPrefix, StringComparison.Ordinal))
+        {
+            // "@inner::top.compound::sig" → "sig"
+            int lastColon = signal.LastIndexOf("::", StringComparison.Ordinal);
+            if (lastColon > 0 && lastColon + 2 < signal.Length)
+                return signal[(lastColon + 2)..];
+        }
+        return signal;
     }
 
     private static int ResolveEdgeWidth(ElkPortRef source, ElkPortRef target)
@@ -1611,7 +1985,9 @@ public enum ElkPortRole
     GateOutput,
     ArithLeft,
     ArithRight,
-    ArithOutput
+    ArithOutput,
+    StructFanOutInput,
+    StructFanOutLeg
 }
 
 internal static class ElkNodeIds
@@ -1666,6 +2042,11 @@ internal static class ElkNodeIds
     public static bool IsArith(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("arith_", StringComparison.Ordinal);
 
+    public static string ForStructFanOut(string structSignal) => "fanout_" + SanitizeId(structSignal);
+
+    public static bool IsStructFanOut(string? nodeId) =>
+        nodeId is not null && nodeId.StartsWith("fanout_", StringComparison.Ordinal);
+
     private static string SanitizeId(string raw) =>
         raw.Replace('.', '_').Replace('/', '_').Replace(':', '_').Replace('[', '_').Replace(']', '_');
 }
@@ -1700,4 +2081,6 @@ internal static class ElkSignalKey
     public static string ArithLeft(string output) => $"::arith_l::{output}";
     public static string ArithRight(string output) => $"::arith_r::{output}";
     public static string ArithOutput(string output) => $"::arith_out::{output}";
+    public static string StructFanOutInput(string structSignal) => $"::fanout_in::{structSignal}";
+    public static string StructFanOutLeg(string structSignal, string fieldName) => $"::fanout_leg::{structSignal}::{fieldName}";
 }

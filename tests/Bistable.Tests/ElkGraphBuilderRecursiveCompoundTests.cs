@@ -237,4 +237,294 @@ public sealed class ElkGraphBuilderRecursiveCompoundTests
         ElkNode node = Assert.Single(result.Graph.Children, n => n.Id == "child_top_leaf");
         Assert.True(node.Children is null || node.Children.Count == 0);
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // P2-8b: inner-scope edge wiring
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // Helper: build a standard scope for edge wiring tests.
+    // The compound "reg" has ports "d" (in), "clk" (in), "q" (out) connected to
+    // outer signals "d_in", "clk", "q_out".  Its module contains a FF (q←d on clk).
+    private static ElkBuildResult BuildFFCompoundResult(
+        bool expanded,
+        FlipFlopPrimitive? ff = null)
+    {
+        ff ??= new("ff_q_0", "q", "clk", EdgeKind.Rising, null, null, "d", Width: 8);
+
+        HierarchyScopeInstanceViewModel reg = Child(
+            "top.reg", "reg_mod",
+            ports: [
+                new HierarchyScopeInstancePortConnectionViewModel("d",   "d_in",  true,  8),
+                new HierarchyScopeInstancePortConnectionViewModel("clk", "clk",   true,  1),
+                new HierarchyScopeInstancePortConnectionViewModel("q",   "q_out", false, 8),
+            ]);
+
+        var expandedPaths = expanded
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "top.reg" }
+            : null;
+
+        return new ElkGraphBuilder().Build(
+            new ElkScopeData(
+                BoundaryPorts: [],
+                ChildScopes: [reg],
+                LocalSignals: [],
+                ContAssigns: [],
+                ExpandedPaths: expandedPaths,
+                PrimitivesByModule: ByModule("reg_mod", ff)),
+            compactLayout: true);
+    }
+
+    [Fact]
+    public void InnerFF_D_GetsEdgeFromCompoundBoundaryInput()
+    {
+        // When expanded, the FF.D port should be wired to the compound's "d" input.
+        // The compound port "d" is connected to outer signal "d_in" but inside the
+        // module the port name itself is the inner signal name ("d").
+        ElkBuildResult result = BuildFFCompoundResult(expanded: true);
+
+        // Edge sources: the compound's input port for "d"
+        string compoundInputPortId = "child_top_reg.in.d";
+        // Edge target: the inner FF's .in.0 (D pin)
+        string ffDPortId = "child_top_reg/ff_q.in.0";
+
+        Assert.Contains(result.Graph.Edges,
+            e => e.Sources.Contains(compoundInputPortId) && e.Targets.Contains(ffDPortId));
+    }
+
+    [Fact]
+    public void InnerFF_Clk_GetsEdgeFromCompoundBoundaryInput()
+    {
+        ElkBuildResult result = BuildFFCompoundResult(expanded: true);
+
+        string compoundClkPortId = "child_top_reg.in.clk";
+        string ffClkPortId = "child_top_reg/ff_q.in.1"; // index 1 = clock
+
+        Assert.Contains(result.Graph.Edges,
+            e => e.Sources.Contains(compoundClkPortId) && e.Targets.Contains(ffClkPortId));
+    }
+
+    [Fact]
+    public void InnerFF_Q_GetsEdgeToCompoundBoundaryOutput()
+    {
+        // The FF.Q output should drive the compound's "q" boundary output.
+        ElkBuildResult result = BuildFFCompoundResult(expanded: true);
+
+        string ffQPortId   = "child_top_reg/ff_q.out";
+        string compoundQId = "child_top_reg.out.q";
+
+        Assert.Contains(result.Graph.Edges,
+            e => e.Sources.Contains(ffQPortId) && e.Targets.Contains(compoundQId));
+    }
+
+    [Fact]
+    public void InnerFF_AsyncReset_GetsEdgeFromCompoundBoundaryInput()
+    {
+        // Compound "reg_mod" has ports d/clk/rst_n (inputs) and q (output).
+        FlipFlopPrimitive ff = new("ff_q_0", "q", "clk", EdgeKind.Rising, "rst_n", EdgeKind.Falling, "d", Width: 8);
+
+        HierarchyScopeInstanceViewModel reg = Child(
+            "top.reg", "reg_mod",
+            ports: [
+                new HierarchyScopeInstancePortConnectionViewModel("d",     "d_in",   true,  8),
+                new HierarchyScopeInstancePortConnectionViewModel("clk",   "clk",    true,  1),
+                new HierarchyScopeInstancePortConnectionViewModel("rst_n", "rst_n",  true,  1),
+                new HierarchyScopeInstancePortConnectionViewModel("q",     "q_out",  false, 8),
+            ]);
+
+        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "top.reg" };
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData(
+                BoundaryPorts: [],
+                ChildScopes: [reg],
+                LocalSignals: [],
+                ContAssigns: [],
+                ExpandedPaths: expanded,
+                PrimitivesByModule: ByModule("reg_mod", ff)),
+            compactLayout: true);
+
+        // Reset port is in.2 when reset is present
+        string ffRstPortId  = "child_top_reg/ff_q.in.2";
+        string compoundRstId = "child_top_reg.in.rst_n";
+
+        Assert.Contains(result.Graph.Edges,
+            e => e.Sources.Contains(compoundRstId) && e.Targets.Contains(ffRstPortId));
+    }
+
+    [Fact]
+    public void InnerMux_Selector_GetsEdgeFromCompoundBoundaryInput()
+    {
+        // Compound "mux_mod" has selector input "sel" and output "y".
+        // Inner mux: output="y", sel=["sel"], inputs=[a,b]
+        var mux = new MuxPrimitive("mux_y_0", "y",
+            SelectSignals: ["sel"],
+            Inputs: [new("1", new MuxSignalSource("a")), new("0", new MuxSignalSource("b"))],
+            Width: 8);
+
+        HierarchyScopeInstanceViewModel inst = Child(
+            "top.mx", "mux_mod",
+            ports: [
+                new HierarchyScopeInstancePortConnectionViewModel("a",   "a_in", true,  8),
+                new HierarchyScopeInstancePortConnectionViewModel("b",   "b_in", true,  8),
+                new HierarchyScopeInstancePortConnectionViewModel("sel", "sel",  true,  1),
+                new HierarchyScopeInstancePortConnectionViewModel("y",   "y",    false, 8),
+            ]);
+
+        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "top.mx" };
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData(
+                BoundaryPorts: [],
+                ChildScopes: [inst],
+                LocalSignals: [],
+                ContAssigns: [],
+                ExpandedPaths: expanded,
+                PrimitivesByModule: ByModule("mux_mod", mux)),
+            compactLayout: true);
+
+        // mux selector is at index inputs.Count (=2) → in.2
+        string muxSelPortId    = "child_top_mx/mux_y.in.2";
+        string compoundSelPort = "child_top_mx.in.sel";
+
+        Assert.Contains(result.Graph.Edges,
+            e => e.Sources.Contains(compoundSelPort) && e.Targets.Contains(muxSelPortId));
+    }
+
+    [Fact]
+    public void TwoInnerPrimitives_WireToEachOtherViaLocalSignal()
+    {
+        // Compound has: FF (q←d_in on clk) then Buffer (buf_out←q).
+        // The FF.Q and Buffer.in share the inner signal "q" — edge should appear.
+        FlipFlopPrimitive ff = new("ff_q_0", "q", "clk", EdgeKind.Rising, null, null, "d_in", Width: 8);
+        BufferPrimitive buf  = new("buf_out_0", "buf_out", "q", Width: 8);
+
+        HierarchyScopeInstanceViewModel inst = Child(
+            "top.pipe", "pipe_mod",
+            ports: [
+                new HierarchyScopeInstancePortConnectionViewModel("d_in",   "d_in",   true,  8),
+                new HierarchyScopeInstancePortConnectionViewModel("clk",    "clk",    true,  1),
+                new HierarchyScopeInstancePortConnectionViewModel("buf_out", "buf_out", false, 8),
+            ]);
+
+        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "top.pipe" };
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData(
+                BoundaryPorts: [],
+                ChildScopes: [inst],
+                LocalSignals: [],
+                ContAssigns: [],
+                ExpandedPaths: expanded,
+                PrimitivesByModule: ByModule("pipe_mod", ff, buf)),
+            compactLayout: true);
+
+        // FF.Q → Buffer.in: both share inner signal "q"
+        string ffQPort  = "child_top_pipe/ff_q.out";
+        string bufInPort = "child_top_pipe/buf_buf_out.in.0";
+
+        Assert.Contains(result.Graph.Edges,
+            e => e.Sources.Contains(ffQPort) && e.Targets.Contains(bufInPort));
+    }
+
+    [Fact]
+    public void InnerPrimitiveSignal_DoesNotLeakToOuterScope()
+    {
+        // The compound has an inner FF whose signal "q" is purely internal.
+        // The outer scope has NO signal named "q" — we assert that the outer graph
+        // has no edges whose label text is "q" (scoped key prevents collisions).
+        FlipFlopPrimitive ff = MakeFF("q"); // q is purely internal to "reg_mod"
+
+        HierarchyScopeInstanceViewModel reg = Child(
+            "top.reg", "reg_mod",
+            ports: [
+                new HierarchyScopeInstancePortConnectionViewModel("d",   "d_in", true,  8),
+                new HierarchyScopeInstancePortConnectionViewModel("clk", "clk",  true,  1),
+            ]); // NO "q" output port — q is purely internal
+
+        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "top.reg" };
+
+        // Outer scope also has a FF for signal "q" (collision-risk test)
+        FlipFlopPrimitive outerFF = MakeFF("q");
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData(
+                BoundaryPorts: [],
+                ChildScopes: [reg],
+                LocalSignals: [],
+                ContAssigns: [],
+                ExpandedPaths: expanded,
+                Primitives: [outerFF],
+                PrimitivesByModule: ByModule("reg_mod", ff)),
+            compactLayout: true);
+
+        // The outer FF's Q port ("ff_q.out") should NOT drive any inner-compound port.
+        // Inner signal "q" has no consumer in the outer scope either, so no cross-scope
+        // edge for "q" should appear at all.
+        const string outerFFQPort = "ff_q.out";
+        Assert.DoesNotContain(result.Graph.Edges,
+            e => e.Sources.Contains(outerFFQPort)
+                 && e.Targets.Any(t => t.StartsWith("child_top_reg/", StringComparison.Ordinal)));
+
+        // Also assert no inner-primitive OUTPUT port drives a purely outer-scope port
+        // (e.g. inner FF.Q must not reach the outer FF's D "ff_q.in.0").
+        Assert.DoesNotContain(result.Graph.Edges,
+            e => e.Sources.Any(s => s.StartsWith("child_top_reg/", StringComparison.Ordinal))
+                 && e.Targets.Any(t => !t.StartsWith("child_top_reg", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void NestedExpandedCompound_InnermostPrimitive_IsWired()
+    {
+        // Two levels of expansion: top.outer (expanded) → inner_mod (expanded) → FF inside inner_mod.
+        // The compound "outer_mod" has no primitives of its own; its child "inner_i" (module "inner_mod")
+        // does have a FF.  We expand both levels.
+        FlipFlopPrimitive ff = new("ff_q_0", "q", "clk", EdgeKind.Rising, null, null, "d", Width: 8);
+
+        HierarchyScopeInstanceViewModel innerInst = Child(
+            "top.outer_i.inner_i", "inner_mod",
+            ports: [
+                new HierarchyScopeInstancePortConnectionViewModel("d",   "d",  true,  8),
+                new HierarchyScopeInstancePortConnectionViewModel("clk", "clk", true, 1),
+                new HierarchyScopeInstancePortConnectionViewModel("q",   "q",  false, 8),
+            ]);
+
+        HierarchyScopeInstanceViewModel outerInst = Child(
+            "top.outer_i", "outer_mod",
+            ports: [
+                new HierarchyScopeInstancePortConnectionViewModel("d",   "d",  true,  8),
+                new HierarchyScopeInstancePortConnectionViewModel("clk", "clk", true, 1),
+                new HierarchyScopeInstancePortConnectionViewModel("q",   "q",  false, 8),
+            ],
+            grandchildren: [innerInst]);
+
+        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "top.outer_i",
+            "top.outer_i.inner_i"
+        };
+
+        // PrimitivesByModule: inner_mod has the FF; outer_mod has none
+        var byModule = new Dictionary<string, IReadOnlyList<SchematicPrimitive>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["inner_mod"] = [ff]
+        };
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData(
+                BoundaryPorts: [],
+                ChildScopes: [outerInst],
+                LocalSignals: [],
+                ContAssigns: [],
+                ExpandedPaths: expanded,
+                PrimitivesByModule: byModule),
+            compactLayout: true);
+
+        // The innermost FF.D should be wired to the inner compound's "d" boundary input
+        string innerCompoundId = "child_top_outer_i_inner_i";
+        string ffDPortId = $"{innerCompoundId}/ff_q.in.0";
+        string innerDPortId = $"{innerCompoundId}.in.d";
+
+        Assert.Contains(result.Graph.Edges,
+            e => e.Sources.Contains(innerDPortId) && e.Targets.Contains(ffDPortId));
+    }
 }

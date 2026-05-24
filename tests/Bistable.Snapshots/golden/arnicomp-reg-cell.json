@@ -1,0 +1,339 @@
+{
+  "id": "root",
+  "layoutOptions": {
+    "elk.algorithm": "layered",
+    "elk.direction": "RIGHT",
+    "elk.edgeRouting": "ORTHOGONAL",
+    "elk.hierarchyHandling": "INCLUDE_CHILDREN",
+    "elk.layered.crossingMinimization.semiInteractive": "true",
+    "elk.layered.feedbackEdges": "true",
+    "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+    "elk.layered.spacing.edgeEdgeBetweenLayers": "10",
+    "elk.layered.spacing.edgeNodeBetweenLayers": "18",
+    "elk.layered.spacing.nodeNodeBetweenLayers": "72",
+    "elk.layered.thoroughness": "3",
+    "elk.spacing.nodeNode": "36"
+  },
+  "children": [
+    {
+      "id": "boundary_in",
+      "labels": [
+        "inputs"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "boundary_in.clk",
+          "labels": [
+            "clk [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "boundary_in.rst_n",
+          "labels": [
+            "rst_n [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "boundary_in.we",
+          "labels": [
+            "we [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "boundary_in.oe",
+          "labels": [
+            "oe [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "boundary_in.d",
+          "labels": [
+            "d [8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "boundary_out",
+      "labels": [
+        "outputs"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "boundary_out.out",
+          "labels": [
+            "out [8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "op_out",
+      "labels": [
+        "?:"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "op_out.in.0",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "op_out.in.1",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "op_out.out",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ff_reg_q",
+      "labels": [
+        "FF reg_q"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "ff_reg_q.d",
+          "labels": [
+            "D"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "ff_reg_q.clk",
+          "labels": [
+            "\u003E"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "ff_reg_q.q",
+          "labels": [
+            "Q"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "mux_out",
+      "labels": [
+        "MUX out"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "mux_out.in.0",
+          "labels": [
+            "1"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_out.in.1",
+          "labels": [
+            "0"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_out.sel.0",
+          "labels": [
+            "S"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_out.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "ff_reg_q.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e1",
+      "sources": [
+        "boundary_in.oe"
+      ],
+      "targets": [
+        "op_out.in.0"
+      ],
+      "labels": [
+        "oe",
+        "1"
+      ]
+    },
+    {
+      "id": "e2",
+      "sources": [
+        "boundary_in.oe"
+      ],
+      "targets": [
+        "mux_out.sel.0"
+      ],
+      "labels": [
+        "oe",
+        "1"
+      ]
+    },
+    {
+      "id": "e3",
+      "sources": [
+        "boundary_in.d"
+      ],
+      "targets": [
+        "ff_reg_q.d"
+      ],
+      "labels": [
+        "d",
+        "1"
+      ]
+    },
+    {
+      "id": "e4",
+      "sources": [
+        "op_out.out"
+      ],
+      "targets": [
+        "boundary_out.out"
+      ],
+      "labels": [
+        "out",
+        "8"
+      ]
+    },
+    {
+      "id": "e5",
+      "sources": [
+        "mux_out.out"
+      ],
+      "targets": [
+        "boundary_out.out"
+      ],
+      "labels": [
+        "out",
+        "1"
+      ]
+    },
+    {
+      "id": "e6",
+      "sources": [
+        "ff_reg_q.q"
+      ],
+      "targets": [
+        "op_out.in.1"
+      ],
+      "labels": [
+        "reg_q",
+        "1"
+      ]
+    },
+    {
+      "id": "e7",
+      "sources": [
+        "ff_reg_q.q"
+      ],
+      "targets": [
+        "mux_out.in.0"
+      ],
+      "labels": [
+        "reg_q",
+        "1"
+      ]
+    }
+  ]
+}
