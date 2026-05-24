@@ -509,7 +509,8 @@ public sealed class SchematicStudioWindow : Window
             [!SchematicPreviewControl.ScopePortsProperty] = new Binding("SelectedHierarchyPorts"),
             [!SchematicPreviewControl.ScopeLocalSignalsProperty] = new Binding("SelectedHierarchyLocalSignals"),
             [!SchematicPreviewControl.ScopeContAssignsProperty] = new Binding("SelectedHierarchyContAssigns"),
-            [!SchematicPreviewControl.ScopePrimitivesProperty] = new Binding("SelectedHierarchyPrimitives")
+            [!SchematicPreviewControl.ScopePrimitivesProperty] = new Binding("SelectedHierarchyPrimitives"),
+            [!SchematicPreviewControl.ScopePrimitivesByModuleProperty] = new Binding("PrimitivesByModule")
         };
         preview.SignalEditorRequested += OnSchematicSignalEditorRequested;
         return preview;

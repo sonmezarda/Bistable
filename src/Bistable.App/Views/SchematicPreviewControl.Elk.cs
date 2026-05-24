@@ -20,7 +20,8 @@ public sealed partial class SchematicPreviewControl
         IReadOnlyList<HierarchyScopePortViewModel> scopePorts,
         IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals,
         IReadOnlyList<DesignContAssign> contAssigns,
-        IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>? scopePrimitives = null)
+        IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>? scopePrimitives = null,
+        IReadOnlyDictionary<string, IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>>? scopePrimitivesByModule = null)
     {
         Rect panel = ComputeElkPanelRect(bounds, moduleRect);
         _lastFocusedScopePanelRect = panel;
@@ -30,7 +31,7 @@ public sealed partial class SchematicPreviewControl
         HashSet<string> expandedPaths = ExpandedScopePaths is null
             ? []
             : new HashSet<string>(ExpandedScopePaths, StringComparer.OrdinalIgnoreCase);
-        ElkScopeData scope = new(scopePorts, childScopes, localSignals, contAssigns, expandedPaths, scopePrimitives);
+        ElkScopeData scope = new(scopePorts, childScopes, localSignals, contAssigns, expandedPaths, scopePrimitives, scopePrimitivesByModule);
         ElkLayoutResult layoutResult;
         try
         {
@@ -135,6 +136,38 @@ public sealed partial class SchematicPreviewControl
             else if (ElkNodeIds.IsJoiner(node.Id))
             {
                 DrawElkJoinerNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsFlipFlop(node.Id))
+            {
+                DrawElkFlipFlopNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsMux(node.Id))
+            {
+                DrawElkMuxNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsLatch(node.Id))
+            {
+                DrawElkLatchNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsMemory(node.Id))
+            {
+                DrawElkMemoryNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsBuffer(node.Id))
+            {
+                DrawElkBufferNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsInverter(node.Id))
+            {
+                DrawElkInverterNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsGate(node.Id))
+            {
+                DrawElkGateNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsArith(node.Id))
+            {
+                DrawElkArithNode(context, node, rect, transform.Scale);
             }
             else
             {

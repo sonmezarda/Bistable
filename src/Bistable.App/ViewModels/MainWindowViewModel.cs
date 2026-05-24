@@ -151,6 +151,27 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<Bistable.Core.Design.Schematic.SchematicPrimitive> SelectedHierarchyPrimitives { get; } = [];
 
+    // P2-8: decoded primitives keyed by module name, used by the schematic renderer
+    // when a compound child is expanded — its module's primitives are rendered inside.
+    public IReadOnlyDictionary<string, IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>> PrimitivesByModule
+        => _primitivesByModule;
+
+    private Dictionary<string, IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>> _primitivesByModule =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private void RebuildPrimitivesByModule()
+    {
+        _primitivesByModule = new Dictionary<string, IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>>(StringComparer.OrdinalIgnoreCase);
+        if (_currentAst is null) return;
+        foreach (Bistable.Core.Design.Ast.ModuleAst module in _currentAst.Modules)
+        {
+            Bistable.Core.Design.Schematic.SchematicPrimitiveList decoded =
+                Bistable.Core.Design.Schematic.SchematicDecoder.Decode(module);
+            _primitivesByModule[module.Name] = decoded.Logic;
+        }
+        OnPropertyChanged(nameof(PrimitivesByModule));
+    }
+
     public ObservableCollection<string> SchematicExpandedPaths { get; } = [];
 
     public ObservableCollection<SampleProjectViewModel> Samples { get; } = [];
@@ -994,6 +1015,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             _currentDesign = result.Design;
             _currentAst = result.Ast;
             _currentProjectDirectory = result.ProjectDirectory;
+            RebuildPrimitivesByModule();
             SchematicExpandedPaths.Clear();
             OnPropertyChanged(nameof(IsSelectedHierarchyScopeExpanded));
 
@@ -1144,6 +1166,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         _traceFilePath = subBuild.TraceFilePath;
         _currentDesign = subElab.Design;
         _currentAst = subElab.Ast;
+        RebuildPrimitivesByModule();
 
         Inputs.Clear();
         Outputs.Clear();
@@ -1186,6 +1209,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         _subSimProject = null;
         _currentDesign = _savedTopDesign;
         _currentAst = _savedTopAst;
+        RebuildPrimitivesByModule();
 
         RestoreTopSimulationCollections();
         HierarchyRoot = _savedTopHierarchyRoot;

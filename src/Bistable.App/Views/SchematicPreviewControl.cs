@@ -74,6 +74,11 @@ public sealed partial class SchematicPreviewControl : Control
     public static readonly StyledProperty<IEnumerable<Bistable.Core.Design.Schematic.SchematicPrimitive>?> ScopePrimitivesProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<Bistable.Core.Design.Schematic.SchematicPrimitive>?>(nameof(ScopePrimitives));
 
+    // P2-8: primitive catalog keyed by module name. The renderer consults this when
+    // an expanded compound child needs its inner primitives drawn.
+    public static readonly StyledProperty<IReadOnlyDictionary<string, IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>>?> ScopePrimitivesByModuleProperty =
+        AvaloniaProperty.Register<SchematicPreviewControl, IReadOnlyDictionary<string, IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>>?>(nameof(ScopePrimitivesByModule));
+
     public static readonly StyledProperty<IEnumerable<SignalViewModel>?> ScopeSignalsProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<SignalViewModel>?>(nameof(ScopeSignals));
 
@@ -294,6 +299,12 @@ public sealed partial class SchematicPreviewControl : Control
         set => SetValue(ScopePrimitivesProperty, value);
     }
 
+    public IReadOnlyDictionary<string, IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>>? ScopePrimitivesByModule
+    {
+        get => GetValue(ScopePrimitivesByModuleProperty);
+        set => SetValue(ScopePrimitivesByModuleProperty, value);
+    }
+
     public SchematicRoutingEngine RoutingEngine
     {
         get => GetValue(RoutingEngineProperty);
@@ -371,6 +382,8 @@ public sealed partial class SchematicPreviewControl : Control
         IReadOnlyList<DesignContAssign> contAssigns = ScopeContAssigns?.ToList() ?? [];
         IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive> scopePrimitives =
             ScopePrimitives?.ToList() ?? [];
+        IReadOnlyDictionary<string, IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>>? scopePrimitivesByModule =
+            ScopePrimitivesByModule;
         HierarchyScopeNodeViewModel? parentScope = ScopeParent;
         bool hasScopeFocus = HasScopeContext(scopeSignals, childScopes, parentScope);
         bool expandedScope = IsActiveScopeExpanded && hasScopeFocus;
@@ -425,7 +438,7 @@ public sealed partial class SchematicPreviewControl : Control
 
             if (expandedScope)
             {
-                DrawExpandedScopePanel(context, worldBounds, moduleRect, scopeCard, scopeSignals, childScopes, scopePorts, localSignals, contAssigns, scopePrimitives);
+                DrawExpandedScopePanel(context, worldBounds, moduleRect, scopeCard, scopeSignals, childScopes, scopePorts, localSignals, contAssigns, scopePrimitives, scopePrimitivesByModule);
             }
             else if (hasScopeFocus && !string.Equals(ActiveScopePath, ModuleName, StringComparison.OrdinalIgnoreCase) && scopePorts.Count > 0)
             {
