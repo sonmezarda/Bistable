@@ -17,8 +17,14 @@ public static class SchematicDecoder
             .Select(p => new PortPrimitive($"port_{p.Name}", p.Name, p.Direction, p.Width))
             .ToList();
 
+        // P2.5-4: Verilator's DFG-based optimisations emit auto-generated signals
+        // named like "__VdfgTmp_h1814ef32__0" or "__Vlvbound_h1234__1" that don't
+        // correspond to user source code. Hiding them at the decoder layer keeps
+        // the schematic readable. Level-3 (substitution into consumers) is
+        // deferred to P2.6-1; this is the level-1 "just hide them" fix.
         List<SignalPrimitive> signals = module.LocalSignals
             .Where(static s => s.ArrayDims.Count == 0)
+            .Where(static s => !IsVerilatorInternalSignal(s.Name))
             .Select(s => new SignalPrimitive($"sig_{s.Name}", s.Name, s.Width, s.IsRegistered))
             .ToList();
 
@@ -28,19 +34,22 @@ public static class SchematicDecoder
 
         List<SchematicPrimitive> logic = [];
 
-        // Memories
-        foreach (SignalDecl s in module.LocalSignals.Where(static x => x.ArrayDims.Count > 0))
+        // Memories (skip if the array signal name is internal — defensive, unusual)
+        foreach (SignalDecl s in module.LocalSignals
+                     .Where(static x => x.ArrayDims.Count > 0)
+                     .Where(static x => !IsVerilatorInternalSignal(x.Name)))
         {
             BitRange dim = s.ArrayDims[0];
             logic.Add(new MemoryPrimitive($"mem_{s.Name}", s.Name, s.Width, dim.Hi, dim.Lo));
         }
 
-        // Sequential blocks → FF / latch
+        // Sequential blocks → FF / latch (skip when target is an internal tmp)
         int seqIndex = 0;
         foreach (SequentialBlockAst block in module.SequentialBlocks)
         {
             SchematicPrimitive? primitive = DecodeSequentialBlock(block, seqIndex++);
-            if (primitive is not null) logic.Add(primitive);
+            if (primitive is not null && !IsPrimitiveOnInternalSignal(primitive))
+                logic.Add(primitive);
         }
 
         // P2-11: scan struct-typed signals for field accesses, group into fan-out
@@ -51,18 +60,46 @@ public static class SchematicDecoder
         HashSet<string> fanOutSplitterTargets = CollectFanOutContAssignTargets(module, fanOuts);
         logic.AddRange(fanOuts);
 
-        // Continuous assignments → combinational primitives (skip targets owned by fan-outs)
+        // Continuous assignments → combinational primitives. Skip:
+        //   • targets owned by struct fan-outs (handled by fan-out leg)
+        //   • targets that are Verilator internal tmps (P2.5-4)
         int caIndex = 0;
         foreach (ContAssignAst ca in module.ContAssigns)
         {
             string target = LValueName(ca.Target);
             if (fanOutSplitterTargets.Contains(target)) { caIndex++; continue; }
+            if (IsVerilatorInternalSignal(target))       { caIndex++; continue; }
             SchematicPrimitive? primitive = DecodeContAssign(ca, caIndex++);
             if (primitive is not null) logic.Add(primitive);
         }
 
         return new SchematicPrimitiveList(module.Name, ports, signals, instances, logic);
     }
+
+    /// <summary>
+    /// True when the signal name matches Verilator's auto-generated tmp pattern
+    /// (any name starting with "__V"). Examples seen in arnicomp:
+    /// <c>__VdfgTmp_h1814ef32__0</c>, <c>__Vlvbound_h1234__1</c>,
+    /// <c>__Vfunc_*_*</c>. These are compiler-internal CSE / DFG temporaries
+    /// — never user-meaningful and never worth rendering as separate nodes.
+    /// </summary>
+    public static bool IsVerilatorInternalSignal(string signalName) =>
+        !string.IsNullOrEmpty(signalName) && signalName.StartsWith("__V", StringComparison.Ordinal);
+
+    private static bool IsPrimitiveOnInternalSignal(SchematicPrimitive primitive) => primitive switch
+    {
+        FlipFlopPrimitive ff   => IsVerilatorInternalSignal(ff.QSignal),
+        LatchPrimitive lt      => IsVerilatorInternalSignal(lt.QSignal),
+        MuxPrimitive mux       => IsVerilatorInternalSignal(mux.OutputSignal),
+        BufferPrimitive buf    => IsVerilatorInternalSignal(buf.OutputSignal),
+        InverterPrimitive inv  => IsVerilatorInternalSignal(inv.OutputSignal),
+        GatePrimitive gate     => IsVerilatorInternalSignal(gate.OutputSignal),
+        ArithPrimitive arith   => IsVerilatorInternalSignal(arith.OutputSignal),
+        SplitterPrimitive spl  => IsVerilatorInternalSignal(spl.OutputSignal),
+        JoinerPrimitive join   => IsVerilatorInternalSignal(join.OutputSignal),
+        MemoryPrimitive mem    => IsVerilatorInternalSignal(mem.SignalName),
+        _ => false
+    };
 
     // ── Struct fan-out (P2-11) ───────────────────────────────────────────────
 
@@ -230,7 +267,8 @@ public static class SchematicDecoder
         if (asyncReset is not null && source is CondExpr cond && cond.Condition is SignalRef condRef &&
             string.Equals(condRef.Name, asyncReset.SignalName, StringComparison.OrdinalIgnoreCase))
         {
-            // Pattern: q <= rst ? data : reset_value;
+            // Async-reset pattern recognized — peel the reset ternary so the FF's
+            // D port carries only the active-mode data signal.
             asyncResetSignal = asyncReset.SignalName;
             source = cond.IfTrue;
         }
@@ -318,53 +356,110 @@ public static class SchematicDecoder
     /// <summary>
     /// Decodes a (possibly nested) <see cref="CondExpr"/> chain into an N-to-1 mux primitive.
     /// Pattern recognized: <c>sel1 ? a : sel0 ? b : c</c> → 3-input mux with selectors [sel1, sel0].
+    ///
+    /// Input-label semantics (P2.5-6):
+    ///  • 2-input mux (single selector): keep classic "1"/"0" labels — most readable for
+    ///    simple ternaries.
+    ///  • N-input mux (chained ternaries): label input i by the SELECTOR signal name that
+    ///    gates it (priority-encoder semantics). Final "else" branch labelled "else".
+    ///    This makes it visually clear that the chain is `if-elif-elif-else` over different
+    ///    signals — NOT a single multi-bit selector.
     /// </summary>
     private static MuxPrimitive DecodeMux(string target, CondExpr root, int index)
     {
-        List<string> selectors = [];
-        List<MuxInput> inputs = [];
+        // Walk the chain iteratively to collect (selector, ifTrue) pairs + the final else.
+        // We track BOTH the wire-up name and the display label separately:
+        //   • wire-up name (bare signal, e.g. "control_pins") — used for endpoint
+        //     registration in producers/consumers maps; must match the producer's
+        //     real signal name or no edge will form.
+        //   • display label (with bit detail, e.g. "control_pins[3:2]") — used as
+        //     the port glyph so two selectors probing different bits of the same
+        //     parent signal are visually distinguishable.
+        List<string> selectors = [];        // wire-up names (used by builder for consumer keys)
+        List<string> selectorLabels = [];   // display labels (used for port labels + chained input labels)
+        List<ExpressionAst> branches = [];
 
-        FlattenCondChain(root, selectors, inputs);
+        ExpressionAst current = root;
+        while (current is CondExpr c)
+        {
+            selectors.Add(ExpressionToSignalName(c.Condition) ?? "?");
+            selectorLabels.Add(ExpressionToReadableLabel(c.Condition) ?? "?");
+            branches.Add(c.IfTrue);
+            current = c.IfFalse;
+        }
+        branches.Add(current); // final else branch
+
+        // Choose labels based on chain depth
+        List<MuxInput> inputs = [];
+        bool simpleTernary = selectors.Count == 1;
+        for (int i = 0; i < branches.Count; i++)
+        {
+            MuxSource source = ToMuxSource(branches[i]);
+            string label;
+            if (simpleTernary)
+            {
+                // sel ? a : b  →  input0="1" (when sel=1), input1="0" (when sel=0)
+                label = i == 0 ? "1" : "0";
+            }
+            else
+            {
+                // Chained: input i is taken when selectors[i] is the first true
+                // selector. We use the bit-AWARE label (selectorLabels[i]) for the
+                // branch label so the user sees "control_pins[3:2]" not just
+                // "control_pins" when sibling branches probe different bits of the
+                // same parent signal. The last input is the default ("else").
+                label = i < selectorLabels.Count ? selectorLabels[i] : "else";
+            }
+            // Suffix the label with the constant value (or "·X" for don't-care)
+            // when the source has no wire. Without this, ports backed by constants
+            // look identical to unconnected ports — the user can't tell at a glance
+            // that the missing wire is intentional. P2.5-6 fix for Issue 4.
+            if (source is MuxConstantSource constSrc)
+                label = label + "·" + constSrc.Literal;
+            inputs.Add(new MuxInput(label, source));
+        }
 
         return new MuxPrimitive(
             Id: $"mux_{target}_{index}",
             OutputSignal: target,
             SelectSignals: selectors,
             Inputs: inputs,
-            Width: 1);
+            Width: 1,
+            SelectorLabels: selectorLabels);
     }
 
-    private static void FlattenCondChain(ExpressionAst expr, List<string> selectors, List<MuxInput> inputs)
+    /// <summary>
+    /// Converts an expression node into a <see cref="MuxSource"/>. Recognized cases:
+    ///  • <see cref="SignalRef"/>      → wire-source (signal name)
+    ///  • <see cref="ConstExpr"/>      → constant literal (e.g. "8'h0")
+    ///  • <see cref="BitSelectExpr"/>  → wire-source via the base varref
+    ///  • <see cref="ExtendExpr"/>     → wire-source via the inner expression
+    ///  • Anything else (complex sub-expression: BinaryExpr, ConcatExpr, etc.) →
+    ///    <see cref="MuxConstantSource"/> with literal "X" (don't-care).
+    ///
+    /// Verilator-internal signals (<c>__V*</c>) ALSO become don't-care: P2.5-4
+    /// hides their defining contassigns, so a mux input referencing one would
+    /// otherwise be an unconnected port with no producer. Marking it as X gives
+    /// the user a clear "don't care from a folded tmp" instead of a phantom wire
+    /// expectation. P2.6-1 (tmp fold) will replace this with the actual folded
+    /// expression once it lands.
+    /// </summary>
+    private static MuxSource ToMuxSource(ExpressionAst expr)
     {
-        if (expr is CondExpr c)
+        MuxSource result = expr switch
         {
-            string sel = ExpressionToSignalName(c.Condition) ?? "?";
-            // First time we see a selector at this depth: add to list. Re-use existing entries on subsequent depths
-            // to keep the mux compact when the same selector chain repeats.
-            if (selectors.Count <= GetCurrentDepth(inputs))
-                selectors.Add(sel);
-
-            // "true" branch becomes the next input
-            inputs.Add(new MuxInput("1", ToMuxSource(c.IfTrue)));
-
-            // Recurse into the "false" branch
-            FlattenCondChain(c.IfFalse, selectors, inputs);
-        }
-        else
-        {
-            // Terminal: the final "else" branch
-            inputs.Add(new MuxInput("0", ToMuxSource(expr)));
-        }
+            SignalRef s => new MuxSignalSource(s.Name),
+            ConstExpr c => new MuxConstantSource(c.Value.ToString(), c.Width),
+            _ => ExpressionToSignalName(expr) is { Length: > 0 } name
+                    ? new MuxSignalSource(name)
+                    : new MuxConstantSource("X", 1)
+        };
+        // Promote __V* internal-tmp references to don't-care so the renderer sees
+        // a labelled empty port instead of a silently-unconnected one.
+        if (result is MuxSignalSource sig && IsVerilatorInternalSignal(sig.SignalName))
+            return new MuxConstantSource("X", 1);
+        return result;
     }
-
-    private static int GetCurrentDepth(List<MuxInput> inputs) => inputs.Count;
-
-    private static MuxSource ToMuxSource(ExpressionAst expr) => expr switch
-    {
-        SignalRef s => new MuxSignalSource(s.Name),
-        ConstExpr c => new MuxConstantSource(c.Value.ToString(), c.Width),
-        _           => new MuxSignalSource(ExpressionToSignalName(expr) ?? "?")
-    };
 
     private static SchematicPrimitive? DecodeUnaryGate(string target, UnaryExpr u, int index)
     {
@@ -446,6 +541,23 @@ public static class SchematicDecoder
         SignalRef s        => s.Name,
         BitSelectExpr bs   => ExpressionToSignalName(bs.Base),
         ExtendExpr ex      => ExpressionToSignalName(ex.Inner),
+        _ => null
+    };
+
+    /// <summary>
+    /// Like <see cref="ExpressionToSignalName"/> but preserves bit-select range info
+    /// in the returned string (e.g. <c>"control_pins[3:2]"</c>) so chained-mux
+    /// selectors that probe different bits of the same parent signal are visually
+    /// distinguishable. Used only for DISPLAY labels — wire endpoint resolution
+    /// still uses the bare signal name via <see cref="ExpressionToSignalName"/>.
+    /// </summary>
+    private static string? ExpressionToReadableLabel(ExpressionAst expr) => expr switch
+    {
+        SignalRef s        => s.Name,
+        BitSelectExpr bs when ExpressionToSignalName(bs.Base) is { Length: > 0 } baseName
+                           => $"{baseName}{bs.Range}",
+        BitSelectExpr bs   => ExpressionToReadableLabel(bs.Base),
+        ExtendExpr ex      => ExpressionToReadableLabel(ex.Inner),
         _ => null
     };
 }

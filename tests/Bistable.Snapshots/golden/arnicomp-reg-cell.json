@@ -100,42 +100,6 @@
       "children": []
     },
     {
-      "id": "op_out",
-      "labels": [
-        "?:"
-      ],
-      "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
-      },
-      "ports": [
-        {
-          "id": "op_out.in.0",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_out.in.1",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "1",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_out.out",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "EAST"
-          }
-        }
-      ],
-      "children": []
-    },
-    {
       "id": "ff_reg_q",
       "labels": [
         "FF reg_q"
@@ -199,7 +163,7 @@
         {
           "id": "mux_out.in.1",
           "labels": [
-            "0"
+            "0\u00B70"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -209,7 +173,7 @@
         {
           "id": "mux_out.sel.0",
           "labels": [
-            "S"
+            "oe"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -250,19 +214,6 @@
         "boundary_in.oe"
       ],
       "targets": [
-        "op_out.in.0"
-      ],
-      "labels": [
-        "oe",
-        "1"
-      ]
-    },
-    {
-      "id": "e2",
-      "sources": [
-        "boundary_in.oe"
-      ],
-      "targets": [
         "mux_out.sel.0"
       ],
       "labels": [
@@ -271,7 +222,7 @@
       ]
     },
     {
-      "id": "e3",
+      "id": "e2",
       "sources": [
         "boundary_in.d"
       ],
@@ -284,46 +235,7 @@
       ]
     },
     {
-      "id": "e4",
-      "sources": [
-        "op_out.out"
-      ],
-      "targets": [
-        "boundary_out.out"
-      ],
-      "labels": [
-        "out",
-        "8"
-      ]
-    },
-    {
-      "id": "e5",
-      "sources": [
-        "mux_out.out"
-      ],
-      "targets": [
-        "boundary_out.out"
-      ],
-      "labels": [
-        "out",
-        "1"
-      ]
-    },
-    {
-      "id": "e6",
-      "sources": [
-        "ff_reg_q.q"
-      ],
-      "targets": [
-        "op_out.in.1"
-      ],
-      "labels": [
-        "reg_q",
-        "1"
-      ]
-    },
-    {
-      "id": "e7",
+      "id": "e3",
       "sources": [
         "ff_reg_q.q"
       ],
@@ -332,6 +244,19 @@
       ],
       "labels": [
         "reg_q",
+        "1"
+      ]
+    },
+    {
+      "id": "e4",
+      "sources": [
+        "mux_out.out"
+      ],
+      "targets": [
+        "boundary_out.out"
+      ],
+      "labels": [
+        "out",
         "1"
       ]
     }

@@ -48,13 +48,31 @@ public sealed record LatchPrimitive(
 
 // ── Combinational ─────────────────────────────────────────────────────────────
 
-/// <summary>N-to-1 multiplexer. Source: <see cref="CondExpr"/>, possibly nested.</summary>
+/// <summary>
+/// N-to-1 multiplexer. Source: <see cref="CondExpr"/>, possibly nested.
+/// <para>
+/// <see cref="SelectSignals"/> carries the BARE wire-up names used by the builder
+/// to register consumer endpoints (e.g. "control_pins"). <see cref="SelectorLabels"/>,
+/// when present, carries the human-readable display variant (e.g. "control_pins[3:2]")
+/// that the renderer paints next to each selector port. If null, the builder falls
+/// back to using <see cref="SelectSignals"/> for both wiring and display.
+/// </para>
+/// <para>
+/// The split exists because chained ternaries on bit-selects (e.g.
+/// <c>ctrl[2] ? a : ctrl[1] ? b : c</c>) need DISTINGUISHABLE selector labels
+/// at render time, but their wire endpoints all converge on the same parent signal
+/// "ctrl" — using the readable label as the wire-up key would leave the selector
+/// ports unconnected (no producer named "ctrl[2]").
+/// </para>
+/// </summary>
 public sealed record MuxPrimitive(
     string Id,
     string OutputSignal,
-    IReadOnlyList<string> SelectSignals,   // one selector per condition node; MSB-first
-    IReadOnlyList<MuxInput> Inputs,         // one entry per branch; count == 2^SelectSignals.Count for full mux, or sparse
-    int Width) : SchematicPrimitive(Id);
+    IReadOnlyList<string> SelectSignals,   // bare wire-up name, one per condition node; MSB-first
+    IReadOnlyList<MuxInput> Inputs,         // one entry per branch
+    int Width,
+    IReadOnlyList<string>? SelectorLabels = null   // display labels (optional, same arity as SelectSignals)
+) : SchematicPrimitive(Id);
 
 /// <summary>One input branch of a mux: its selector pattern and the signal/constant feeding it.</summary>
 public sealed record MuxInput(string Label, MuxSource Source);

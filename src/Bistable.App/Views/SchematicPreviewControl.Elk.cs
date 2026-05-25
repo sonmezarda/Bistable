@@ -484,9 +484,16 @@ public sealed partial class SchematicPreviewControl
         context.FillRectangle(fill, rect, 6);
         context.DrawRectangle(new Pen(stroke, 1.2), rect, 6);
 
+        // P2.5-2: title now sits with 8px top padding (was 4px) so its baseline
+        // clears the first port row even when the port label is tall. Combined
+        // with the bump to ModuleHeaderHeight=48 in the builder, the title and
+        // first port are guaranteed not to overlap.
         if (node.Labels is { Count: > 0 })
         {
-            DrawText(context, node.Labels[0].Text, rect.X + 8, rect.Y + 4, Palette.Text, 11);
+            string rawTitle = node.Labels[0].Text;
+            double titleMaxWidth = Math.Max(40, rect.Width - 16);
+            string title = Ellipsize(rawTitle, 11, titleMaxWidth);
+            DrawText(context, title, rect.X + 8, rect.Y + 8, Palette.Text, 11);
         }
 
         if (node.Ports is null)
@@ -514,8 +521,13 @@ public sealed partial class SchematicPreviewControl
 
         if (port.Labels is { Count: > 0 })
         {
-            string label = port.Labels[0].Text;
+            // P2.5-2: ellipsize long port labels so they never overlap with the
+            // node's title region or the opposite-side ports. Available width is
+            // half the node minus a safety margin (~12px), capped to a sensible max.
+            string rawLabel = port.Labels[0].Text;
             double labelGap = 9;
+            double maxLabelPx = Math.Max(40, nodeRect.Width * 0.5 - 12);
+            string label = Ellipsize(rawLabel, 9, maxLabelPx);
             double labelX = onEast ? px - labelGap - MeasureLabelWidth(label, 10) : px + labelGap;
             DrawText(context, label, labelX, py - 6, Palette.PinStroke, 9);
         }

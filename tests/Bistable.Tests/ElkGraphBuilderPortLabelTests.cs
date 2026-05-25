@@ -82,8 +82,10 @@ public sealed class ElkGraphBuilderPortLabelTests
         Assert.Equal("0", Assert.Single(in1.Labels!).Text);
     }
 
+    // P2.5-6: selector port labels now use the ACTUAL signal name instead of the
+    // misleading "S"/"S0"/"S1" placeholders (which implied a multi-bit selector).
     [Fact]
-    public void Mux_SingleSelector_LabeledS()
+    public void Mux_SingleSelector_LabeledWithSignalName()
     {
         MuxPrimitive mux = new(
             "mux_y_0", "y",
@@ -97,11 +99,11 @@ public sealed class ElkGraphBuilderPortLabelTests
 
         ElkPort sel = Assert.Single(result.Graph.Children.Single(n => ElkNodeIds.IsMux(n.Id)).Ports!,
             p => p.Id.EndsWith(".sel.0"));
-        Assert.Equal("S", Assert.Single(sel.Labels!).Text);
+        Assert.Equal("sel", Assert.Single(sel.Labels!).Text);
     }
 
     [Fact]
-    public void Mux_MultipleSelectors_LabeledS0AndS1()
+    public void Mux_MultipleSelectors_LabeledWithEachSignalName()
     {
         MuxPrimitive mux = new(
             "mux_y_0", "y",
@@ -115,6 +117,28 @@ public sealed class ElkGraphBuilderPortLabelTests
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
             new ElkScopeData([In("a"), In("b"), In("c"), In("s0", 1), In("s1", 1)], [], [], [], Primitives: [mux]),
+            compactLayout: true);
+
+        var node = result.Graph.Children.Single(n => ElkNodeIds.IsMux(n.Id));
+        ElkPort sel0 = Assert.Single(node.Ports!, p => p.Id.EndsWith(".sel.0"));
+        ElkPort sel1 = Assert.Single(node.Ports!, p => p.Id.EndsWith(".sel.1"));
+        Assert.Equal("s1", Assert.Single(sel0.Labels!).Text);   // SelectSignals[0]
+        Assert.Equal("s0", Assert.Single(sel1.Labels!).Text);   // SelectSignals[1]
+    }
+
+    [Fact]
+    public void Mux_SelectorWithEmptyName_FallsBackToSIndex()
+    {
+        // Defensive: if a malformed primitive has an empty selector name, fall back
+        // to "S0/S1" naming so the port is never label-less.
+        MuxPrimitive mux = new(
+            "mux_y_0", "y",
+            SelectSignals: ["", ""],
+            Inputs: [new("1", new MuxSignalSource("a")), new("1", new MuxSignalSource("b")), new("0", new MuxSignalSource("c"))],
+            Width: 8);
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData([In("a"), In("b"), In("c")], [], [], [], Primitives: [mux]),
             compactLayout: true);
 
         var node = result.Graph.Children.Single(n => ElkNodeIds.IsMux(n.Id));
@@ -184,8 +208,9 @@ public sealed class ElkGraphBuilderPortLabelTests
     [Fact]
     public void EachPrimitive_PortLabels_DoNotOverlapAcrossTypes()
     {
-        // FF uses {D, >, R, Q}; Latch uses {D, G, Q}; Mux uses {<branchLabel>, S/S0/S1, Y}.
-        // No "D" should bleed onto Mux ports, no "0/1" should bleed onto FF, etc.
+        // FF uses {D, >, R, Q}; Latch uses {D, G, Q}; Mux uses {<branchLabel>, <selectorSignalName>, Y}.
+        // P2.5-6: mux selector port now carries the actual selector signal name ("sel")
+        // instead of "S/S0/S1". Branch labels for 2-input mux remain "1"/"0" (clear).
         FlipFlopPrimitive ff = new("ff_q_0", "q", "clk", EdgeKind.Rising, null, null, "d_in", 8);
         MuxPrimitive mux = new(
             "mux_y_0", "y",
@@ -210,7 +235,7 @@ public sealed class ElkGraphBuilderPortLabelTests
         var latchLabels = latchNode.Ports!.Select(p => p.Labels![0].Text).ToHashSet();
 
         Assert.Equal(new[] { "D", ">", "Q" }.ToHashSet(), ffLabels);
-        Assert.Equal(new[] { "1", "0", "S", "Y" }.ToHashSet(), muxLabels);
+        Assert.Equal(new[] { "1", "0", "sel", "Y" }.ToHashSet(), muxLabels);
         Assert.Equal(new[] { "D", "G", "Q" }.ToHashSet(), latchLabels);
 
         // FF and Latch share "D" and "Q" (legitimate — both have data/output pins) but

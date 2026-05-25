@@ -11,7 +11,11 @@ namespace Bistable.App.Services.Routing.Elk;
 /// </summary>
 internal sealed class ElkGraphBuilder
 {
-    private const double ModuleHeaderHeight = 36;
+    // P2.5-2: bumped from 36 → 48 to give the sub-instance title baseline enough
+    // top padding so it never collides with the first port row. The title font
+    // is 13pt and the first port label can be ~14px tall — 36px was too tight
+    // and produced visible overlap (jump_decoder ↔ jmp_cond[3b] in arnicomp).
+    private const double ModuleHeaderHeight = 48;
     private const double ModuleFooterHeight = 16;
     private const double PortRowHeight = 22;
     private const double PortLabelCharWidth = 6.4;
@@ -44,25 +48,36 @@ internal sealed class ElkGraphBuilder
             AddChildNode(graph, child, portRefs, scope.ExpandedPaths, scope.PrimitivesByModule);
         }
 
-        // Collect target names that primitives will render. When a Gate/Arith primitive
-        // covers a target, suppress the legacy operator-node generation for that same
-        // target to avoid duplicate nodes. Buffer/Inverter primitives do not conflict
-        // (the legacy path never rendered single-source contassigns).
+        // Collect target names that primitives will render. When a primitive owns a
+        // target signal, the LEGACY operator-node generation for that same target
+        // must be suppressed to avoid duplicate nodes. This list MUST match the
+        // primitives that DispatchPrimitives actually renders — adding a primitive
+        // here without a corresponding dispatch case would silently drop the node.
+        //
+        // Joiner and Splitter primitives are NOT in this set because the builder
+        // keeps using the legacy AddJoinerNode/AddSplitterNode path for them; the
+        // decoder emits them but DispatchPrimitives skips them. Suppressing legacy
+        // for those primitives would erase the joiner/splitter from rendering.
         HashSet<string> primitiveOwnedTargets = scope.Primitives is null
             ? []
             : new HashSet<string>(
                 scope.Primitives
                     .Select(static p => p switch
                     {
-                        GatePrimitive g  => g.OutputSignal,
-                        ArithPrimitive a => a.OutputSignal,
+                        GatePrimitive g       => g.OutputSignal,
+                        ArithPrimitive a      => a.OutputSignal,
+                        MuxPrimitive mux      => mux.OutputSignal,
+                        BufferPrimitive buf   => buf.OutputSignal,
+                        InverterPrimitive inv => inv.OutputSignal,
                         _ => null
                     })
                     .Where(static t => t is not null)!,
                 StringComparer.OrdinalIgnoreCase);
 
         foreach (DesignContAssign assign in scope.ContAssigns
-                     .Where(a => a.SourceNames.Count >= 2 && !primitiveOwnedTargets.Contains(a.TargetName)))
+                     .Where(a => a.SourceNames.Count >= 2
+                                 && !primitiveOwnedTargets.Contains(a.TargetName)
+                                 && !SchematicDecoder.IsVerilatorInternalSignal(a.TargetName)))
         {
             if (IsConcatAssign(assign))
             {
@@ -87,6 +102,8 @@ internal sealed class ElkGraphBuilder
         foreach (IGrouping<string, DesignContAssign> group in scope.ContAssigns
                      .Where(static a => a.SourceRange.HasValue && a.SourceNames.Count == 1)
                      .Where(a => !fanOutStructBases.Contains(a.SourceNames[0]))
+                     .Where(static a => !SchematicDecoder.IsVerilatorInternalSignal(a.TargetName)
+                                        && !SchematicDecoder.IsVerilatorInternalSignal(a.SourceNames[0]))
                      .GroupBy(static a => a.SourceNames[0], StringComparer.OrdinalIgnoreCase))
         {
             AddSplitterNode(graph, scope, group.Key, [.. group.OrderByDescending(static a => a.SourceRange!.Value.Hi)], portRefs);
@@ -113,25 +130,28 @@ internal sealed class ElkGraphBuilder
         {
             switch (primitive)
             {
-                case FlipFlopPrimitive ff:  AddFlipFlopNode(graph, ff, portRefs); break;
-                case MuxPrimitive mux:      AddMuxNode(graph, mux, portRefs); break;
-                case LatchPrimitive lt:     AddLatchNode(graph, lt, portRefs); break;
-                case MemoryPrimitive mem:   AddMemoryNode(graph, mem); break;
-                case BufferPrimitive buf:   AddBufferNode(graph, buf, portRefs); break;
-                case InverterPrimitive inv: AddInverterNode(graph, inv, portRefs); break;
-                case GatePrimitive gate:    AddGateNode(graph, gate, portRefs); break;
-                case ArithPrimitive arith:  AddArithNode(graph, arith, portRefs); break;
+                case FlipFlopPrimitive ff:  AddFlipFlopNode(graph.Children, ff, portRefs); break;
+                case MuxPrimitive mux:      AddMuxNode(graph.Children, mux, portRefs); break;
+                case LatchPrimitive lt:     AddLatchNode(graph.Children, lt, portRefs); break;
+                case MemoryPrimitive mem:   AddMemoryNode(graph.Children, mem); break;
+                case BufferPrimitive buf:   AddBufferNode(graph.Children, buf, portRefs); break;
+                case InverterPrimitive inv: AddInverterNode(graph.Children, inv, portRefs); break;
+                case GatePrimitive gate:    AddGateNode(graph.Children, gate, portRefs); break;
+                case ArithPrimitive arith:  AddArithNode(graph.Children, arith, portRefs); break;
                 case StructFanOutPrimitive fanOut: AddStructFanOutNode(graph, fanOut, portRefs); break;
             }
         }
     }
 
     private static void AddFlipFlopNode(
-        ElkGraph graph,
+        IList<ElkNode> target,
         FlipFlopPrimitive ff,
-        Dictionary<string, ElkPortRef> portRefs)
+        Dictionary<string, ElkPortRef> portRefs,
+        string? nodeIdOverride = null,
+        string? portRefKeyPrefix = null)
     {
-        string nodeId = ElkNodeIds.ForFlipFlop(ff.QSignal);
+        string nodeId = nodeIdOverride ?? ElkNodeIds.ForFlipFlop(ff.QSignal);
+        string kp = portRefKeyPrefix ?? string.Empty;
         bool hasReset = !string.IsNullOrEmpty(ff.AsyncResetSignal);
 
         ElkNode node = new()
@@ -154,7 +174,7 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideWest, 0),
             Labels = [new ElkLabel { Text = "D" }]
         });
-        portRefs[ElkSignalKey.FlipFlopD(ff.QSignal)] =
+        portRefs[kp + ElkSignalKey.FlipFlopD(ff.QSignal)] =
             new ElkPortRef(nodeId, dPortId, ElkPortRole.FlipFlopD, ff.Width);
 
         string clkPortId = $"{nodeId}.clk";
@@ -164,7 +184,7 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideWest, 1),
             Labels = [new ElkLabel { Text = ">" }]   // edge-trigger marker
         });
-        portRefs[ElkSignalKey.FlipFlopClock(ff.QSignal)] =
+        portRefs[kp + ElkSignalKey.FlipFlopClock(ff.QSignal)] =
             new ElkPortRef(nodeId, clkPortId, ElkPortRole.FlipFlopClock, 1);
 
         if (hasReset)
@@ -176,7 +196,7 @@ internal sealed class ElkGraphBuilder
                 LayoutOptions = PortLayout(PortSideWest, 2),
                 Labels = [new ElkLabel { Text = "R" }]
             });
-            portRefs[ElkSignalKey.FlipFlopReset(ff.QSignal)] =
+            portRefs[kp + ElkSignalKey.FlipFlopReset(ff.QSignal)] =
                 new ElkPortRef(nodeId, rstPortId, ElkPortRole.FlipFlopReset, 1);
         }
 
@@ -188,18 +208,21 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideEast, 0),
             Labels = [new ElkLabel { Text = "Q" }]
         });
-        portRefs[ElkSignalKey.FlipFlopQ(ff.QSignal)] =
+        portRefs[kp + ElkSignalKey.FlipFlopQ(ff.QSignal)] =
             new ElkPortRef(nodeId, qPortId, ElkPortRole.FlipFlopQ, ff.Width);
 
-        graph.Children.Add(node);
+        target.Add(node);
     }
 
     private static void AddMuxNode(
-        ElkGraph graph,
+        IList<ElkNode> target,
         MuxPrimitive mux,
-        Dictionary<string, ElkPortRef> portRefs)
+        Dictionary<string, ElkPortRef> portRefs,
+        string? nodeIdOverride = null,
+        string? portRefKeyPrefix = null)
     {
-        string nodeId = ElkNodeIds.ForMux(mux.OutputSignal);
+        string nodeId = nodeIdOverride ?? ElkNodeIds.ForMux(mux.OutputSignal);
+        string kp = portRefKeyPrefix ?? string.Empty;
         int dataInputCount = mux.Inputs.Count;
         int selectorCount = mux.SelectSignals.Count;
 
@@ -230,22 +253,32 @@ internal sealed class ElkGraphBuilder
                 LayoutOptions = PortLayout(PortSideWest, westIndex++),
                 Labels = [new ElkLabel { Text = label }]
             });
-            portRefs[ElkSignalKey.MuxInput(mux.OutputSignal, i)] =
+            portRefs[kp + ElkSignalKey.MuxInput(mux.OutputSignal, i)] =
                 new ElkPortRef(nodeId, portId, ElkPortRole.MuxInput, mux.Width);
         }
 
-        // West-side selectors below the data inputs
+        // West-side selectors below the data inputs.
+        // P2.5-6: label each selector port with its ACTUAL signal name (e.g. "sel",
+        // "op_sel", "s2") instead of generic "S0/S1/S2" placeholders that previously
+        // implied bits of a single multi-bit selector. The N selectors in a chained
+        // ternary are N separate signals — this labeling makes that explicit.
+        // When the decoder provided richer display labels via SelectorLabels (e.g.
+        // "ctrl[3:2]" for a bit-select condition), use those for the port glyph —
+        // SelectSignals stays as the BARE name for endpoint wire-up.
         for (int i = 0; i < selectorCount; i++)
         {
             string portId = $"{nodeId}.sel.{i}";
-            string label = selectorCount == 1 ? "S" : $"S{i}";
+            string displayLabel = mux.SelectorLabels is { } labels && i < labels.Count && !string.IsNullOrEmpty(labels[i])
+                ? labels[i]
+                : mux.SelectSignals[i];
+            string label = string.IsNullOrEmpty(displayLabel) ? $"S{i}" : displayLabel;
             node.Ports!.Add(new ElkPort
             {
                 Id = portId,
                 LayoutOptions = PortLayout(PortSideWest, westIndex++),
                 Labels = [new ElkLabel { Text = label }]
             });
-            portRefs[ElkSignalKey.MuxSelect(mux.OutputSignal, i)] =
+            portRefs[kp + ElkSignalKey.MuxSelect(mux.OutputSignal, i)] =
                 new ElkPortRef(nodeId, portId, ElkPortRole.MuxSelect, 1);
         }
 
@@ -257,18 +290,21 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideEast, 0),
             Labels = [new ElkLabel { Text = "Y" }]
         });
-        portRefs[ElkSignalKey.MuxOutput(mux.OutputSignal)] =
+        portRefs[kp + ElkSignalKey.MuxOutput(mux.OutputSignal)] =
             new ElkPortRef(nodeId, outPortId, ElkPortRole.MuxOutput, mux.Width);
 
-        graph.Children.Add(node);
+        target.Add(node);
     }
 
     private static void AddLatchNode(
-        ElkGraph graph,
+        IList<ElkNode> target,
         LatchPrimitive latch,
-        Dictionary<string, ElkPortRef> portRefs)
+        Dictionary<string, ElkPortRef> portRefs,
+        string? nodeIdOverride = null,
+        string? portRefKeyPrefix = null)
     {
-        string nodeId = ElkNodeIds.ForLatch(latch.QSignal);
+        string nodeId = nodeIdOverride ?? ElkNodeIds.ForLatch(latch.QSignal);
+        string kp = portRefKeyPrefix ?? string.Empty;
 
         ElkNode node = new()
         {
@@ -288,7 +324,7 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideWest, 0),
             Labels = [new ElkLabel { Text = "D" }]
         });
-        portRefs[ElkSignalKey.LatchD(latch.QSignal)] =
+        portRefs[kp + ElkSignalKey.LatchD(latch.QSignal)] =
             new ElkPortRef(nodeId, dPortId, ElkPortRole.LatchD, latch.Width);
 
         string gPortId = $"{nodeId}.g";
@@ -298,7 +334,7 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideWest, 1),
             Labels = [new ElkLabel { Text = "G" }]
         });
-        portRefs[ElkSignalKey.LatchGate(latch.QSignal)] =
+        portRefs[kp + ElkSignalKey.LatchGate(latch.QSignal)] =
             new ElkPortRef(nodeId, gPortId, ElkPortRole.LatchGate, 1);
 
         // East: Q
@@ -309,184 +345,88 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideEast, 0),
             Labels = [new ElkLabel { Text = "Q" }]
         });
-        portRefs[ElkSignalKey.LatchQ(latch.QSignal)] =
+        portRefs[kp + ElkSignalKey.LatchQ(latch.QSignal)] =
             new ElkPortRef(nodeId, qPortId, ElkPortRole.LatchQ, latch.Width);
 
-        graph.Children.Add(node);
+        target.Add(node);
     }
 
-    // ── P2-8: inner-primitive nodes for expanded compounds ──────────────────
+    // ── P2.5-5: inner-primitive dispatch for expanded compounds ──────────────
     //
-    // These produce display-only ELK nodes (visual presence inside the compound)
-    // without registering port refs in the outer-scope map. Inner-scope edge wiring
-    // — wiring an inner FF's D pin to the compound's "clk" boundary input, for
-    // example — is the P2-8b follow-up. Until then, the compound's interior shows
-    // the primitives as nodes but their pins are unconnected.
+    // When a compound child is expanded, each of its module's primitives is added
+    // as an ELK child node of the compound using the same Add{FlipFlop,Mux,...}Node
+    // builders the outer scope uses — so the renderer's IsFlipFlop/IsMux/...
+    // discriminators dispatch to the proper symbol drawer (clock triangle, mux
+    // trapezoid, inverter bubble, etc.) instead of falling back to the generic
+    // DrawElkNodeCard path.
     //
-    // IDs are prefixed with the compound child's scope (e.g. "child_top_acc/ff_q")
-    // so they cannot collide with outer-scope primitive IDs of the same signal
-    // name in a different module.
-    // P2-8b: populate portRefs with scoped keys for each inner primitive port so that
-    // CollectInsidePrimitiveEndpoints can resolve them when building edges.
-    // Key format: "@inner::{compoundPath}" + ElkSignalKey.X(signal) — distinct from outer scope keys.
-    private static void RegisterInnerPrimitivePortRefs(
+    // The inner node IDs encode the compound's hierarchy path AFTER the type
+    // prefix (`ff_<scope>__<sig>`) so the StartsWith-based dispatch still fires.
+    // PortRef keys are stored under "@inner::<compoundPath>" so the inner-scope
+    // edge collector (CollectInsidePrimitiveEndpoints) can resolve them without
+    // colliding with outer-scope keys for the same signal name.
+    private static void AddInnerPrimitiveNode(
+        IList<ElkNode> target,
+        SchematicPrimitive primitive,
         string compoundPath,
-        IReadOnlyList<SchematicPrimitive> innerPrimitives,
         Dictionary<string, ElkPortRef> portRefs)
     {
-        string scope = ElkNodeIds.ForChild(compoundPath);
-        string prefix = "@inner::" + compoundPath;
-
-        foreach (SchematicPrimitive primitive in innerPrimitives)
+        string keyPrefix = "@inner::" + compoundPath;
+        switch (primitive)
         {
-            switch (primitive)
-            {
-                case FlipFlopPrimitive ff:
-                {
-                    string id = $"{scope}/{ElkNodeIds.ForFlipFlop(ff.QSignal)}";
-                    bool hasReset = !string.IsNullOrEmpty(ff.AsyncResetSignal);
-                    portRefs[prefix + ElkSignalKey.FlipFlopD(ff.QSignal)]     = new(id, $"{id}.in.0", ElkPortRole.FlipFlopD, ff.Width);
-                    portRefs[prefix + ElkSignalKey.FlipFlopClock(ff.QSignal)] = new(id, $"{id}.in.1", ElkPortRole.FlipFlopClock, ff.Width);
-                    if (hasReset)
-                        portRefs[prefix + ElkSignalKey.FlipFlopReset(ff.QSignal)] = new(id, $"{id}.in.2", ElkPortRole.FlipFlopReset, ff.Width);
-                    portRefs[prefix + ElkSignalKey.FlipFlopQ(ff.QSignal)] = new(id, $"{id}.out", ElkPortRole.FlipFlopQ, ff.Width);
-                    break;
-                }
-                case LatchPrimitive lt:
-                {
-                    string id = $"{scope}/{ElkNodeIds.ForLatch(lt.QSignal)}";
-                    portRefs[prefix + ElkSignalKey.LatchD(lt.QSignal)]    = new(id, $"{id}.in.0", ElkPortRole.LatchD, lt.Width);
-                    portRefs[prefix + ElkSignalKey.LatchGate(lt.QSignal)] = new(id, $"{id}.in.1", ElkPortRole.LatchGate, lt.Width);
-                    portRefs[prefix + ElkSignalKey.LatchQ(lt.QSignal)]    = new(id, $"{id}.out",  ElkPortRole.LatchQ, lt.Width);
-                    break;
-                }
-                case MuxPrimitive mux:
-                {
-                    string id = $"{scope}/{ElkNodeIds.ForMux(mux.OutputSignal)}";
-                    for (int i = 0; i < mux.Inputs.Count; i++)
-                        portRefs[prefix + ElkSignalKey.MuxInput(mux.OutputSignal, i)] = new(id, $"{id}.in.{i}", ElkPortRole.MuxInput, mux.Width);
-                    for (int i = 0; i < mux.SelectSignals.Count; i++)
-                        portRefs[prefix + ElkSignalKey.MuxSelect(mux.OutputSignal, i)] = new(id, $"{id}.in.{mux.Inputs.Count + i}", ElkPortRole.MuxSelect, 1);
-                    portRefs[prefix + ElkSignalKey.MuxOutput(mux.OutputSignal)] = new(id, $"{id}.out", ElkPortRole.MuxOutput, mux.Width);
-                    break;
-                }
-                case BufferPrimitive buf:
-                {
-                    string id = $"{scope}/{ElkNodeIds.ForBuffer(buf.OutputSignal)}";
-                    portRefs[prefix + ElkSignalKey.BufferIn(buf.OutputSignal)]  = new(id, $"{id}.in.0", ElkPortRole.BufferIn, buf.Width);
-                    portRefs[prefix + ElkSignalKey.BufferOut(buf.OutputSignal)] = new(id, $"{id}.out",  ElkPortRole.BufferOut, buf.Width);
-                    break;
-                }
-                case InverterPrimitive inv:
-                {
-                    string id = $"{scope}/{ElkNodeIds.ForInverter(inv.OutputSignal)}";
-                    portRefs[prefix + ElkSignalKey.InverterIn(inv.OutputSignal)]  = new(id, $"{id}.in.0", ElkPortRole.InverterIn, inv.Width);
-                    portRefs[prefix + ElkSignalKey.InverterOut(inv.OutputSignal)] = new(id, $"{id}.out",  ElkPortRole.InverterOut, inv.Width);
-                    break;
-                }
-                case GatePrimitive gate:
-                {
-                    string id = $"{scope}/{ElkNodeIds.ForGate(gate.OutputSignal)}";
-                    for (int i = 0; i < gate.InputSignals.Count; i++)
-                        portRefs[prefix + ElkSignalKey.GateInput(gate.OutputSignal, i)] = new(id, $"{id}.in.{i}", ElkPortRole.GateInput, gate.Width);
-                    portRefs[prefix + ElkSignalKey.GateOutput(gate.OutputSignal)] = new(id, $"{id}.out", ElkPortRole.GateOutput, gate.Width);
-                    break;
-                }
-                case ArithPrimitive arith:
-                {
-                    string id = $"{scope}/{ElkNodeIds.ForArith(arith.OutputSignal)}";
-                    portRefs[prefix + ElkSignalKey.ArithLeft(arith.OutputSignal)]   = new(id, $"{id}.in.0", ElkPortRole.ArithLeft, arith.Width);
-                    portRefs[prefix + ElkSignalKey.ArithRight(arith.OutputSignal)]  = new(id, $"{id}.in.1", ElkPortRole.ArithRight, arith.Width);
-                    portRefs[prefix + ElkSignalKey.ArithOutput(arith.OutputSignal)] = new(id, $"{id}.out",  ElkPortRole.ArithOutput, arith.Width);
-                    break;
-                }
-            }
+            case FlipFlopPrimitive ff:
+                AddFlipFlopNode(target, ff, portRefs,
+                    nodeIdOverride: ElkNodeIds.ForInnerFlipFlop(compoundPath, ff.QSignal),
+                    portRefKeyPrefix: keyPrefix);
+                break;
+            case MuxPrimitive mux:
+                AddMuxNode(target, mux, portRefs,
+                    nodeIdOverride: ElkNodeIds.ForInnerMux(compoundPath, mux.OutputSignal),
+                    portRefKeyPrefix: keyPrefix);
+                break;
+            case LatchPrimitive lt:
+                AddLatchNode(target, lt, portRefs,
+                    nodeIdOverride: ElkNodeIds.ForInnerLatch(compoundPath, lt.QSignal),
+                    portRefKeyPrefix: keyPrefix);
+                break;
+            case BufferPrimitive buf:
+                AddBufferNode(target, buf, portRefs,
+                    nodeIdOverride: ElkNodeIds.ForInnerBuffer(compoundPath, buf.OutputSignal),
+                    portRefKeyPrefix: keyPrefix);
+                break;
+            case InverterPrimitive inv:
+                AddInverterNode(target, inv, portRefs,
+                    nodeIdOverride: ElkNodeIds.ForInnerInverter(compoundPath, inv.OutputSignal),
+                    portRefKeyPrefix: keyPrefix);
+                break;
+            case GatePrimitive gate:
+                AddGateNode(target, gate, portRefs,
+                    nodeIdOverride: ElkNodeIds.ForInnerGate(compoundPath, gate.OutputSignal),
+                    portRefKeyPrefix: keyPrefix);
+                break;
+            case ArithPrimitive arith:
+                AddArithNode(target, arith, portRefs,
+                    nodeIdOverride: ElkNodeIds.ForInnerArith(compoundPath, arith.OutputSignal),
+                    portRefKeyPrefix: keyPrefix);
+                break;
+            case MemoryPrimitive mem:
+                AddMemoryNode(target, mem,
+                    nodeIdOverride: ElkNodeIds.ForInnerMemory(compoundPath, mem.SignalName));
+                break;
         }
-    }
-
-    private static ElkNode? BuildInnerPrimitiveNode(SchematicPrimitive primitive, string compoundIdScope)
-    {
-        return primitive switch
-        {
-            FlipFlopPrimitive ff => MakeInnerNode($"{compoundIdScope}/{ElkNodeIds.ForFlipFlop(ff.QSignal)}",
-                64, ff.AsyncResetSignal is null ? 48 : 60, "FF " + ff.QSignal,
-                ff.AsyncResetSignal is null ? ["D", ">", "Q"] : ["D", ">", "R", "Q"]),
-            LatchPrimitive l => MakeInnerNode($"{compoundIdScope}/{ElkNodeIds.ForLatch(l.QSignal)}",
-                56, 48, "L " + l.QSignal, ["D", "G", "Q"]),
-            MuxPrimitive mux => MakeInnerNode($"{compoundIdScope}/{ElkNodeIds.ForMux(mux.OutputSignal)}",
-                72, Math.Max(48, 16 + (mux.Inputs.Count + mux.SelectSignals.Count) * 14),
-                "MUX " + mux.OutputSignal,
-                [.. mux.Inputs.Select((m, _) => m.Label),
-                 .. (mux.SelectSignals.Count == 1
-                     ? new[] { "S" }
-                     : Enumerable.Range(0, mux.SelectSignals.Count).Select(i => $"S{i}").ToArray()),
-                 "Y"]),
-            MemoryPrimitive mem => MakeInnerNode($"{compoundIdScope}/{ElkNodeIds.ForMemory(mem.SignalName)}",
-                96, Math.Min(120, Math.Max(48, 24 + mem.Depth * 2)),
-                $"MEM {mem.SignalName} [{mem.DepthHi}:{mem.DepthLo}]×{mem.CellWidth}",
-                []),
-            BufferPrimitive buf => MakeInnerNode($"{compoundIdScope}/{ElkNodeIds.ForBuffer(buf.OutputSignal)}",
-                40, 28, "BUF " + buf.OutputSignal, ["A", "Y"]),
-            InverterPrimitive inv => MakeInnerNode($"{compoundIdScope}/{ElkNodeIds.ForInverter(inv.OutputSignal)}",
-                44, 32, "INV " + inv.OutputSignal, ["A", "Y"]),
-            GatePrimitive g => MakeInnerNode($"{compoundIdScope}/{ElkNodeIds.ForGate(g.OutputSignal)}",
-                56, Math.Max(40, 16 + g.InputSignals.Count * 14),
-                $"{g.Kind} {g.OutputSignal}",
-                [.. (g.InputSignals.Count switch
-                {
-                    1 => new[] { "A" },
-                    2 => new[] { "A", "B" },
-                    _ => Enumerable.Range(0, g.InputSignals.Count).Select(i => $"I{i}").ToArray()
-                }), "Y"]),
-            ArithPrimitive a => MakeInnerNode($"{compoundIdScope}/{ElkNodeIds.ForArith(a.OutputSignal)}",
-                60, 44, $"{a.Kind} {a.OutputSignal}", ["A", "B", "Y"]),
-            _ => null
-        };
-    }
-
-    private static ElkNode MakeInnerNode(string nodeId, double width, double height, string title, string[] portLabels)
-    {
-        ElkNode node = new()
-        {
-            Id = nodeId,
-            Width = width,
-            Height = height,
-            LayoutOptions = FixedOrderPortConstraints(),
-            Labels = [new ElkLabel { Text = title }],
-            Ports = []
-        };
-
-        // Last label is the output (east); the rest are inputs (west, top-to-bottom)
-        int westCount = Math.Max(0, portLabels.Length - 1);
-        for (int i = 0; i < westCount; i++)
-        {
-            node.Ports!.Add(new ElkPort
-            {
-                Id = $"{nodeId}.in.{i}",
-                LayoutOptions = PortLayout(PortSideWest, i),
-                Labels = [new ElkLabel { Text = portLabels[i] }]
-            });
-        }
-
-        if (portLabels.Length > 0)
-        {
-            node.Ports!.Add(new ElkPort
-            {
-                Id = $"{nodeId}.out",
-                LayoutOptions = PortLayout(PortSideEast, 0),
-                Labels = [new ElkLabel { Text = portLabels[^1] }]
-            });
-        }
-
-        return node;
     }
 
     // ── Buffer / Inverter / Gate / Arith (P2-4d) ─────────────────────────
 
     private static void AddBufferNode(
-        ElkGraph graph, BufferPrimitive buf, Dictionary<string, ElkPortRef> portRefs)
+        IList<ElkNode> target,
+        BufferPrimitive buf,
+        Dictionary<string, ElkPortRef> portRefs,
+        string? nodeIdOverride = null,
+        string? portRefKeyPrefix = null)
     {
-        string nodeId = ElkNodeIds.ForBuffer(buf.OutputSignal);
+        string nodeId = nodeIdOverride ?? ElkNodeIds.ForBuffer(buf.OutputSignal);
+        string kp = portRefKeyPrefix ?? string.Empty;
         ElkNode node = new()
         {
             Id = nodeId,
@@ -504,7 +444,7 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideWest, 0),
             Labels = [new ElkLabel { Text = "A" }]
         });
-        portRefs[ElkSignalKey.BufferIn(buf.OutputSignal)] =
+        portRefs[kp + ElkSignalKey.BufferIn(buf.OutputSignal)] =
             new ElkPortRef(nodeId, inPortId, ElkPortRole.BufferIn, buf.Width);
 
         string outPortId = $"{nodeId}.out";
@@ -514,16 +454,21 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideEast, 0),
             Labels = [new ElkLabel { Text = "Y" }]
         });
-        portRefs[ElkSignalKey.BufferOut(buf.OutputSignal)] =
+        portRefs[kp + ElkSignalKey.BufferOut(buf.OutputSignal)] =
             new ElkPortRef(nodeId, outPortId, ElkPortRole.BufferOut, buf.Width);
 
-        graph.Children.Add(node);
+        target.Add(node);
     }
 
     private static void AddInverterNode(
-        ElkGraph graph, InverterPrimitive inv, Dictionary<string, ElkPortRef> portRefs)
+        IList<ElkNode> target,
+        InverterPrimitive inv,
+        Dictionary<string, ElkPortRef> portRefs,
+        string? nodeIdOverride = null,
+        string? portRefKeyPrefix = null)
     {
-        string nodeId = ElkNodeIds.ForInverter(inv.OutputSignal);
+        string nodeId = nodeIdOverride ?? ElkNodeIds.ForInverter(inv.OutputSignal);
+        string kp = portRefKeyPrefix ?? string.Empty;
         ElkNode node = new()
         {
             Id = nodeId,
@@ -541,7 +486,7 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideWest, 0),
             Labels = [new ElkLabel { Text = "A" }]
         });
-        portRefs[ElkSignalKey.InverterIn(inv.OutputSignal)] =
+        portRefs[kp + ElkSignalKey.InverterIn(inv.OutputSignal)] =
             new ElkPortRef(nodeId, inPortId, ElkPortRole.InverterIn, inv.Width);
 
         string outPortId = $"{nodeId}.out";
@@ -551,16 +496,21 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideEast, 0),
             Labels = [new ElkLabel { Text = "Y" }]
         });
-        portRefs[ElkSignalKey.InverterOut(inv.OutputSignal)] =
+        portRefs[kp + ElkSignalKey.InverterOut(inv.OutputSignal)] =
             new ElkPortRef(nodeId, outPortId, ElkPortRole.InverterOut, inv.Width);
 
-        graph.Children.Add(node);
+        target.Add(node);
     }
 
     private static void AddGateNode(
-        ElkGraph graph, GatePrimitive gate, Dictionary<string, ElkPortRef> portRefs)
+        IList<ElkNode> target,
+        GatePrimitive gate,
+        Dictionary<string, ElkPortRef> portRefs,
+        string? nodeIdOverride = null,
+        string? portRefKeyPrefix = null)
     {
-        string nodeId = ElkNodeIds.ForGate(gate.OutputSignal);
+        string nodeId = nodeIdOverride ?? ElkNodeIds.ForGate(gate.OutputSignal);
+        string kp = portRefKeyPrefix ?? string.Empty;
         int inputCount = gate.InputSignals.Count;
         double height = Math.Max(40, 16 + inputCount * 14);
 
@@ -590,7 +540,7 @@ internal sealed class ElkGraphBuilder
                 LayoutOptions = PortLayout(PortSideWest, i),
                 Labels = [new ElkLabel { Text = label }]
             });
-            portRefs[ElkSignalKey.GateInput(gate.OutputSignal, i)] =
+            portRefs[kp + ElkSignalKey.GateInput(gate.OutputSignal, i)] =
                 new ElkPortRef(nodeId, portId, ElkPortRole.GateInput, gate.Width);
         }
 
@@ -601,16 +551,21 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideEast, 0),
             Labels = [new ElkLabel { Text = "Y" }]
         });
-        portRefs[ElkSignalKey.GateOutput(gate.OutputSignal)] =
+        portRefs[kp + ElkSignalKey.GateOutput(gate.OutputSignal)] =
             new ElkPortRef(nodeId, outPortId, ElkPortRole.GateOutput, gate.Width);
 
-        graph.Children.Add(node);
+        target.Add(node);
     }
 
     private static void AddArithNode(
-        ElkGraph graph, ArithPrimitive arith, Dictionary<string, ElkPortRef> portRefs)
+        IList<ElkNode> target,
+        ArithPrimitive arith,
+        Dictionary<string, ElkPortRef> portRefs,
+        string? nodeIdOverride = null,
+        string? portRefKeyPrefix = null)
     {
-        string nodeId = ElkNodeIds.ForArith(arith.OutputSignal);
+        string nodeId = nodeIdOverride ?? ElkNodeIds.ForArith(arith.OutputSignal);
+        string kp = portRefKeyPrefix ?? string.Empty;
         ElkNode node = new()
         {
             Id = nodeId,
@@ -629,7 +584,7 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideWest, 0),
             Labels = [new ElkLabel { Text = "A" }]
         });
-        portRefs[ElkSignalKey.ArithLeft(arith.OutputSignal)] =
+        portRefs[kp + ElkSignalKey.ArithLeft(arith.OutputSignal)] =
             new ElkPortRef(nodeId, leftId, ElkPortRole.ArithLeft, arith.Width);
 
         string rightId = $"{nodeId}.r";
@@ -639,7 +594,7 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideWest, 1),
             Labels = [new ElkLabel { Text = "B" }]
         });
-        portRefs[ElkSignalKey.ArithRight(arith.OutputSignal)] =
+        portRefs[kp + ElkSignalKey.ArithRight(arith.OutputSignal)] =
             new ElkPortRef(nodeId, rightId, ElkPortRole.ArithRight, arith.Width);
 
         string outPortId = $"{nodeId}.out";
@@ -649,10 +604,10 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = PortLayout(PortSideEast, 0),
             Labels = [new ElkLabel { Text = "Y" }]
         });
-        portRefs[ElkSignalKey.ArithOutput(arith.OutputSignal)] =
+        portRefs[kp + ElkSignalKey.ArithOutput(arith.OutputSignal)] =
             new ElkPortRef(nodeId, outPortId, ElkPortRole.ArithOutput, arith.Width);
 
-        graph.Children.Add(node);
+        target.Add(node);
     }
 
     // ── Struct fan-out (P2-11) ───────────────────────────────────────────
@@ -708,10 +663,13 @@ internal sealed class ElkGraphBuilder
         graph.Children.Add(node);
     }
 
-    private static void AddMemoryNode(ElkGraph graph, MemoryPrimitive mem)
+    private static void AddMemoryNode(
+        IList<ElkNode> target,
+        MemoryPrimitive mem,
+        string? nodeIdOverride = null)
     {
         // Memory is a tile node (no edges yet — array access plumbing comes later).
-        string nodeId = ElkNodeIds.ForMemory(mem.SignalName);
+        string nodeId = nodeIdOverride ?? ElkNodeIds.ForMemory(mem.SignalName);
         double height = Math.Min(120, Math.Max(48, 24 + mem.Depth * 2));
 
         ElkNode node = new()
@@ -724,7 +682,7 @@ internal sealed class ElkGraphBuilder
             Ports = []
         };
 
-        graph.Children.Add(node);
+        target.Add(node);
     }
 
     private static void AddOperatorNode(
@@ -1118,25 +1076,22 @@ internal sealed class ElkGraphBuilder
             parent.Children.Add(BuildChildNode(grandchild, portRefs, expandedPaths, primitivesByModule));
         }
 
-        // P2-8: render the compound's inner primitives (FF / Mux / Latch / Memory /
-        // Buffer / Inverter / Gate / Arith) so the user can see the module's interior
-        // even when it has no sub-instances. IDs are prefixed with the compound's
-        // hierarchy path to avoid collisions with outer-scope primitives. Edge
-        // wiring inside the compound (between inner primitives and the compound's
-        // boundary ports) is a follow-up task — see PHASE-2.md P2-8b.
+        // P2.5-5: render the compound's inner primitives (FF / Mux / Latch / Memory /
+        // Buffer / Inverter / Gate / Arith) using the SAME Add{FlipFlop,...}Node
+        // builders the outer scope uses, with scope-encoded node IDs (so the
+        // StartsWith-based symbol dispatch in DrawElkNodesRecursive fires correctly)
+        // and a "@inner::<path>" port-ref key prefix (so CollectInsidePrimitiveEndpoints
+        // can resolve inner pins without colliding with outer scope keys).
+        int innerCount = 0;
         if (primitivesByModule is not null
             && primitivesByModule.TryGetValue(child.ModuleName, out IReadOnlyList<SchematicPrimitive>? innerPrimitives)
             && innerPrimitives.Count > 0)
         {
-            string compoundIdScope = ElkNodeIds.ForChild(child.HierarchyPath);
             foreach (SchematicPrimitive primitive in innerPrimitives)
             {
-                ElkNode? innerNode = BuildInnerPrimitiveNode(primitive, compoundIdScope);
-                if (innerNode is not null)
-                    parent.Children.Add(innerNode);
+                AddInnerPrimitiveNode(parent.Children, primitive, child.HierarchyPath, portRefs);
             }
-            // P2-8b: register inner port refs so CollectInsidePrimitiveEndpoints can build edges.
-            RegisterInnerPrimitivePortRefs(child.HierarchyPath, innerPrimitives, portRefs);
+            innerCount = innerPrimitives.Count;
         }
 
         parent.LayoutOptions ??= new Dictionary<string, string>();
@@ -1145,8 +1100,14 @@ internal sealed class ElkGraphBuilder
         parent.LayoutOptions["elk.direction"] = "RIGHT";
         parent.LayoutOptions["elk.padding"] = "[top=48,left=24,right=24,bottom=20]";
         // Compound nodes need a generous min size so their children layout cleanly.
-        parent.Width = Math.Max(parent.Width, 320);
-        parent.Height = Math.Max(parent.Height, 200);
+        // P2.5-5: grow with inner content so symbols don't pile on top of each other —
+        // each grandchild instance is ~module-width worth of horizontal layered space,
+        // each inner primitive is narrower but still needs room for its title + ports.
+        int grandchildCount = child.ChildInstances.Count;
+        double requiredWidth  = 320 + grandchildCount * 80 + innerCount * 40;
+        double requiredHeight = 200 + Math.Max(0, innerCount - 4) * 24;
+        parent.Width  = Math.Max(parent.Width,  requiredWidth);
+        parent.Height = Math.Max(parent.Height, requiredHeight);
     }
 
     private static void AddEdges(ElkGraph graph, ElkScopeData scope, Dictionary<string, ElkPortRef> portRefs)
@@ -2008,6 +1969,19 @@ internal static class ElkNodeIds
     public static string ForInverter(string outputSignal) => "inv_" + SanitizeId(outputSignal);
     public static string ForGate(string outputSignal) => "gate_" + SanitizeId(outputSignal);
     public static string ForArith(string outputSignal) => "arith_" + SanitizeId(outputSignal);
+
+    // P2.5-5: inner-primitive IDs keep the type prefix at the START so the renderer's
+    // IsFlipFlop/IsMux/... discriminators (StartsWith) dispatch to the proper symbol
+    // drawer. Scope is encoded as a suffix separated by `__` to avoid colliding with
+    // outer-scope primitives that share the same signal name.
+    public static string ForInnerFlipFlop(string scopePath, string qSignal)        => "ff_"    + SanitizeId(scopePath) + "__" + SanitizeId(qSignal);
+    public static string ForInnerMux(string scopePath, string outputSignal)        => "mux_"   + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
+    public static string ForInnerLatch(string scopePath, string qSignal)           => "latch_" + SanitizeId(scopePath) + "__" + SanitizeId(qSignal);
+    public static string ForInnerMemory(string scopePath, string signalName)       => "mem_"   + SanitizeId(scopePath) + "__" + SanitizeId(signalName);
+    public static string ForInnerBuffer(string scopePath, string outputSignal)     => "buf_"   + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
+    public static string ForInnerInverter(string scopePath, string outputSignal)   => "inv_"   + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
+    public static string ForInnerGate(string scopePath, string outputSignal)       => "gate_"  + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
+    public static string ForInnerArith(string scopePath, string outputSignal)      => "arith_" + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
 
     public static bool IsOperator(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("op_", StringComparison.Ordinal);

@@ -80,50 +80,6 @@
       "children": []
     },
     {
-      "id": "op_y",
-      "labels": [
-        "?:"
-      ],
-      "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
-      },
-      "ports": [
-        {
-          "id": "op_y.in.0",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_y.in.1",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "1",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_y.in.2",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "2",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_y.out",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "EAST"
-          }
-        }
-      ],
-      "children": []
-    },
-    {
       "id": "mux_y",
       "labels": [
         "MUX y"
@@ -155,7 +111,7 @@
         {
           "id": "mux_y.sel.0",
           "labels": [
-            "S"
+            "sel"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -183,19 +139,6 @@
         "boundary_in.sel"
       ],
       "targets": [
-        "op_y.in.0"
-      ],
-      "labels": [
-        "sel",
-        "1"
-      ]
-    },
-    {
-      "id": "e1",
-      "sources": [
-        "boundary_in.sel"
-      ],
-      "targets": [
         "mux_y.sel.0"
       ],
       "labels": [
@@ -204,20 +147,7 @@
       ]
     },
     {
-      "id": "e2",
-      "sources": [
-        "boundary_in.a"
-      ],
-      "targets": [
-        "op_y.in.1"
-      ],
-      "labels": [
-        "a",
-        "1"
-      ]
-    },
-    {
-      "id": "e3",
+      "id": "e1",
       "sources": [
         "boundary_in.a"
       ],
@@ -230,20 +160,7 @@
       ]
     },
     {
-      "id": "e4",
-      "sources": [
-        "boundary_in.b"
-      ],
-      "targets": [
-        "op_y.in.2"
-      ],
-      "labels": [
-        "b",
-        "1"
-      ]
-    },
-    {
-      "id": "e5",
+      "id": "e2",
       "sources": [
         "boundary_in.b"
       ],
@@ -256,20 +173,7 @@
       ]
     },
     {
-      "id": "e6",
-      "sources": [
-        "op_y.out"
-      ],
-      "targets": [
-        "boundary_out.y"
-      ],
-      "labels": [
-        "y",
-        "1"
-      ]
-    },
-    {
-      "id": "e7",
+      "id": "e3",
       "sources": [
         "mux_y.out"
       ],

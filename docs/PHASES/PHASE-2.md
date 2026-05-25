@@ -249,6 +249,17 @@ If you're picking this up from a fresh session:
 
 ## 11. Next session entry point
 
-Phase 2 is now feature-complete. Remaining tasks:
-- **P2-10 (final closing task)**: Update `docs/ARCHITECTURE.md` to describe the two-pass model (decoder → builder), the 14-primitive type set, compound expansion with inner wiring, and the fan-out spec. ~30 min.
-- **Phase 3 readiness**: with Phase 2 done, the next phase (Worker Protocol v2 — live internal probe) unblocks Phase 4 (live values on schematic). Phase 6 (streaming + async) is independent and can run in parallel.
+Phase 2 is **feature-complete for the primitive infrastructure** (decoder + builder + symbols + recursive expansion + struct fan-out). However, user review on 2026-05-24 surfaced visual quality, missing-construct, and UX gaps that need addressing before the schematic is truly production-grade.
+
+**The schematic completion track has been broken out into three follow-up phases:**
+
+- **Phase 2.5** (`docs/PHASES/PHASE-2.5.md`) — Static schematic polish: 6/7 done as of 2026-05-25 (P2.5-7 optional remains). All 7 user-reported visual issues except optional south-side mux selectors resolved.
+- **Phase 2.6** (`docs/PHASES/PHASE-2.6.md`) — Construct completeness: generate blocks, SystemVerilog interfaces, tri-state, inout, multi-driver detection, tmp fold (level 3), constant ties, width labels. 3-5 wk.
+- **Phase 2.7** (`docs/PHASES/PHASE-2.7.md`) — Schematic UX: search, breadcrumb, mini-map, drill-down, hover, junctions, layout overrides, persistence, themes, export. 3-5 wk.
+
+**Performance work** is deferred to **Phase 2.8** (`docs/PHASES/PHASE-2.8.md`) — only triggered when a real large design surfaces a freezing symptom OR user explicitly requests.
+
+**Phase 3** (`docs/PHASES/PHASE-3.md`) — Worker Protocol v2 (Live Internal Probe). **Recommended NEXT.** Unblocks Phase 4 (live values on schematic — the main product differentiator). 2-3 weeks. Independent of Phase 2.5/2.6/2.7 (can run in parallel).
+
+**Closing tasks of Phase 2 itself (low-priority cleanup):**
+- **P2-10**: Update `docs/ARCHITECTURE.md` to describe the two-pass model (decoder → builder), the 14-primitive type set, compound expansion with inner wiring, and the fan-out spec. ~30 min. (Can be folded into Phase 2.5 closing or done standalone.)

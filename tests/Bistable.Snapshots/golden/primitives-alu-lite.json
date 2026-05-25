@@ -86,21 +86,21 @@
       ],
       "Inputs": [
         {
-          "Label": "1",
+          "Label": "op_sel",
           "Source": {
             "$type": "Signal",
             "SignalName": "sum"
           }
         },
         {
-          "Label": "1",
+          "Label": "op_sel",
           "Source": {
             "$type": "Signal",
             "SignalName": "diff"
           }
         },
         {
-          "Label": "0",
+          "Label": "else",
           "Source": {
             "$type": "Signal",
             "SignalName": "and_v"
@@ -108,6 +108,10 @@
         }
       ],
       "Width": 1,
+      "SelectorLabels": [
+        "op_sel",
+        "op_sel"
+      ],
       "Id": "mux_result_3"
     }
   ]

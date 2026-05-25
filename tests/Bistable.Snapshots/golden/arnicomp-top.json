@@ -1476,310 +1476,6 @@
       "children": []
     },
     {
-      "id": "op_mem_addr",
-      "labels": [
-        "?:"
-      ],
-      "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
-      },
-      "ports": [
-        {
-          "id": "op_mem_addr.in.0",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_addr.in.1",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "1",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_addr.in.2",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "2",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_addr.in.3",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "3",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_addr.in.4",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "4",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_addr.out",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "EAST"
-          }
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "op_mem_wdata",
-      "labels": [
-        "?:"
-      ],
-      "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
-      },
-      "ports": [
-        {
-          "id": "op_mem_wdata.in.0",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_wdata.in.1",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "1",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_wdata.in.2",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "2",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_wdata.in.3",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "3",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_wdata.in.4",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "4",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_wdata.in.5",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "5",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_wdata.in.6",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "6",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_mem_wdata.out",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "EAST"
-          }
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "op_bus",
-      "labels": [
-        "?:"
-      ],
-      "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
-      },
-      "ports": [
-        {
-          "id": "op_bus.in.0",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_bus.in.1",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "1",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_bus.in.2",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "2",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_bus.in.3",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "3",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_bus.in.4",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "4",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_bus.in.5",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "5",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_bus.out",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "EAST"
-          }
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "op_exec_instr",
-      "labels": [
-        "?:"
-      ],
-      "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
-      },
-      "ports": [
-        {
-          "id": "op_exec_instr.in.0",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_exec_instr.in.1",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "1",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_exec_instr.out",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "EAST"
-          }
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "op_alu_carry_in",
-      "labels": [
-        "?:"
-      ],
-      "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
-      },
-      "ports": [
-        {
-          "id": "op_alu_carry_in.in.0",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_alu_carry_in.in.1",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "1",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "op_alu_carry_in.out",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "EAST"
-          }
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "split_inst_q",
-      "labels": [],
-      "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
-      },
-      "ports": [
-        {
-          "id": "split_inst_q.in",
-          "labels": [],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "split_inst_q.out.0",
-          "labels": [
-            "[2:0]"
-          ],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "EAST"
-          }
-        }
-      ],
-      "children": []
-    },
-    {
       "id": "split_lr_out",
       "labels": [],
       "layoutOptions": {
@@ -2097,7 +1793,7 @@
         {
           "id": "mux_mem_addr.in.0",
           "labels": [
-            "1"
+            "1\u00B7X"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -2107,7 +1803,7 @@
         {
           "id": "mux_mem_addr.in.1",
           "labels": [
-            "0"
+            "0\u00B7X"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -2117,7 +1813,7 @@
         {
           "id": "mux_mem_addr.sel.0",
           "labels": [
-            "S"
+            "__VdfgTmp_hed604daa__0"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -2149,7 +1845,7 @@
         {
           "id": "mux_mem_wdata.in.0",
           "labels": [
-            "1"
+            "1\u00B7X"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -2169,7 +1865,7 @@
         {
           "id": "mux_mem_wdata.sel.0",
           "labels": [
-            "S"
+            "__VdfgTmp_hed604daa__0"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -2243,7 +1939,7 @@
         {
           "id": "mux_bus.in.0",
           "labels": [
-            "1"
+            "control_pins[0]"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -2253,7 +1949,7 @@
         {
           "id": "mux_bus.in.1",
           "labels": [
-            "1"
+            "control_pins[8]\u00B7X"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -2263,7 +1959,7 @@
         {
           "id": "mux_bus.in.2",
           "labels": [
-            "1"
+            "control_pins[7]\u00B7X"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -2273,7 +1969,7 @@
         {
           "id": "mux_bus.in.3",
           "labels": [
-            "0"
+            "else"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -2283,7 +1979,7 @@
         {
           "id": "mux_bus.sel.0",
           "labels": [
-            "S0"
+            "control_pins[0]"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -2293,7 +1989,7 @@
         {
           "id": "mux_bus.sel.1",
           "labels": [
-            "S1"
+            "control_pins[8]"
           ],
           "layoutOptions": {
             "elk.port.index": "5",
@@ -2303,7 +1999,7 @@
         {
           "id": "mux_bus.sel.2",
           "labels": [
-            "S2"
+            "control_pins[7]"
           ],
           "layoutOptions": {
             "elk.port.index": "6",
@@ -2335,7 +2031,7 @@
         {
           "id": "mux_exec_instr.in.0",
           "labels": [
-            "1"
+            "1\u00B70"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -2355,7 +2051,7 @@
         {
           "id": "mux_exec_instr.sel.0",
           "labels": [
-            "S"
+            "flush_next_instr"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -2407,7 +2103,7 @@
         {
           "id": "mux_alu_carry_in.sel.0",
           "labels": [
-            "S"
+            "control_pins[16]"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -2458,48 +2154,6 @@
         },
         {
           "id": "arith_is_push_instr.out",
-          "labels": [
-            "Y"
-          ],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "EAST"
-          }
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "arith___VdfgTmp_h1814ef32__0",
-      "labels": [
-        "Equal __VdfgTmp_h1814ef32__0"
-      ],
-      "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
-      },
-      "ports": [
-        {
-          "id": "arith___VdfgTmp_h1814ef32__0.l",
-          "labels": [
-            "A"
-          ],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "arith___VdfgTmp_h1814ef32__0.r",
-          "labels": [
-            "B"
-          ],
-          "layoutOptions": {
-            "elk.port.index": "1",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "arith___VdfgTmp_h1814ef32__0.out",
           "labels": [
             "Y"
           ],
@@ -2902,19 +2556,6 @@
         "child_arnicomp_top_bus_selector_i.out.out"
       ],
       "targets": [
-        "op_bus.in.5"
-      ],
-      "labels": [
-        "bus_sel_out",
-        "8"
-      ]
-    },
-    {
-      "id": "e28",
-      "sources": [
-        "child_arnicomp_top_bus_selector_i.out.out"
-      ],
-      "targets": [
         "mux_bus.in.3"
       ],
       "labels": [
@@ -2923,7 +2564,7 @@
       ]
     },
     {
-      "id": "e29",
+      "id": "e28",
       "sources": [
         "child_arnicomp_top_reg_a_i.out.out"
       ],
@@ -2936,20 +2577,7 @@
       ]
     },
     {
-      "id": "e30",
-      "sources": [
-        "child_arnicomp_top_reg_a_i.out.out"
-      ],
-      "targets": [
-        "op_bus.in.4"
-      ],
-      "labels": [
-        "reg_a_out",
-        "8"
-      ]
-    },
-    {
-      "id": "e31",
+      "id": "e29",
       "sources": [
         "child_arnicomp_top_reg_b.out.out"
       ],
@@ -2962,7 +2590,7 @@
       ]
     },
     {
-      "id": "e32",
+      "id": "e30",
       "sources": [
         "child_arnicomp_top_reg_d.out.out"
       ],
@@ -2975,7 +2603,7 @@
       ]
     },
     {
-      "id": "e33",
+      "id": "e31",
       "sources": [
         "child_arnicomp_top_reg_d.out.out"
       ],
@@ -2988,20 +2616,7 @@
       ]
     },
     {
-      "id": "e34",
-      "sources": [
-        "child_arnicomp_top_reg_d.out.out"
-      ],
-      "targets": [
-        "op_bus.in.3"
-      ],
-      "labels": [
-        "reg_d_out",
-        "8"
-      ]
-    },
-    {
-      "id": "e35",
+      "id": "e32",
       "sources": [
         "child_arnicomp_top_acc.out.out"
       ],
@@ -3014,59 +2629,7 @@
       ]
     },
     {
-      "id": "e36",
-      "sources": [
-        "child_arnicomp_top_marl_i.out.marl_out"
-      ],
-      "targets": [
-        "op_mem_addr.in.4"
-      ],
-      "labels": [
-        "marl_out",
-        "8"
-      ]
-    },
-    {
-      "id": "e37",
-      "sources": [
-        "child_arnicomp_top_marl_i.out.marl_out"
-      ],
-      "targets": [
-        "op_mem_wdata.in.5"
-      ],
-      "labels": [
-        "marl_out",
-        "8"
-      ]
-    },
-    {
-      "id": "e38",
-      "sources": [
-        "child_arnicomp_top_marl_i.out.marh_out"
-      ],
-      "targets": [
-        "op_mem_addr.in.3"
-      ],
-      "labels": [
-        "marh_out",
-        "8"
-      ]
-    },
-    {
-      "id": "e39",
-      "sources": [
-        "child_arnicomp_top_marl_i.out.marh_out"
-      ],
-      "targets": [
-        "op_mem_wdata.in.3"
-      ],
-      "labels": [
-        "marh_out",
-        "8"
-      ]
-    },
-    {
-      "id": "e40",
+      "id": "e33",
       "sources": [
         "child_arnicomp_top_lr.out.out"
       ],
@@ -3079,20 +2642,7 @@
       ]
     },
     {
-      "id": "e41",
-      "sources": [
-        "child_arnicomp_top_sp_i.out.out"
-      ],
-      "targets": [
-        "op_mem_addr.in.1"
-      ],
-      "labels": [
-        "sp_out",
-        "16"
-      ]
-    },
-    {
-      "id": "e42",
+      "id": "e34",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.z_f_out"
       ],
@@ -3105,7 +2655,7 @@
       ]
     },
     {
-      "id": "e43",
+      "id": "e35",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.n_f_out"
       ],
@@ -3118,7 +2668,7 @@
       ]
     },
     {
-      "id": "e44",
+      "id": "e36",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.c_f_out"
       ],
@@ -3131,20 +2681,7 @@
       ]
     },
     {
-      "id": "e45",
-      "sources": [
-        "child_arnicomp_top_flag_reg_i.out.c_f_out"
-      ],
-      "targets": [
-        "op_alu_carry_in.in.1"
-      ],
-      "labels": [
-        "c_reg_out",
-        "1"
-      ]
-    },
-    {
-      "id": "e46",
+      "id": "e37",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.c_f_out"
       ],
@@ -3157,7 +2694,7 @@
       ]
     },
     {
-      "id": "e47",
+      "id": "e38",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.v_f_out"
       ],
@@ -3170,7 +2707,7 @@
       ]
     },
     {
-      "id": "e48",
+      "id": "e39",
       "sources": [
         "child_arnicomp_top_pc.out.paddr"
       ],
@@ -3183,7 +2720,7 @@
       ]
     },
     {
-      "id": "e49",
+      "id": "e40",
       "sources": [
         "child_arnicomp_top_pc.out.paddr"
       ],
@@ -3196,46 +2733,7 @@
       ]
     },
     {
-      "id": "e50",
-      "sources": [
-        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
-      ],
-      "targets": [
-        "op_mem_addr.in.2"
-      ],
-      "labels": [
-        "control_pins",
-        "1"
-      ]
-    },
-    {
-      "id": "e51",
-      "sources": [
-        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
-      ],
-      "targets": [
-        "op_bus.in.0"
-      ],
-      "labels": [
-        "control_pins",
-        "1"
-      ]
-    },
-    {
-      "id": "e52",
-      "sources": [
-        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
-      ],
-      "targets": [
-        "op_alu_carry_in.in.0"
-      ],
-      "labels": [
-        "control_pins",
-        "1"
-      ]
-    },
-    {
-      "id": "e53",
+      "id": "e41",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3248,7 +2746,7 @@
       ]
     },
     {
-      "id": "e54",
+      "id": "e42",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3261,7 +2759,7 @@
       ]
     },
     {
-      "id": "e55",
+      "id": "e43",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3274,7 +2772,7 @@
       ]
     },
     {
-      "id": "e56",
+      "id": "e44",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3287,7 +2785,7 @@
       ]
     },
     {
-      "id": "e57",
+      "id": "e45",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3300,7 +2798,7 @@
       ]
     },
     {
-      "id": "e58",
+      "id": "e46",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3313,7 +2811,7 @@
       ]
     },
     {
-      "id": "e59",
+      "id": "e47",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3326,7 +2824,7 @@
       ]
     },
     {
-      "id": "e60",
+      "id": "e48",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.jmp_sel"
       ],
@@ -3339,7 +2837,7 @@
       ]
     },
     {
-      "id": "e61",
+      "id": "e49",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_a_we"
       ],
@@ -3352,7 +2850,7 @@
       ]
     },
     {
-      "id": "e62",
+      "id": "e50",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_b_we"
       ],
@@ -3365,7 +2863,7 @@
       ]
     },
     {
-      "id": "e63",
+      "id": "e51",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_d_we"
       ],
@@ -3378,7 +2876,7 @@
       ]
     },
     {
-      "id": "e64",
+      "id": "e52",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.marl_we"
       ],
@@ -3391,7 +2889,7 @@
       ]
     },
     {
-      "id": "e65",
+      "id": "e53",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.marh_we"
       ],
@@ -3404,7 +2902,7 @@
       ]
     },
     {
-      "id": "e66",
+      "id": "e54",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.prl_we"
       ],
@@ -3417,7 +2915,7 @@
       ]
     },
     {
-      "id": "e67",
+      "id": "e55",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.prh_we"
       ],
@@ -3430,7 +2928,7 @@
       ]
     },
     {
-      "id": "e68",
+      "id": "e56",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.mem_we"
       ],
@@ -3443,7 +2941,7 @@
       ]
     },
     {
-      "id": "e69",
+      "id": "e57",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.acc_we"
       ],
@@ -3456,7 +2954,7 @@
       ]
     },
     {
-      "id": "e70",
+      "id": "e58",
       "sources": [
         "child_arnicomp_top_alu_i.out.result"
       ],
@@ -3469,7 +2967,7 @@
       ]
     },
     {
-      "id": "e71",
+      "id": "e59",
       "sources": [
         "child_arnicomp_top_alu_i.out.zero_flag"
       ],
@@ -3482,7 +2980,7 @@
       ]
     },
     {
-      "id": "e72",
+      "id": "e60",
       "sources": [
         "child_arnicomp_top_alu_i.out.negative_flag"
       ],
@@ -3495,7 +2993,7 @@
       ]
     },
     {
-      "id": "e73",
+      "id": "e61",
       "sources": [
         "child_arnicomp_top_alu_i.out.carry_flag"
       ],
@@ -3508,7 +3006,7 @@
       ]
     },
     {
-      "id": "e74",
+      "id": "e62",
       "sources": [
         "child_arnicomp_top_alu_i.out.overflow_flag"
       ],
@@ -3521,7 +3019,7 @@
       ]
     },
     {
-      "id": "e75",
+      "id": "e63",
       "sources": [
         "child_arnicomp_top_jump_decoder.out.jmp_taken"
       ],
@@ -3534,371 +3032,7 @@
       ]
     },
     {
-      "id": "e76",
-      "sources": [
-        "op_mem_addr.out"
-      ],
-      "targets": [
-        "boundary_out.mem_addr"
-      ],
-      "labels": [
-        "mem_addr",
-        "16"
-      ]
-    },
-    {
-      "id": "e77",
-      "sources": [
-        "mux_mem_addr.out"
-      ],
-      "targets": [
-        "boundary_out.mem_addr"
-      ],
-      "labels": [
-        "mem_addr",
-        "1"
-      ]
-    },
-    {
-      "id": "e78",
-      "sources": [
-        "op_mem_wdata.out"
-      ],
-      "targets": [
-        "boundary_out.mem_wdata"
-      ],
-      "labels": [
-        "mem_wdata",
-        "8"
-      ]
-    },
-    {
-      "id": "e79",
-      "sources": [
-        "mux_mem_wdata.out"
-      ],
-      "targets": [
-        "boundary_out.mem_wdata"
-      ],
-      "labels": [
-        "mem_wdata",
-        "1"
-      ]
-    },
-    {
-      "id": "e80",
-      "sources": [
-        "op_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_reg_a_i.in.d"
-      ],
-      "labels": [
-        "bus",
-        "8"
-      ]
-    },
-    {
-      "id": "e81",
-      "sources": [
-        "op_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_reg_b.in.d"
-      ],
-      "labels": [
-        "bus",
-        "8"
-      ]
-    },
-    {
-      "id": "e82",
-      "sources": [
-        "op_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_reg_d.in.d"
-      ],
-      "labels": [
-        "bus",
-        "8"
-      ]
-    },
-    {
-      "id": "e83",
-      "sources": [
-        "op_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_marl_i.in.d"
-      ],
-      "labels": [
-        "bus",
-        "8"
-      ]
-    },
-    {
-      "id": "e84",
-      "sources": [
-        "op_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_prl.in.d"
-      ],
-      "labels": [
-        "bus",
-        "8"
-      ]
-    },
-    {
-      "id": "e85",
-      "sources": [
-        "op_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_prh.in.d"
-      ],
-      "labels": [
-        "bus",
-        "8"
-      ]
-    },
-    {
-      "id": "e86",
-      "sources": [
-        "op_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_alu_i.in.b"
-      ],
-      "labels": [
-        "bus",
-        "8"
-      ]
-    },
-    {
-      "id": "e87",
-      "sources": [
-        "op_bus.out"
-      ],
-      "targets": [
-        "op_mem_wdata.in.6"
-      ],
-      "labels": [
-        "bus",
-        "8"
-      ]
-    },
-    {
-      "id": "e88",
-      "sources": [
-        "op_bus.out"
-      ],
-      "targets": [
-        "mux_mem_wdata.in.1"
-      ],
-      "labels": [
-        "bus",
-        "1"
-      ]
-    },
-    {
-      "id": "e89",
-      "sources": [
-        "mux_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_reg_a_i.in.d"
-      ],
-      "labels": [
-        "bus",
-        "1"
-      ]
-    },
-    {
-      "id": "e90",
-      "sources": [
-        "mux_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_reg_b.in.d"
-      ],
-      "labels": [
-        "bus",
-        "1"
-      ]
-    },
-    {
-      "id": "e91",
-      "sources": [
-        "mux_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_reg_d.in.d"
-      ],
-      "labels": [
-        "bus",
-        "1"
-      ]
-    },
-    {
-      "id": "e92",
-      "sources": [
-        "mux_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_marl_i.in.d"
-      ],
-      "labels": [
-        "bus",
-        "1"
-      ]
-    },
-    {
-      "id": "e93",
-      "sources": [
-        "mux_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_prl.in.d"
-      ],
-      "labels": [
-        "bus",
-        "1"
-      ]
-    },
-    {
-      "id": "e94",
-      "sources": [
-        "mux_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_prh.in.d"
-      ],
-      "labels": [
-        "bus",
-        "1"
-      ]
-    },
-    {
-      "id": "e95",
-      "sources": [
-        "mux_bus.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_alu_i.in.b"
-      ],
-      "labels": [
-        "bus",
-        "1"
-      ]
-    },
-    {
-      "id": "e96",
-      "sources": [
-        "mux_bus.out"
-      ],
-      "targets": [
-        "op_mem_wdata.in.6"
-      ],
-      "labels": [
-        "bus",
-        "1"
-      ]
-    },
-    {
-      "id": "e97",
-      "sources": [
-        "mux_bus.out"
-      ],
-      "targets": [
-        "mux_mem_wdata.in.1"
-      ],
-      "labels": [
-        "bus",
-        "1"
-      ]
-    },
-    {
-      "id": "e98",
-      "sources": [
-        "op_exec_instr.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_instruction_decoder.in.instr_in"
-      ],
-      "labels": [
-        "exec_instr",
-        "8"
-      ]
-    },
-    {
-      "id": "e99",
-      "sources": [
-        "mux_exec_instr.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_instruction_decoder.in.instr_in"
-      ],
-      "labels": [
-        "exec_instr",
-        "1"
-      ]
-    },
-    {
-      "id": "e100",
-      "sources": [
-        "op_alu_carry_in.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_alu_i.in.c_in"
-      ],
-      "labels": [
-        "alu_carry_in",
-        "1"
-      ]
-    },
-    {
-      "id": "e101",
-      "sources": [
-        "mux_alu_carry_in.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_alu_i.in.c_in"
-      ],
-      "labels": [
-        "alu_carry_in",
-        "1"
-      ]
-    },
-    {
-      "id": "e102",
-      "sources": [
-        "split_inst_q.out.0"
-      ],
-      "targets": [
-        "op_bus.in.2"
-      ],
-      "labels": [
-        "__VdfgTmp_he69651eb__0",
-        "3"
-      ]
-    },
-    {
-      "id": "e103",
-      "sources": [
-        "split_inst_q.out.0"
-      ],
-      "targets": [
-        "mux_bus.in.1"
-      ],
-      "labels": [
-        "__VdfgTmp_he69651eb__0",
-        "1"
-      ]
-    },
-    {
-      "id": "e104",
+      "id": "e64",
       "sources": [
         "split_lr_out.out.1"
       ],
@@ -3911,7 +3045,7 @@
       ]
     },
     {
-      "id": "e105",
+      "id": "e65",
       "sources": [
         "split_lr_out.out.0"
       ],
@@ -3924,20 +3058,7 @@
       ]
     },
     {
-      "id": "e106",
-      "sources": [
-        "ff_flush_next_instr.q"
-      ],
-      "targets": [
-        "op_exec_instr.in.0"
-      ],
-      "labels": [
-        "flush_next_instr",
-        "1"
-      ]
-    },
-    {
-      "id": "e107",
+      "id": "e66",
       "sources": [
         "ff_flush_next_instr.q"
       ],
@@ -3950,7 +3071,7 @@
       ]
     },
     {
-      "id": "e108",
+      "id": "e67",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3963,46 +3084,7 @@
       ]
     },
     {
-      "id": "e109",
-      "sources": [
-        "ff_inst_q.q"
-      ],
-      "targets": [
-        "op_bus.in.1"
-      ],
-      "labels": [
-        "inst_q",
-        "1"
-      ]
-    },
-    {
-      "id": "e110",
-      "sources": [
-        "ff_inst_q.q"
-      ],
-      "targets": [
-        "op_exec_instr.in.1"
-      ],
-      "labels": [
-        "inst_q",
-        "1"
-      ]
-    },
-    {
-      "id": "e111",
-      "sources": [
-        "ff_inst_q.q"
-      ],
-      "targets": [
-        "split_inst_q.in"
-      ],
-      "labels": [
-        "inst_q",
-        "1"
-      ]
-    },
-    {
-      "id": "e112",
+      "id": "e68",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -4015,7 +3097,7 @@
       ]
     },
     {
-      "id": "e113",
+      "id": "e69",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -4028,7 +3110,163 @@
       ]
     },
     {
-      "id": "e114",
+      "id": "e70",
+      "sources": [
+        "mux_mem_addr.out"
+      ],
+      "targets": [
+        "boundary_out.mem_addr"
+      ],
+      "labels": [
+        "mem_addr",
+        "1"
+      ]
+    },
+    {
+      "id": "e71",
+      "sources": [
+        "mux_mem_wdata.out"
+      ],
+      "targets": [
+        "boundary_out.mem_wdata"
+      ],
+      "labels": [
+        "mem_wdata",
+        "1"
+      ]
+    },
+    {
+      "id": "e72",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_a_i.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e73",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e74",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e75",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_marl_i.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e76",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e77",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e78",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_alu_i.in.b"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e79",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "mux_mem_wdata.in.1"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e80",
+      "sources": [
+        "mux_exec_instr.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_instruction_decoder.in.instr_in"
+      ],
+      "labels": [
+        "exec_instr",
+        "1"
+      ]
+    },
+    {
+      "id": "e81",
+      "sources": [
+        "mux_alu_carry_in.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_alu_i.in.c_in"
+      ],
+      "labels": [
+        "alu_carry_in",
+        "1"
+      ]
+    },
+    {
+      "id": "e82",
       "sources": [
         "buf_pc_out.out"
       ],
@@ -4041,7 +3279,7 @@
       ]
     },
     {
-      "id": "e115",
+      "id": "e83",
       "sources": [
         "buf_mem_wen.out"
       ],
@@ -4054,7 +3292,7 @@
       ]
     },
     {
-      "id": "e116",
+      "id": "e84",
       "sources": [
         "gate_mem_ren.out"
       ],
@@ -4067,33 +3305,7 @@
       ]
     },
     {
-      "id": "e117",
-      "sources": [
-        "arith_is_push_instr.out"
-      ],
-      "targets": [
-        "op_mem_wdata.in.1"
-      ],
-      "labels": [
-        "is_push_instr",
-        "1"
-      ]
-    },
-    {
-      "id": "e118",
-      "sources": [
-        "arith___VdfgTmp_h1814ef32__0.out"
-      ],
-      "targets": [
-        "op_mem_wdata.in.4"
-      ],
-      "labels": [
-        "__VdfgTmp_h1814ef32__0",
-        "1"
-      ]
-    },
-    {
-      "id": "e119",
+      "id": "e85",
       "sources": [
         "fanout_control_pins.leg.0"
       ],
@@ -4106,7 +3318,7 @@
       ]
     },
     {
-      "id": "e120",
+      "id": "e86",
       "sources": [
         "fanout_control_pins.leg.1"
       ],
@@ -4119,7 +3331,7 @@
       ]
     },
     {
-      "id": "e121",
+      "id": "e87",
       "sources": [
         "fanout_control_pins.leg.2"
       ],
@@ -4132,7 +3344,7 @@
       ]
     },
     {
-      "id": "e122",
+      "id": "e88",
       "sources": [
         "fanout_control_pins.leg.3"
       ],
@@ -4145,7 +3357,7 @@
       ]
     },
     {
-      "id": "e123",
+      "id": "e89",
       "sources": [
         "fanout_control_pins.leg.4"
       ],
@@ -4158,7 +3370,7 @@
       ]
     },
     {
-      "id": "e124",
+      "id": "e90",
       "sources": [
         "fanout_control_pins.leg.5"
       ],
@@ -4171,7 +3383,7 @@
       ]
     },
     {
-      "id": "e125",
+      "id": "e91",
       "sources": [
         "fanout_control_pins.leg.6"
       ],
@@ -4184,7 +3396,7 @@
       ]
     },
     {
-      "id": "e126",
+      "id": "e92",
       "sources": [
         "fanout_control_pins.leg.7"
       ],
@@ -4197,7 +3409,7 @@
       ]
     },
     {
-      "id": "e127",
+      "id": "e93",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -4210,7 +3422,7 @@
       ]
     },
     {
-      "id": "e128",
+      "id": "e94",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -4223,7 +3435,7 @@
       ]
     },
     {
-      "id": "e129",
+      "id": "e95",
       "sources": [
         "fanout_control_pins.leg.9"
       ],
@@ -4236,33 +3448,7 @@
       ]
     },
     {
-      "id": "e130",
-      "sources": [
-        "fanout_control_pins.leg.9"
-      ],
-      "targets": [
-        "op_mem_addr.in.0"
-      ],
-      "labels": [
-        "__VdfgTmp_hed604daa__0",
-        "1"
-      ]
-    },
-    {
-      "id": "e131",
-      "sources": [
-        "fanout_control_pins.leg.9"
-      ],
-      "targets": [
-        "op_mem_wdata.in.0"
-      ],
-      "labels": [
-        "__VdfgTmp_hed604daa__0",
-        "1"
-      ]
-    },
-    {
-      "id": "e132",
+      "id": "e96",
       "sources": [
         "fanout_control_pins.leg.9"
       ],
@@ -4275,7 +3461,7 @@
       ]
     },
     {
-      "id": "e133",
+      "id": "e97",
       "sources": [
         "fanout_control_pins.leg.9"
       ],
@@ -4288,7 +3474,7 @@
       ]
     },
     {
-      "id": "e134",
+      "id": "e98",
       "sources": [
         "fanout_control_pins.leg.10"
       ],
@@ -4301,33 +3487,7 @@
       ]
     },
     {
-      "id": "e135",
-      "sources": [
-        "fanout_control_pins.leg.10"
-      ],
-      "targets": [
-        "op_mem_wdata.in.2"
-      ],
-      "labels": [
-        "__VdfgTmp_hed6c2c1f__0",
-        "3"
-      ]
-    },
-    {
-      "id": "e136",
-      "sources": [
-        "fanout_control_pins.leg.10"
-      ],
-      "targets": [
-        "arith___VdfgTmp_h1814ef32__0.r"
-      ],
-      "labels": [
-        "__VdfgTmp_hed6c2c1f__0",
-        "1"
-      ]
-    },
-    {
-      "id": "e137",
+      "id": "e99",
       "sources": [
         "fanout_control_pins.leg.11"
       ],

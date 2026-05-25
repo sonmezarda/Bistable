@@ -11,7 +11,7 @@
     "elk.layered.spacing.edgeEdgeBetweenLayers": "10",
     "elk.layered.spacing.edgeNodeBetweenLayers": "18",
     "elk.layered.spacing.nodeNodeBetweenLayers": "72",
-    "elk.layered.thoroughness": "10",
+    "elk.layered.thoroughness": "3",
     "elk.spacing.nodeNode": "36"
   },
   "children": [
