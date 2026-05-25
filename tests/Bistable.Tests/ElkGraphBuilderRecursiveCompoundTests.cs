@@ -35,6 +35,12 @@ public sealed class ElkGraphBuilderRecursiveCompoundTests
     private static FlipFlopPrimitive MakeFF(string q) =>
         new($"ff_{q}_0", q, "clk", EdgeKind.Rising, null, null, "d", Width: 8);
 
+    private static HierarchyScopePortViewModel In(string name, int width = 8) =>
+        new(name, SignalDirection.Input, width, false);
+
+    private static HierarchyScopePortViewModel Out(string name, int width = 8) =>
+        new(name, SignalDirection.Output, width, false);
+
     private static IReadOnlyDictionary<string, IReadOnlyList<SchematicPrimitive>>
         ByModule(string moduleName, params SchematicPrimitive[] primitives) =>
         new Dictionary<string, IReadOnlyList<SchematicPrimitive>>(StringComparer.OrdinalIgnoreCase)
@@ -150,7 +156,7 @@ public sealed class ElkGraphBuilderRecursiveCompoundTests
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
             new ElkScopeData(
-                BoundaryPorts: [],
+                BoundaryPorts: [In("d"), In("clk", 1), Out("q")],
                 ChildScopes: [inst],
                 LocalSignals: [],
                 ContAssigns: [],

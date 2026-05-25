@@ -221,4 +221,100 @@ public sealed class ElkGraphBuilderMuxTests
         Assert.Single(node.Ports!);   // only output port
         Assert.EndsWith(".out", node.Ports![0].Id);
     }
+
+    [Fact]
+    public void Mux_SelectorPort_LayoutOptions_HasPortSideSouth()
+    {
+        MuxPrimitive mux = SimpleMux("y", "sel", "a", "b");
+
+        ElkNode node = BuildSingleMux(mux, [In("a"), In("b"), In("sel", 1), Out("y")]);
+        ElkPort selector = Assert.Single(node.Ports!, p => p.Id.EndsWith(".sel.0"));
+
+        Assert.Equal("SOUTH", selector.LayoutOptions!["elk.port.side"]);
+    }
+
+    [Fact]
+    public void Mux_DataInputPort_LayoutOptions_HasPortSideWest()
+    {
+        MuxPrimitive mux = SimpleMux("y", "sel", "a", "b");
+
+        ElkNode node = BuildSingleMux(mux, [In("a"), In("b"), In("sel", 1), Out("y")]);
+        ElkPort input = Assert.Single(node.Ports!, p => p.Id.EndsWith(".in.0"));
+
+        Assert.Equal("WEST", input.LayoutOptions!["elk.port.side"]);
+    }
+
+    [Fact]
+    public void Mux_Height_BasedOnDataInputsOnly_NotSelectorCount()
+    {
+        MuxPrimitive oneSelector = new(
+            "mux_y_0", "y",
+            SelectSignals: ["s0"],
+            Inputs: [new("a", new MuxSignalSource("a")), new("b", new MuxSignalSource("b"))],
+            Width: 8);
+        MuxPrimitive fourSelectors = oneSelector with { SelectSignals = ["s0", "s1", "s2", "s3"] };
+
+        ElkNode one = BuildSingleMux(oneSelector, [In("a"), In("b"), In("s0", 1), Out("y")]);
+        ElkNode four = BuildSingleMux(fourSelectors, [In("a"), In("b"), In("s0", 1), In("s1", 1), In("s2", 1), In("s3", 1), Out("y")]);
+
+        Assert.Equal(one.Height, four.Height);
+    }
+
+    [Fact]
+    public void Mux_Width_GrowsWithSelectorCount()
+    {
+        MuxPrimitive oneSelector = SimpleMux("y", "s0", "a", "b");
+        MuxPrimitive fourSelectors = oneSelector with { SelectSignals = ["s0", "s1", "s2", "s3"] };
+
+        ElkNode one = BuildSingleMux(oneSelector, [In("a"), In("b"), In("s0", 1), Out("y")]);
+        ElkNode four = BuildSingleMux(fourSelectors, [In("a"), In("b"), In("s0", 1), In("s1", 1), In("s2", 1), In("s3", 1), Out("y")]);
+
+        Assert.True(four.Width > one.Width);
+    }
+
+    [Fact]
+    public void LongOutputSignalName_MuxWidth_AccommodatesTitle()
+    {
+        string output = "very_long_mux_output_signal";
+        MuxPrimitive mux = SimpleMux(output, "sel", "a", "b");
+
+        ElkNode node = BuildSingleMux(mux, [In("a"), In("b"), In("sel", 1), Out(output)]);
+
+        Assert.True(node.Width >= ("MUX " + output).Length * 7 + 16);
+    }
+
+    [Fact]
+    public void DiagnosticInputLabel_MuxWidth_DoesNotOverExpand()
+    {
+        MuxPrimitive mux = new(
+            "mux_y_0", "y",
+            SelectSignals: ["sel"],
+            Inputs: [
+                new("control_pins[14:8]·X", new MuxConstantSource("X", 1)),
+                new("else", new MuxSignalSource("b")),
+            ],
+            Width: 8);
+
+        ElkNode node = BuildSingleMux(mux, [In("sel", 1), In("b"), Out("y")]);
+
+        Assert.Equal(72, node.Width);
+    }
+
+    [Fact]
+    public void NormalMux_Width_StaysCompact()
+    {
+        MuxPrimitive mux = SimpleMux("y", "sel", "a", "b");
+
+        ElkNode node = BuildSingleMux(mux, [In("a"), In("b"), In("sel", 1), Out("y")]);
+
+        Assert.Equal(72, node.Width);
+    }
+
+    private static ElkNode BuildSingleMux(MuxPrimitive mux, IReadOnlyList<HierarchyScopePortViewModel> ports)
+    {
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData(ports, [], [], [], Primitives: [mux]),
+            compactLayout: true);
+        return Assert.Single(result.Graph.Children, n => ElkNodeIds.IsMux(n.Id));
+    }
 }

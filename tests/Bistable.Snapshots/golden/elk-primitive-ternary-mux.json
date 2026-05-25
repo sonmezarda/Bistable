@@ -114,8 +114,8 @@
             "sel"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
-            "elk.port.side": "WEST"
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
           }
         },
         {

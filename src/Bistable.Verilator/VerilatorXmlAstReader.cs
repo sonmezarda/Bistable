@@ -49,7 +49,7 @@ public sealed class VerilatorXmlAstReader
 
         modules = ComputeIsRegistered(modules);
 
-        return new DesignAst(modules);
+        return TempFolder.Fold(new DesignAst(modules));
     }
 
     // ── Struct type map (P2-11) ─────────────────────────────────────────────

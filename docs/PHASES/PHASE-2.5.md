@@ -25,7 +25,10 @@ Status legend: ☐ todo · 🟡 in progress · ✅ done · ⛔ blocked
 | P2.5-4 | VdfgTmp filter — level 1 (Issue 7) | ✅ | Sonnet | 1 h | `IsVerilatorInternalSignal` helper filters at decoder + builder layers (signals + contassigns + sequential + splitters); 17 tests |
 | P2.5-5 | Inner cluster node dispatch (Issue 6) | ✅ | Opus | 3 h | Inner IDs now `ff_<scope>__<sig>` (prefix-first) so `IsFlipFlop`/`IsMux`/… StartsWith dispatch fires. Refactored `Add{FlipFlop,Mux,Latch,Memory,Buffer,Inverter,Gate,Arith}Node` to take `(target, nodeIdOverride, portRefKeyPrefix)`; deleted obsolete `BuildInnerPrimitiveNode`/`MakeInnerNode`/`RegisterInnerPrimitivePortRefs`. Compound min-size grows with inner-content count. 8 new tests. |
 | P2.5-6 | Mux nested-cond label clarity (Issue 4) | ✅ | Sonnet+Opus | 3 h | Decoder produces semantic labels: 2-input mux keeps "1"/"0"; chained mux uses bit-aware branch labels (e.g. "ctrl[2]"/"ctrl[1]"/"ctrl[0]"/"else"). Orphan sources → `MuxConstantSource("X")` with `·X` label suffix. Constant sources → `·<value>` suffix. Selector port label = bit-aware display name; `SelectSignals` kept BARE for wire endpoint resolution (caught + fixed bug where readable selector labels broke wire-up). 14 new tests + connectivity audit confirms zero unlabelled empty ports. |
-| P2.5-7 | Mux selector port on south side (Issue 3) — *optional* | ☐ | Sonnet | 1 h | Layout change to `PortSideSouth` for selectors; verify ELK crossing count doesn't regress |
+| P2.5-7 | Mux selector port on south side (Issue 3) | ✅ | Sonnet | 1 h | Selector ports now use `PortSideSouth`; data ports stay west; snapshots regenerated |
+| P2.5-8 | VdfgTmp fold (level 3) | ✅ | Opus | 1 d | `TempFolder` substitutes internal tmp aliases into consumers before decode; simple multi-consumer aliases folded to avoid `__V*` label leaks |
+| P2.5-9 | Orphan primitive cleanup | ✅ | Sonnet | 1 h | Iterative post-edge pruning removes fully disconnected `op_`/`gate_`/`arith_`/`ff_` nodes and stale edges |
+| P2.5-10 | MUX node layout polish | ✅ | Sonnet | 1 h | Mux width expands for title, long port labels, and south selector count |
 
 **Acceptance criteria** for each task is defined in its detailed section below.
 
@@ -285,7 +288,7 @@ Total: ~8 h focused work. Splittable across 2–3 sessions.
     - ❷ Title overlap ✅
     - ❺ `?:` boxes everywhere ✅ (this was the biggest visual win — duplicate operator nodes for every mux/buffer/inverter gone)
     - ❼ `__VdfgTmp_*` equality boxes ✅
-  - **Remaining in P2.5**: ❹ (mux label clarity — P2.5-6), ❻ (inner cluster dispatch — P2.5-5), ❸ (optional south selectors — P2.5-7).
+  - **Remaining at that point**: ❹ (mux label clarity — P2.5-6), ❻ (inner cluster dispatch — P2.5-5), ❸ (optional south selectors — P2.5-7).
 
 - **2026-05-25**: **P2.5-6 completed** — mux label clarity (Issue ❹) end-to-end. ~3 hours including the wire-up bug fix discovered during careful connectivity audit.
   - **Decoder** (`SchematicDecoder.cs`):
@@ -309,7 +312,7 @@ Total: ~8 h focused work. Splittable across 2–3 sessions.
   - **Test suite**: 370 → **393** (+23). All 4 test projects green, zero regressions. Snapshots regenerated for arnicomp-top, arnicomp-top-expanded-marl_i, elk-primitive-ternary-mux, synthetic-concat-and-splitter.
   - **Visual impact**: every mux selector now shows its actual signal name (with bit detail when applicable); every empty input port shows WHY it's empty (`·X` / `·0` / `·1`). Issue ❹ closed.
 
-- **Phase 2.5 status: 6/7 tasks complete.** Only P2.5-7 (optional south-side selectors) remains — explicitly marked optional in original spec.
+- **Phase 2.5 status: 7/7 + 3 new task complete — fully done.** Static schematic is production-ready for Phase 3 handoff.
 
 - **2026-05-25**: **P2.5-5 completed** (~2 hours, Opus).
   - **Root cause**: inner primitive node IDs used `child_<scope>/ff_<sig>` format. The drawing dispatch in `DrawElkNodesRecursive` ([SchematicPreviewControl.Elk.cs:140-175](src/Bistable.App/Views/SchematicPreviewControl.Elk.cs#L140)) checks `ElkNodeIds.IsFlipFlop(node.Id)` which is `StartsWith("ff_", …)`. The `child_<scope>/` prefix broke the check, so inner primitives fell through to `DrawElkNodeCard` (generic small box) instead of `DrawElkFlipFlopNode` / `DrawElkMuxNode` / etc. Additionally, the inner port IDs were `.in.<i>` (generic), so even when dispatched the FF symbol drawer's `port.Id.EndsWith(".clk")` clock-triangle logic missed.
@@ -329,4 +332,15 @@ Total: ~8 h focused work. Splittable across 2–3 sessions.
   - **Snapshot impact**: only `arnicomp-top-expanded-marl_i.json` shows inner-primitive ID changes (one inner mux `mux_arnicomp_top_marl_i__mar_step` with `.sel.0` selector port — identical to outer mux format). Other arnicomp snapshots match prior P2.5-3/4 output unchanged in node mix.
   - **Test suite**: 370 → **378** (+8 in `Bistable.Tests`). All 4 test projects green (378 + 12 snapshots + 4 regression + 2 ui = 396 total). 0 warnings, 0 errors.
   - **Visual impact (Issue 6)**: expanding a compound child now shows inner FFs with clock-triangle + D/>/Q labels, inner muxes as trapezoids with 0/1/S labels, inner inverters with the output bubble, etc. — instead of tiny generic boxes. Compound box auto-grows to fit.
-  - **Remaining in P2.5**: ❹ (mux label clarity — P2.5-6), ❸ (optional south selectors — P2.5-7).
+  - **Remaining at that point**: final closeout items P2.5-7 through P2.5-10, completed below.
+
+- **2026-05-25 (final closeout)**: **P2.5-7, P2.5-8, P2.5-9, P2.5-10 completed** — Phase 2.5 is fully closed.
+  - **P2.5-8 — VdfgTmp fold** (`TempFolder.cs` + `VerilatorXmlAstReader.cs`): new AST pass folds Verilator internal tmp definitions into their consumers before schematic decode. It recursively substitutes through expression trees and statements, removes folded tmp contassigns and local declarations, bounds iteration at 10, skips cyclic definitions, and skips known width mismatches. Complex multi-consumer tmps stay preserved as CSE wins; cheap aliases (`SignalRef` / `BitSelectExpr` / transparent `ExtendExpr`) are folded even with multiple consumers so display labels do not leak `__VdfgTmp_*`.
+  - **P2.5-7 — South-side mux selectors** (`ElkGraphBuilder.cs` + `SchematicPreviewControl.Symbols.cs`): mux data inputs remain WEST, selector pins now use SOUTH with selector labels painted below the trapezoid. `elk-primitive-ternary-mux.json` and arnicomp snapshots confirm `elk.port.side = SOUTH`.
+  - **P2.5-9 — Orphan primitive cleanup** (`ElkGraphBuilder.cs`): after edge emission, the builder iteratively prunes fully disconnected `op_` / `gate_` / `arith_` / `ff_` primitives and removes stale edges to pruned ports. Boundary nodes and `mem_` tiles are explicitly untouched. Unresolved retained inputs are labelled with `·X` so they are never ambiguous.
+  - **P2.5-10 — MUX layout polish** (`ElkGraphBuilder.cs`): mux node width now accounts for title length, longest input/selector label, and selector count on the south edge. Normal 2:1 muxes stay compact at 72px.
+  - **Tests added**: 25 new unit tests: 12 `TempFolderTests`, 7 mux layout/width tests, 6 orphan-pruning tests. `Bistable.Tests` is now 401 total; all 4 test projects total **418** passing.
+  - **Snapshot impact**: arnicomp snapshots regenerated. `arnicomp-top.json` has fewer nodes after orphan cleanup, no `__VdfgTmp*` / `__Vlvbound*` / `__Vfunc*` label leaks, mux selector ports on SOUTH, and 0 problematic unconnected primitive ports by audit.
+  - **Verification**: `dotnet build Bistable.slnx` clean (0 warnings, 0 errors). `dotnet test --filter "Speed!=Slow"` green across `Bistable.Tests`, `Bistable.Snapshots`, `Bistable.Regression`, and `Bistable.UiTests`.
+
+- **Phase 2.5 status: 7/7 + 3 new task complete — fully done.**

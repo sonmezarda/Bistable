@@ -101,8 +101,7 @@ public sealed partial class SchematicPreviewControl
     // ── Mux (classic trapezoid) ──────────────────────────────────────────
     //
     // Trapezoid wider on the data-input (west) side, narrower on the output (east) side.
-    // Selector(s) enter on the west side below the data inputs — their port labels are
-    // tagged "S" / "S0" / "S1" so they read distinctly from the "0"/"1" branch labels.
+    // Selector(s) enter from the south side, matching Logisim/Vivado convention.
     //
     // The trapezoid is symmetric around the horizontal midline. The east side is inset
     // by ~25% of the node width to give the trapezoid silhouette.
@@ -363,10 +362,9 @@ public sealed partial class SchematicPreviewControl
     // ── Shared port painter ──────────────────────────────────────────────
     //
     // Draws each port as a small filled dot at its connection coordinate and
-    // paints the port label just inside the symbol body (so the label does not
-    // collide with the incoming/outgoing wire). West-side labels are right-aligned
-    // to a small inset; East-side labels are left-aligned. Used by FF / Latch / Mux
-    // (Memory has no ports yet).
+    // paints the port label just inside or just outside the symbol body depending
+    // on side. West-side labels are left of the pin, East-side labels right of the
+    // pin, and South-side selector labels sit below the pin.
     private void DrawSymbolPortsAndLabels(DrawingContext context, ElkNode node, Rect rect, double scale, Pen stroke)
     {
         _ = stroke;
@@ -383,13 +381,31 @@ public sealed partial class SchematicPreviewControl
 
             if (port.Labels is not { Count: > 0 }) continue;
             string label = port.Labels[0].Text;
+            if (ShouldHideInlinePortLabel(port, node, label))
+                continue;
+
             double textW = MeasureLabelWidth(label, labelFont);
 
             bool onEast = port.X >= node.Width - 1;
-            double labelX = onEast
-                ? px - labelInset - textW
-                : px + labelInset;
-            DrawText(context, label, labelX, py - labelFont * 0.6, Palette.PinStroke, labelFont);
+            bool onSouth = port.Y >= node.Height - 1;
+            double labelX = onSouth
+                ? px - textW / 2
+                : onEast
+                    ? px - labelInset - textW
+                    : px + labelInset;
+            double labelY = onSouth ? py + labelFont * 0.25 : py - labelFont * 0.6;
+            DrawText(context, label, labelX, labelY, Palette.PinStroke, labelFont);
         }
+    }
+
+    private static bool ShouldHideInlinePortLabel(ElkPort port, ElkNode node, string label)
+    {
+        // South-side mux selector labels quickly collide with the first wire bend.
+        // The label remains in the ELK model for selection/details; only the inline
+        // paint is suppressed.
+        if (port.Y >= node.Height - 1)
+            return true;
+
+        return false;
     }
 }

@@ -763,8 +763,8 @@
                 "inc_by_two"
               ],
               "layoutOptions": {
-                "elk.port.index": "2",
-                "elk.port.side": "WEST"
+                "elk.port.index": "0",
+                "elk.port.side": "SOUTH"
               }
             },
             {
@@ -1655,7 +1655,7 @@
         {
           "id": "ff_flush_next_instr.d",
           "labels": [
-            "D"
+            "D\u00B7X"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -1943,11 +1943,11 @@
         {
           "id": "mux_mem_addr.sel.0",
           "labels": [
-            "__VdfgTmp_hed604daa__0"
+            "control_pins[5]"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
-            "elk.port.side": "WEST"
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
           }
         },
         {
@@ -1995,11 +1995,11 @@
         {
           "id": "mux_mem_wdata.sel.0",
           "labels": [
-            "__VdfgTmp_hed604daa__0"
+            "control_pins[5]"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
-            "elk.port.side": "WEST"
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
           }
         },
         {
@@ -2037,7 +2037,7 @@
         {
           "id": "gate_mem_ren.in.1",
           "labels": [
-            "B"
+            "B\u00B7X"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -2079,7 +2079,7 @@
         {
           "id": "mux_bus.in.1",
           "labels": [
-            "control_pins[8]\u00B7X"
+            "control_pins[8]"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -2112,8 +2112,8 @@
             "control_pins[0]"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
-            "elk.port.side": "WEST"
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
           }
         },
         {
@@ -2122,8 +2122,8 @@
             "control_pins[8]"
           ],
           "layoutOptions": {
-            "elk.port.index": "5",
-            "elk.port.side": "WEST"
+            "elk.port.index": "1",
+            "elk.port.side": "SOUTH"
           }
         },
         {
@@ -2132,8 +2132,8 @@
             "control_pins[7]"
           ],
           "layoutOptions": {
-            "elk.port.index": "6",
-            "elk.port.side": "WEST"
+            "elk.port.index": "2",
+            "elk.port.side": "SOUTH"
           }
         },
         {
@@ -2184,8 +2184,8 @@
             "flush_next_instr"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
-            "elk.port.side": "WEST"
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
           }
         },
         {
@@ -2236,54 +2236,12 @@
             "control_pins[16]"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
-            "elk.port.side": "WEST"
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
           }
         },
         {
           "id": "mux_alu_carry_in.out",
-          "labels": [
-            "Y"
-          ],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "EAST"
-          }
-        }
-      ],
-      "children": []
-    },
-    {
-      "id": "arith_is_push_instr",
-      "labels": [
-        "Equal is_push_instr"
-      ],
-      "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
-      },
-      "ports": [
-        {
-          "id": "arith_is_push_instr.l",
-          "labels": [
-            "A"
-          ],
-          "layoutOptions": {
-            "elk.port.index": "0",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "arith_is_push_instr.r",
-          "labels": [
-            "B"
-          ],
-          "layoutOptions": {
-            "elk.port.index": "1",
-            "elk.port.side": "WEST"
-          }
-        },
-        {
-          "id": "arith_is_push_instr.out",
           "labels": [
             "Y"
           ],
@@ -2868,7 +2826,7 @@
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
       "targets": [
-        "mux_bus.sel.0"
+        "mux_mem_addr.sel.0"
       ],
       "labels": [
         "control_pins",
@@ -2881,7 +2839,7 @@
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
       "targets": [
-        "mux_bus.sel.1"
+        "mux_mem_wdata.sel.0"
       ],
       "labels": [
         "control_pins",
@@ -2894,7 +2852,7 @@
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
       "targets": [
-        "mux_bus.sel.2"
+        "mux_bus.sel.0"
       ],
       "labels": [
         "control_pins",
@@ -2907,7 +2865,7 @@
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
       "targets": [
-        "mux_alu_carry_in.in.1"
+        "mux_bus.sel.1"
       ],
       "labels": [
         "control_pins",
@@ -2920,7 +2878,7 @@
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
       "targets": [
-        "mux_alu_carry_in.sel.0"
+        "mux_bus.sel.2"
       ],
       "labels": [
         "control_pins",
@@ -2933,7 +2891,7 @@
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
       "targets": [
-        "gate_mem_ren.in.0"
+        "mux_alu_carry_in.in.1"
       ],
       "labels": [
         "control_pins",
@@ -2946,7 +2904,7 @@
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
       "targets": [
-        "fanout_control_pins.in"
+        "mux_alu_carry_in.sel.0"
       ],
       "labels": [
         "control_pins",
@@ -2955,6 +2913,32 @@
     },
     {
       "id": "e48",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "gate_mem_ren.in.0"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e49",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "fanout_control_pins.in"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e50",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.jmp_sel"
       ],
@@ -2967,7 +2951,7 @@
       ]
     },
     {
-      "id": "e49",
+      "id": "e51",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_a_we"
       ],
@@ -2980,7 +2964,7 @@
       ]
     },
     {
-      "id": "e50",
+      "id": "e52",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_b_we"
       ],
@@ -2993,7 +2977,7 @@
       ]
     },
     {
-      "id": "e51",
+      "id": "e53",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_d_we"
       ],
@@ -3006,7 +2990,7 @@
       ]
     },
     {
-      "id": "e52",
+      "id": "e54",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.marl_we"
       ],
@@ -3019,7 +3003,7 @@
       ]
     },
     {
-      "id": "e53",
+      "id": "e55",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.marh_we"
       ],
@@ -3032,7 +3016,7 @@
       ]
     },
     {
-      "id": "e54",
+      "id": "e56",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.prl_we"
       ],
@@ -3045,7 +3029,7 @@
       ]
     },
     {
-      "id": "e55",
+      "id": "e57",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.prh_we"
       ],
@@ -3058,7 +3042,7 @@
       ]
     },
     {
-      "id": "e56",
+      "id": "e58",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.mem_we"
       ],
@@ -3071,7 +3055,7 @@
       ]
     },
     {
-      "id": "e57",
+      "id": "e59",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.acc_we"
       ],
@@ -3084,7 +3068,7 @@
       ]
     },
     {
-      "id": "e58",
+      "id": "e60",
       "sources": [
         "child_arnicomp_top_alu_i.out.result"
       ],
@@ -3097,7 +3081,7 @@
       ]
     },
     {
-      "id": "e59",
+      "id": "e61",
       "sources": [
         "child_arnicomp_top_alu_i.out.zero_flag"
       ],
@@ -3110,7 +3094,7 @@
       ]
     },
     {
-      "id": "e60",
+      "id": "e62",
       "sources": [
         "child_arnicomp_top_alu_i.out.negative_flag"
       ],
@@ -3123,7 +3107,7 @@
       ]
     },
     {
-      "id": "e61",
+      "id": "e63",
       "sources": [
         "child_arnicomp_top_alu_i.out.carry_flag"
       ],
@@ -3136,7 +3120,7 @@
       ]
     },
     {
-      "id": "e62",
+      "id": "e64",
       "sources": [
         "child_arnicomp_top_alu_i.out.overflow_flag"
       ],
@@ -3149,7 +3133,7 @@
       ]
     },
     {
-      "id": "e63",
+      "id": "e65",
       "sources": [
         "child_arnicomp_top_jump_decoder.out.jmp_taken"
       ],
@@ -3162,7 +3146,7 @@
       ]
     },
     {
-      "id": "e64",
+      "id": "e66",
       "sources": [
         "split_lr_out.out.1"
       ],
@@ -3175,7 +3159,7 @@
       ]
     },
     {
-      "id": "e65",
+      "id": "e67",
       "sources": [
         "split_lr_out.out.0"
       ],
@@ -3188,7 +3172,7 @@
       ]
     },
     {
-      "id": "e66",
+      "id": "e68",
       "sources": [
         "ff_flush_next_instr.q"
       ],
@@ -3201,7 +3185,7 @@
       ]
     },
     {
-      "id": "e67",
+      "id": "e69",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3214,7 +3198,7 @@
       ]
     },
     {
-      "id": "e68",
+      "id": "e70",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3227,7 +3211,20 @@
       ]
     },
     {
-      "id": "e69",
+      "id": "e71",
+      "sources": [
+        "ff_inst_q.q"
+      ],
+      "targets": [
+        "mux_bus.in.1"
+      ],
+      "labels": [
+        "inst_q",
+        "1"
+      ]
+    },
+    {
+      "id": "e72",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3240,7 +3237,7 @@
       ]
     },
     {
-      "id": "e70",
+      "id": "e73",
       "sources": [
         "mux_mem_addr.out"
       ],
@@ -3253,7 +3250,7 @@
       ]
     },
     {
-      "id": "e71",
+      "id": "e74",
       "sources": [
         "mux_mem_wdata.out"
       ],
@@ -3266,7 +3263,7 @@
       ]
     },
     {
-      "id": "e72",
+      "id": "e75",
       "sources": [
         "mux_bus.out"
       ],
@@ -3279,7 +3276,7 @@
       ]
     },
     {
-      "id": "e73",
+      "id": "e76",
       "sources": [
         "mux_bus.out"
       ],
@@ -3292,7 +3289,7 @@
       ]
     },
     {
-      "id": "e74",
+      "id": "e77",
       "sources": [
         "mux_bus.out"
       ],
@@ -3305,7 +3302,7 @@
       ]
     },
     {
-      "id": "e75",
+      "id": "e78",
       "sources": [
         "mux_bus.out"
       ],
@@ -3318,7 +3315,7 @@
       ]
     },
     {
-      "id": "e76",
+      "id": "e79",
       "sources": [
         "mux_bus.out"
       ],
@@ -3331,7 +3328,7 @@
       ]
     },
     {
-      "id": "e77",
+      "id": "e80",
       "sources": [
         "mux_bus.out"
       ],
@@ -3344,7 +3341,7 @@
       ]
     },
     {
-      "id": "e78",
+      "id": "e81",
       "sources": [
         "mux_bus.out"
       ],
@@ -3357,7 +3354,7 @@
       ]
     },
     {
-      "id": "e79",
+      "id": "e82",
       "sources": [
         "mux_bus.out"
       ],
@@ -3370,7 +3367,7 @@
       ]
     },
     {
-      "id": "e80",
+      "id": "e83",
       "sources": [
         "mux_exec_instr.out"
       ],
@@ -3383,7 +3380,7 @@
       ]
     },
     {
-      "id": "e81",
+      "id": "e84",
       "sources": [
         "mux_alu_carry_in.out"
       ],
@@ -3396,7 +3393,7 @@
       ]
     },
     {
-      "id": "e82",
+      "id": "e85",
       "sources": [
         "buf_pc_out.out"
       ],
@@ -3409,7 +3406,7 @@
       ]
     },
     {
-      "id": "e83",
+      "id": "e86",
       "sources": [
         "buf_mem_wen.out"
       ],
@@ -3422,7 +3419,7 @@
       ]
     },
     {
-      "id": "e84",
+      "id": "e87",
       "sources": [
         "gate_mem_ren.out"
       ],
@@ -3435,7 +3432,7 @@
       ]
     },
     {
-      "id": "e85",
+      "id": "e88",
       "sources": [
         "fanout_control_pins.leg.0"
       ],
@@ -3448,7 +3445,7 @@
       ]
     },
     {
-      "id": "e86",
+      "id": "e89",
       "sources": [
         "fanout_control_pins.leg.1"
       ],
@@ -3461,7 +3458,7 @@
       ]
     },
     {
-      "id": "e87",
+      "id": "e90",
       "sources": [
         "fanout_control_pins.leg.2"
       ],
@@ -3474,7 +3471,7 @@
       ]
     },
     {
-      "id": "e88",
+      "id": "e91",
       "sources": [
         "fanout_control_pins.leg.3"
       ],
@@ -3487,7 +3484,7 @@
       ]
     },
     {
-      "id": "e89",
+      "id": "e92",
       "sources": [
         "fanout_control_pins.leg.4"
       ],
@@ -3500,7 +3497,7 @@
       ]
     },
     {
-      "id": "e90",
+      "id": "e93",
       "sources": [
         "fanout_control_pins.leg.5"
       ],
@@ -3513,7 +3510,7 @@
       ]
     },
     {
-      "id": "e91",
+      "id": "e94",
       "sources": [
         "fanout_control_pins.leg.6"
       ],
@@ -3526,7 +3523,7 @@
       ]
     },
     {
-      "id": "e92",
+      "id": "e95",
       "sources": [
         "fanout_control_pins.leg.7"
       ],
@@ -3539,7 +3536,7 @@
       ]
     },
     {
-      "id": "e93",
+      "id": "e96",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -3552,7 +3549,7 @@
       ]
     },
     {
-      "id": "e94",
+      "id": "e97",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -3565,7 +3562,7 @@
       ]
     },
     {
-      "id": "e95",
+      "id": "e98",
       "sources": [
         "fanout_control_pins.leg.9"
       ],
@@ -3578,33 +3575,7 @@
       ]
     },
     {
-      "id": "e96",
-      "sources": [
-        "fanout_control_pins.leg.9"
-      ],
-      "targets": [
-        "mux_mem_addr.sel.0"
-      ],
-      "labels": [
-        "__VdfgTmp_hed604daa__0",
-        "1"
-      ]
-    },
-    {
-      "id": "e97",
-      "sources": [
-        "fanout_control_pins.leg.9"
-      ],
-      "targets": [
-        "mux_mem_wdata.sel.0"
-      ],
-      "labels": [
-        "__VdfgTmp_hed604daa__0",
-        "1"
-      ]
-    },
-    {
-      "id": "e98",
+      "id": "e99",
       "sources": [
         "fanout_control_pins.leg.10"
       ],
@@ -3617,7 +3588,7 @@
       ]
     },
     {
-      "id": "e99",
+      "id": "e100",
       "sources": [
         "fanout_control_pins.leg.11"
       ],
@@ -3630,7 +3601,7 @@
       ]
     },
     {
-      "id": "e100",
+      "id": "e101",
       "sources": [
         "child_arnicomp_top_marl_i.in.clk"
       ],
@@ -3643,7 +3614,7 @@
       ]
     },
     {
-      "id": "e101",
+      "id": "e102",
       "sources": [
         "child_arnicomp_top_marl_i.in.rst_n"
       ],
@@ -3656,7 +3627,7 @@
       ]
     },
     {
-      "id": "e102",
+      "id": "e103",
       "sources": [
         "child_arnicomp_top_marl_i.in.inc_by_two"
       ],

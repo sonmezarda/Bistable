@@ -2,14 +2,14 @@
 
 **Master plan:** `/home/ardac/.claude/plans/fluffy-wishing-kettle.md` Section 9
 **Phase goal:** Allow the GUI to read and write ANY hierarchical signal (or memory cell) at simulation time, not just top-level ports. This is the **prerequisite for Phase 4 (live values on schematic)** — the differentiator that turns a static viewer into a Logisim-class live debugger.
-**Prerequisite:** Phase 1 (AST) complete. Phase 2 / 2.5 (static schematic) are NOT prerequisites — Phase 3 can run in parallel.
+**Prerequisite:** Phase 1 (AST) complete. Phase 2 / 2.5 static schematic is production-ready as of 2026-05-25 (Phase 2.5: 7/7 + 3 closeout tasks complete), so Phase 3 can start on top of a stable schematic baseline.
 **Phase gate:** `ReadSignal("arnicomp_top.acc.q")` returns the live FF value mid-simulation; `ForceSignal` holds a value across `Eval` cycles; memory read API returns sensible array contents; all existing samples still build and run.
 
 ---
 
 ## 1. Why this phase matters
 
-After Phase 2 the schematic shows the design's STRUCTURE perfectly. But every value visible to the user is a snapshot of TOP-LEVEL ports only — internal FF Q values, memory cells, mux active paths are dark.
+After Phase 2.5 the schematic shows the design's STRUCTURE at production quality: internal Verilator tmp aliases are folded/hidden, mux selectors are on the south side, orphan primitives are pruned, and arnicomp connectivity audit reports 0 problematic unconnected primitive ports. But every value visible to the user is still a snapshot of TOP-LEVEL ports only — internal FF Q values, memory cells, mux active paths are dark.
 
 Phase 3 lifts the lid on the simulation:
 - Read any hierarchy signal hot (no VCD round-trip): `top.cpu.alu.result` → live value

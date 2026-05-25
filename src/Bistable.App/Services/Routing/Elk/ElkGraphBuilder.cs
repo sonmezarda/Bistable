@@ -29,6 +29,7 @@ internal sealed class ElkGraphBuilder
     private const string ElkPortConstraintsKey = "elk.portConstraints";
     private const string PortSideEast = "EAST";
     private const string PortSideWest = "WEST";
+    private const string PortSideSouth = "SOUTH";
     private const string PortConstraintsFixedOrder = "FIXED_ORDER";
 
     public ElkBuildResult Build(ElkScopeData scope, bool compactLayout)
@@ -115,6 +116,7 @@ internal sealed class ElkGraphBuilder
         DispatchPrimitives(graph, scope.Primitives, portRefs);
 
         AddEdges(graph, scope, portRefs);
+        PruneOrphanPrimitives(graph);
         return new ElkBuildResult(graph, portRefs);
     }
 
@@ -172,7 +174,7 @@ internal sealed class ElkGraphBuilder
         {
             Id = dPortId,
             LayoutOptions = PortLayout(PortSideWest, 0),
-            Labels = [new ElkLabel { Text = "D" }]
+            Labels = [new ElkLabel { Text = IsUnresolvedSignal(ff.DSignal) ? "D·X" : "D" }]
         });
         portRefs[kp + ElkSignalKey.FlipFlopD(ff.QSignal)] =
             new ElkPortRef(nodeId, dPortId, ElkPortRole.FlipFlopD, ff.Width);
@@ -226,14 +228,13 @@ internal sealed class ElkGraphBuilder
         int dataInputCount = mux.Inputs.Count;
         int selectorCount = mux.SelectSignals.Count;
 
-        // Compute height proportional to total west-side port count.
-        int westPortCount = dataInputCount + selectorCount;
-        double height = Math.Max(48, 16 + westPortCount * 14);
+        double height = Math.Max(48, 16 + dataInputCount * 14);
+        double width = ComputeMuxWidth(mux);
 
         ElkNode node = new()
         {
             Id = nodeId,
-            Width = 72,
+            Width = width,
             Height = height,
             LayoutOptions = FixedOrderPortConstraints(),
             Labels = [new ElkLabel { Text = "MUX " + mux.OutputSignal }],
@@ -257,7 +258,8 @@ internal sealed class ElkGraphBuilder
                 new ElkPortRef(nodeId, portId, ElkPortRole.MuxInput, mux.Width);
         }
 
-        // West-side selectors below the data inputs.
+        // South-side selectors. This follows the Logisim/Vivado convention:
+        // west pins are data inputs, bottom pins are select controls.
         // P2.5-6: label each selector port with its ACTUAL signal name (e.g. "sel",
         // "op_sel", "s2") instead of generic "S0/S1/S2" placeholders that previously
         // implied bits of a single multi-bit selector. The N selectors in a chained
@@ -275,7 +277,7 @@ internal sealed class ElkGraphBuilder
             node.Ports!.Add(new ElkPort
             {
                 Id = portId,
-                LayoutOptions = PortLayout(PortSideWest, westIndex++),
+                LayoutOptions = PortLayout(PortSideSouth, i),
                 Labels = [new ElkLabel { Text = label }]
             });
             portRefs[kp + ElkSignalKey.MuxSelect(mux.OutputSignal, i)] =
@@ -295,6 +297,27 @@ internal sealed class ElkGraphBuilder
 
         target.Add(node);
     }
+
+    private static double ComputeMuxWidth(MuxPrimitive mux)
+    {
+        double titleWidth = EstimateTextWidth("MUX " + mux.OutputSignal) + 16;
+        double dataLabelWidth = mux.Inputs
+            .Select(static i => i.Label)
+            .Where(static label => !IsDiagnosticLabel(label))
+            .DefaultIfEmpty(string.Empty)
+            .Max(static label => EstimateTextWidth(label)) + 20;
+        double selectorWidth = 24 + mux.SelectSignals.Count * 30;
+        return Math.Max(72, Math.Max(titleWidth, Math.Max(dataLabelWidth, selectorWidth)));
+    }
+
+    private static double EstimateTextWidth(string? text) =>
+        string.IsNullOrEmpty(text) ? 0 : text.Length * 7;
+
+    private static bool IsUnresolvedSignal(string? signalName) =>
+        string.IsNullOrWhiteSpace(signalName) || string.Equals(signalName, "?", StringComparison.Ordinal);
+
+    private static bool IsDiagnosticLabel(string? label) =>
+        !string.IsNullOrEmpty(label) && label.Contains('·', StringComparison.Ordinal);
 
     private static void AddLatchNode(
         IList<ElkNode> target,
@@ -534,6 +557,8 @@ internal sealed class ElkGraphBuilder
                 2 => i == 0 ? "A" : "B",
                 _ => $"I{i}"
             };
+            if (IsUnresolvedSignal(gate.InputSignals[i]))
+                label += "·X";
             node.Ports!.Add(new ElkPort
             {
                 Id = portId,
@@ -582,7 +607,7 @@ internal sealed class ElkGraphBuilder
         {
             Id = leftId,
             LayoutOptions = PortLayout(PortSideWest, 0),
-            Labels = [new ElkLabel { Text = "A" }]
+            Labels = [new ElkLabel { Text = IsUnresolvedSignal(arith.LeftSignal) ? "A·X" : "A" }]
         });
         portRefs[kp + ElkSignalKey.ArithLeft(arith.OutputSignal)] =
             new ElkPortRef(nodeId, leftId, ElkPortRole.ArithLeft, arith.Width);
@@ -592,7 +617,7 @@ internal sealed class ElkGraphBuilder
         {
             Id = rightId,
             LayoutOptions = PortLayout(PortSideWest, 1),
-            Labels = [new ElkLabel { Text = "B" }]
+            Labels = [new ElkLabel { Text = IsUnresolvedSignal(arith.RightSignal) ? "B·X" : "B" }]
         });
         portRefs[kp + ElkSignalKey.ArithRight(arith.OutputSignal)] =
             new ElkPortRef(nodeId, rightId, ElkPortRole.ArithRight, arith.Width);
@@ -1749,6 +1774,54 @@ internal sealed class ElkGraphBuilder
             }
         }
     }
+
+    private static void PruneOrphanPrimitives(ElkGraph graph)
+    {
+        HashSet<string> connectedPorts = graph.Edges
+            .SelectMany(static e => e.Sources.Concat(e.Targets))
+            .ToHashSet(StringComparer.Ordinal);
+
+        while (true)
+        {
+            HashSet<string> removedPorts = [];
+            PruneOrphanPrimitives(graph.Children, connectedPorts, removedPorts);
+            if (removedPorts.Count == 0) break;
+
+            graph.Edges.RemoveAll(e => e.Sources.Any(removedPorts.Contains) || e.Targets.Any(removedPorts.Contains));
+            connectedPorts = graph.Edges
+                .SelectMany(static e => e.Sources.Concat(e.Targets))
+                .ToHashSet(StringComparer.Ordinal);
+        }
+    }
+
+    private static void PruneOrphanPrimitives(List<ElkNode> nodes, HashSet<string> connectedPorts, HashSet<string> removedPorts)
+    {
+        foreach (ElkNode node in nodes)
+        {
+            if (node.Children is { Count: > 0 })
+                PruneOrphanPrimitives(node.Children, connectedPorts, removedPorts);
+        }
+
+        nodes.RemoveAll(node =>
+        {
+            if (!IsPrunablePrimitive(node)
+                || node.Ports is not { Count: > 0 } ports
+                || ports.Any(p => connectedPorts.Contains(p.Id)))
+            {
+                return false;
+            }
+
+            foreach (ElkPort port in ports)
+                removedPorts.Add(port.Id);
+            return true;
+        });
+    }
+
+    private static bool IsPrunablePrimitive(ElkNode node) =>
+        ElkNodeIds.IsOperator(node.Id)
+        || ElkNodeIds.IsGate(node.Id)
+        || ElkNodeIds.IsArith(node.Id)
+        || ElkNodeIds.IsFlipFlop(node.Id);
 
     // Strips internal namespace prefixes from synthetic signal keys (e.g. "::fanout::ctrl.ops"
     // becomes "ctrl.ops") so the user sees a clean wire label instead of plumbing details.
