@@ -1,4 +1,4 @@
-# Architecture (current state — 2026-05-23)
+# Architecture (current state — 2026-05-29)
 
 This document is a layer map of the codebase as it stands today. Update it when layers move or new ones appear.
 
@@ -60,18 +60,25 @@ Bistable.App  ──depends on──>  Bistable.Verilator  ──depends on─�
   - Full spec: `docs/DESIGN_AST.md`.
 
 ### `Bistable.Protocol`
-- `SimulationCommand` (request: `Type`, `Signal?`, `Value?`, `Cycles`).
-- `SimulationCommandType` enum (SetInput, Eval, Tick, RunCycles, Reset, GetSnapshot, Pause).
-- `SimulationSnapshot` (response: `Time`, `Signals`, optional `Trace`).
-- `SignalSample`.
+- `SimulationCommand` (request: `Type`, `Signal?`, `Value?`, `Cycles`, `Path?`, `MemoryAddress?`, `MemoryCount?`).
+- `SimulationCommandType` enum: 14 values across v1 stepping (SetInput, Eval, Tick, RunCycles, Reset, GetSnapshot, Pause) and v2 probes (ReadSignal, WriteSignal, ForceSignal, ReleaseSignal, ReadMemory, WriteMemory, ListProbes).
+- `WorkerResponse` (abstract record, `[JsonPolymorphic("kind")]`) with six subtypes:
+  - `SimulationFrame` (`"kind":"frame"`) — v1 stepping response: `Time`, `Signals`, optional `Trace`.
+  - `SignalReadResponse` (`"kind":"signalRead"`) — probe-table read result.
+  - `MemoryReadResponse` (`"kind":"memoryRead"`) — reserved for P3-6 memory probes.
+  - `ProbeListResponse` (`"kind":"probeList"`) — enumeration of the worker's probe table.
+  - `AckResponse` (`"kind":"ack"`) — write/force/release success.
+  - `ErrorResponse` (`"kind":"error"`) — structured failure message.
+- DTOs: `SignalSample`, `SignalReadResult`, `MemoryReadResult`, `ProbeDescriptor`.
 
-Phase 3 will extend this with `ReadSignal`, `WriteSignal`, `ForceSignal`, `ReleaseSignal`, `ReadMemory`.
+Full wire-format spec in `docs/PROTOCOL.md`.
 
 ### `Bistable.Verilator`
 - `VerilatorTool` — invokes `verilator` CLI.
 - `VerilatorXmlParser` — XML → `ElaboratedDesign` (current).
-- `SimulationWorkerBuilder` — generates C++ worker source, compiles via Verilator.
-- `SimulationWorkerClient` — JSON IPC over stdin/stdout to the compiled worker.
+- `SimulationWorkerBuilder` — generates C++ worker source, compiles via Verilator. Optionally takes a `DesignAst` to emit the Phase 3 probe table.
+- `SimulationWorkerClient` — JSON IPC over stdin/stdout to the compiled worker. Includes typed wrappers (`ReadSignalAsync`, `ForceSignalAsync`, `ListProbesAsync`, …) over the raw command/response channel.
+- `ProbeTableEnumerator` — walks a `DesignAst` and yields one `ProbeEntry` per hierarchical signal (filters `__V*` tmps, `Width > 64`, unpacked arrays). Path mangler turns `"top.acc.q"` into Verilator's `"top__DOT__acc__DOT__q"` field name.
 
 **Phase 1 additions:**
   - `VerilatorXmlAstReader` — recursive-descent XML → `DesignAst`. Runs alongside the legacy parser.
@@ -97,7 +104,7 @@ Phase 3 will extend this with `ReadSignal`, `WriteSignal`, `ForceSignal`, `Relea
 | `ElkRunner.Layout` | caller | **synchronous; Phase 6 will wrap in Task.Run** |
 | `ElkSchematicEngine.Compute` | caller | synchronous; LRU-cached |
 | `DesignLoadService.LoadAsync` | background (Task) | Verilator XML generation off UI thread |
-| `MainWindowViewModel.ApplySnapshot` | UI thread | mutates ObservableCollections |
+| `MainWindowViewModel.ApplyFrame` | UI thread | mutates ObservableCollections |
 
 **Phase 6 goal:** zero UI thread blocks > 5 ms. Until then, the freeze on large schematics is expected.
 
@@ -127,21 +134,43 @@ Caching: `ElkSchematicEngine` keeps an 8-entry LRU keyed on a SHA-1 of the scope
 ProjectConfiguration (.bistable.json)
         │
         ▼
-DesignLoadService.LoadAsync  ──>  ElaboratedDesign (XML-elaborated)
-        │
+DesignLoadService.LoadAsync  ──>  ElaboratedDesign (XML-elaborated) + DesignAst
+        │                                                 │
+        ▼                                                 │
+SimulationWorkerBuilder.BuildAsync(designAst:)            │
+        │  + ProbeTableEnumerator.Enumerate(ast, top)     │
+        │       └──> IReadOnlyList<ProbeEntry>            │
+        │                                                 │
+        ▼                                                 │
+generated C++ source (probe_table populated via init_probe_table)
+        │  ──[--public-flat-rw]──>  every hier signal is a public field
         ▼
-SimulationWorkerBuilder.BuildAsync  ──>  compiled native worker (per-project cache)
+verilator --cc --exe --build  ──>  compiled native worker (per-project cache)
         │
         ▼
 SimulationWorkerClient  ──[JSON over stdio]──>  worker subprocess
         │                                            │
-        │                                            ▼
-        │                                       VCD trace file
-        ▼
-SimulationSnapshot  ──>  ApplySnapshot  ──>  Output SignalViewModels + waveform append
+        │  v1: SetInput/Eval/Tick/RunCycles          ▼
+        │      → SimulationFrame              VCD trace file
+        │                                            │
+        │  v2: ReadSignal/WriteSignal/Force/         │
+        │      Release/ListProbes                    │
+        │      → typed WorkerResponse                │
+        ▼                                            │
+ApplyFrame  ──>  Output SignalViewModels + waveform append
 ```
 
-Worker only exposes top-level ports today. Internal hierarchy signals are accessible only via the VCD file *after* the simulation pauses. Phase 3 fixes this with hot probes.
+The worker holds a `std::unordered_map<std::string, ProbeEntry> probe_table`
+built at startup from the AST signal list. Each entry binds a read/write
+lambda over `model->rootp->{mangled_field}`. A small `std::map<std::string,
+uint64_t> forced_signals` is re-applied at the top of every eval and after
+every eval inside `drive_clock` — the latter is what makes `forceSignal`
+survive the FF latch on the rising clock edge.
+
+Full wire-format spec: `docs/PROTOCOL.md`. Phase 3 task board:
+`docs/PHASES/PHASE-3.md`. Phase 4 (live values on schematic) consumes this
+API; Phase 5 (sub-sim maturation) reuses the probe table to enumerate a
+sub-module's internal signals.
 
 ## 7. Sub-simulation
 

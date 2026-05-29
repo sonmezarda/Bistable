@@ -1084,7 +1084,8 @@ public sealed class MainWindowViewModel : ViewModelBase
             _currentMetadata!,
             _currentProjectDirectory!,
             cancellationToken,
-            progress);
+            progress,
+            _currentAst);
 
         _worker = new SimulationWorkerClient(build.ExecutablePath);
         _traceFilePath = build.TraceFilePath;
@@ -1124,7 +1125,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                     Status = $"Build {report.Stage}: {TrimBuildStatus(report.Message)}";
             });
             subBuild = await _workspace.WorkerBuilder.BuildAsync(
-                subConfig, subMeta, _currentProjectDirectory!, cancellationToken, progress);
+                subConfig, subMeta, _currentProjectDirectory!, cancellationToken, progress, _currentAst);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

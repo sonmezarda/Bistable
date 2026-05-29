@@ -17,7 +17,8 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         ModuleMetadata metadata,
         string projectDirectory,
         CancellationToken cancellationToken = default,
-        IProgress<SimulationWorkerBuildProgress>? progress = null)
+        IProgress<SimulationWorkerBuildProgress>? progress = null,
+        Bistable.Core.Design.Ast.DesignAst? designAst = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(metadata);
@@ -59,7 +60,17 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
                 configuration.Trace.Depth,
                 traceFilePath is null ? string.Empty : Path.GetFileName(traceFilePath));
             progress?.Report(new SimulationWorkerBuildProgress("generate", "Generating C++ simulation wrapper..."));
-            await File.WriteAllTextAsync(wrapperPath, GenerateWorkerSource(configuration.TopModule, metadata, options), cancellationToken);
+            // Phase 3: when AST and probes are both available, emit a probe table
+            // that maps hierarchical signal paths to model field accessors. When AST
+            // is null (legacy callers) or probes are disabled, the probe-related
+            // commands return ErrorResponse("probes disabled").
+            IReadOnlyList<ProbeEntry> probes = (designAst is not null && configuration.EnableInternalProbes)
+                ? ProbeTableEnumerator.Enumerate(designAst, configuration.TopModule).ToList()
+                : [];
+            await File.WriteAllTextAsync(
+                wrapperPath,
+                GenerateWorkerSource(configuration.TopModule, metadata, options, probes),
+                cancellationToken);
 
             List<string> arguments = BuildVerilatorArguments(configuration, buildDirectory, projectDirectory, wrapperPath);
 
@@ -160,19 +171,26 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         return arguments;
     }
 
-    private static string GenerateWorkerSource(string topModule, ModuleMetadata metadata, WorkerGenerationOptions options)
+    private static string GenerateWorkerSource(
+        string topModule,
+        ModuleMetadata metadata,
+        WorkerGenerationOptions options,
+        IReadOnlyList<ProbeEntry> probes)
     {
         string modelType = "V" + SanitizeIdentifier(topModule);
         StringBuilder builder = new();
         builder.AppendLine("#include <cstdint>");
         builder.AppendLine("#include <cstdlib>");
         builder.AppendLine("#include <cstdio>");
+        builder.AppendLine("#include <functional>");
         builder.AppendLine("#include <iostream>");
+        builder.AppendLine("#include <map>");
         builder.AppendLine("#include <memory>");
         builder.AppendLine("#include <regex>");
         builder.AppendLine("#include <sstream>");
         builder.AppendLine("#include <string>");
         builder.AppendLine("#include <tuple>");
+        builder.AppendLine("#include <unordered_map>");
         builder.AppendLine("#include <vector>");
         // Redirect Verilator runtime diagnostics (%Error, %Warning) to stderr so they
         // never appear on stdout and corrupt the JSON protocol stream.
@@ -183,6 +201,13 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             builder.AppendLine("#include \"verilated_vcd_c.h\"");
         }
         builder.AppendLine($"#include \"{modelType}.h\"");
+        // Phase 3: when probes are present we need the full ___024root definition
+        // so the probe lambdas can dereference `model->rootp->{field}`. The main
+        // header only forward-declares the root class.
+        if (probes.Count > 0)
+        {
+            builder.AppendLine($"#include \"{modelType}___024root.h\"");
+        }
         // Verilator 5.x requires sc_time_stamp() when not linking against SystemC.
         builder.AppendLine("double sc_time_stamp() { return 0; }");
         builder.AppendLine();
@@ -270,6 +295,10 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             AppendTraceSupport(builder, modelType, options);
         }
 
+        // Probe table support comes first so its apply_forced_signals() is in
+        // scope for the subsequent drive_clock + apply_reset emitters (which
+        // re-apply forced values after each eval).
+        AppendProbeTableSupport(builder, modelType, probes);
         AppendDriveClockFunction(builder, modelType, metadata, options.TraceEnabled);
         AppendApplyResetFunction(builder, modelType, metadata, options, options.TraceEnabled);
         builder.AppendLine();
@@ -292,6 +321,9 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         {
             builder.AppendLine("    auto tracer = create_trace(*model);");
         }
+        // Phase 3: populate the probe table from the AST-derived signal list.
+        // Empty when EnableInternalProbes=false or no AST was supplied at build time.
+        builder.AppendLine("    init_probe_table(model.get());");
         builder.AppendLine("    std::uint64_t time = 0;");
         if (options.TraceEnabled)
         {
@@ -312,6 +344,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         }
 
         builder.AppendLine("                append_trace(trace, signal, raw_value, time);");
+        builder.AppendLine("                apply_forced_signals();");
         builder.AppendLine("                model->eval();");
         if (options.TraceEnabled)
         {
@@ -320,6 +353,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("                append_output_trace(*model, time, trace);");
         builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"eval\" || type == \"getSnapshot\") {");
+        builder.AppendLine("                apply_forced_signals();");
         builder.AppendLine("                model->eval();");
         if (options.TraceEnabled)
         {
@@ -329,6 +363,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"tick\") {");
         builder.AppendLine("                const std::string clock = get_string(line, \"signal\");");
+        builder.AppendLine("                apply_forced_signals();");
         builder.AppendLine(options.TraceEnabled
             ? "                drive_clock(*model, tracer.get(), trace_time, clock, time, trace);"
             : "                drive_clock(*model, clock, time, trace);");
@@ -338,6 +373,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("                const std::uint64_t cycles = get_u64(line, \"cycles\", 1);");
         builder.AppendLine("                const std::string clock = get_string(line, \"signal\");");
         builder.AppendLine("                for (std::uint64_t i = 0; i < cycles; ++i) {");
+        builder.AppendLine("                    apply_forced_signals();");
         builder.AppendLine("                    if (!clock.empty()) {");
         builder.AppendLine(options.TraceEnabled
             ? "                        drive_clock(*model, tracer.get(), trace_time, clock, time, trace);"
@@ -353,6 +389,10 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             builder.AppendLine("                if (tracer) { tracer->close(); }");
         }
         builder.AppendLine("                model = std::make_unique<" + modelType + ">();");
+        // Phase 3: probe lambdas captured the OLD rootp pointer; rebuild the
+        // probe table against the freshly-constructed model. Forced signals
+        // persist across reset by design (the GUI's "this pin is held" semantics).
+        builder.AppendLine("                init_probe_table(model.get());");
         if (options.TraceEnabled)
         {
             builder.AppendLine("                tracer = create_trace(*model);");
@@ -366,6 +406,40 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            } else if (type == \"pause\") {");
         builder.AppendLine("                write_snapshot(*model, time, trace);");
+        // ── Phase 3 probe commands ───────────────────────────────────
+        // The path-extraction line is identical across read/write/force/release;
+        // factor into one const so the literal isn't duplicated (S1192).
+        const string ExtractPath = "                const std::string path = get_string(line, \"path\");";
+        builder.AppendLine("            } else if (type == \"readSignal\") {");
+        builder.AppendLine(ExtractPath);
+        builder.AppendLine("                auto it = probe_table.find(path);");
+        builder.AppendLine("                if (it == probe_table.end()) { write_error(\"unknown probe path: \" + path); }");
+        builder.AppendLine("                else { write_signal_read(path, it->second.read(), it->second.width, it->second.is_signed); }");
+        builder.AppendLine("            } else if (type == \"writeSignal\") {");
+        builder.AppendLine(ExtractPath);
+        builder.AppendLine("                const std::string raw_value = get_string(line, \"value\");");
+        builder.AppendLine("                auto it = probe_table.find(path);");
+        builder.AppendLine("                if (it == probe_table.end()) { write_error(\"unknown probe path: \" + path); }");
+        builder.AppendLine("                else { it->second.write(parse_u64(raw_value)); write_ack(); }");
+        builder.AppendLine("            } else if (type == \"forceSignal\") {");
+        builder.AppendLine(ExtractPath);
+        builder.AppendLine("                const std::string raw_value = get_string(line, \"value\");");
+        builder.AppendLine("                auto it = probe_table.find(path);");
+        builder.AppendLine("                if (it == probe_table.end()) { write_error(\"unknown probe path: \" + path); }");
+        builder.AppendLine("                else {");
+        builder.AppendLine("                    const std::uint64_t v = parse_u64(raw_value);");
+        builder.AppendLine("                    forced_signals[path] = v;");
+        builder.AppendLine("                    it->second.write(v);   // apply immediately too");
+        builder.AppendLine("                    write_ack();");
+        builder.AppendLine("                }");
+        builder.AppendLine("            } else if (type == \"releaseSignal\") {");
+        builder.AppendLine(ExtractPath);
+        builder.AppendLine("                forced_signals.erase(path);");
+        builder.AppendLine("                write_ack();");
+        builder.AppendLine("            } else if (type == \"listProbes\") {");
+        builder.AppendLine("                write_probe_list();");
+        builder.AppendLine("            } else {");
+        builder.AppendLine("                write_error(\"unknown command type: \" + type);");
         builder.AppendLine("            }");
         builder.AppendLine("        } catch (const std::exception& ex) {");
         // Emit an ErrorResponse: { "kind":"error", "message":"..." }
@@ -403,22 +477,121 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine();
     }
 
+    /// <summary>
+    /// Emits the C++ probe-table machinery (Phase 3): the probe map, the
+    /// force-apply function, JSON encoders for the response types, and the
+    /// init_probe_table function that maps every hierarchical signal path to
+    /// a read/write closure over the Verilator model.
+    /// <para>When <paramref name="probes"/> is empty (designAst was null or
+    /// EnableInternalProbes=false), only the empty scaffolding is emitted —
+    /// probe commands then return ErrorResponse cleanly.</para>
+    /// </summary>
+    private static void AppendProbeTableSupport(StringBuilder builder, string modelType, IReadOnlyList<ProbeEntry> probes)
+    {
+        // Probe accessor: a read/write lambda pair plus metadata. Stored in an
+        // unordered_map keyed by dotted hierarchy path. Force state is a small
+        // ordered map for deterministic re-apply order.
+        builder.AppendLine("struct ProbeEntry {");
+        builder.AppendLine("    std::function<std::uint64_t()> read;");
+        builder.AppendLine("    std::function<void(std::uint64_t)> write;");
+        builder.AppendLine("    int width;");
+        builder.AppendLine("    bool is_signed;");
+        builder.AppendLine("    bool is_registered;");
+        builder.AppendLine("    bool is_memory;");
+        builder.AppendLine("    int memory_depth;");
+        builder.AppendLine("};");
+        builder.AppendLine("static std::unordered_map<std::string, ProbeEntry> probe_table;");
+        builder.AppendLine("static std::map<std::string, std::uint64_t> forced_signals;");
+        builder.AppendLine();
+
+        // init_probe_table: populated once per worker startup from the design's
+        // AST signal list. The lambdas capture the model pointer; Verilator's
+        // --public-flat-rw flag exposes every hierarchical signal as a CData /
+        // SData / IData / QData field under model->rootp.
+        builder.AppendLine($"void init_probe_table({modelType}* m) {{");
+        if (probes.Count > 0)
+        {
+            // Access model fields via rootp (Verilator 5.x convention with public-flat-rw).
+            builder.AppendLine("    auto* r = m->rootp;");
+            foreach (ProbeEntry p in probes)
+            {
+                string field = p.FieldName;
+                string pathEscaped = p.Path;   // dotted paths are JSON-safe; no escape needed
+                string isSignedC = p.IsSigned ? "true" : "false";
+                string isRegC    = p.IsRegistered ? "true" : "false";
+                builder.AppendLine($"    probe_table[\"{pathEscaped}\"] = ProbeEntry{{");
+                builder.AppendLine($"        [r]() -> std::uint64_t {{ return (std::uint64_t)(r->{field}); }},");
+                builder.AppendLine($"        [r](std::uint64_t v) {{ r->{field} = decltype(r->{field})(v); }},");
+                builder.AppendLine($"        {p.Width}, {isSignedC}, {isRegC}, false, 0");
+                builder.AppendLine("    };");
+            }
+        }
+        builder.AppendLine("}");
+        builder.AppendLine();
+
+        // apply_forced_signals: called at the top of every eval/tick/runCycles
+        // so the user's forced values survive simulation propagation.
+        builder.AppendLine("void apply_forced_signals() {");
+        builder.AppendLine("    for (const auto& kv : forced_signals) {");
+        builder.AppendLine("        auto it = probe_table.find(kv.first);");
+        builder.AppendLine("        if (it != probe_table.end()) it->second.write(kv.second);");
+        builder.AppendLine("    }");
+        builder.AppendLine("}");
+        builder.AppendLine();
+
+        // JSON encoders for the probe response shapes. We escape user strings
+        // (paths can contain bracket characters from generate blocks etc.).
+        builder.AppendLine("void write_signal_read(const std::string& path, std::uint64_t value, int width, bool is_signed) {");
+        builder.AppendLine("    std::ostringstream val; val << \"0x\" << std::hex << value;");
+        builder.AppendLine("    std::cout << \"{\\\"kind\\\":\\\"signalRead\\\",\\\"result\\\":{\\\"path\\\":\\\"\" << json_escape(path)");
+        builder.AppendLine("              << \"\\\",\\\"value\\\":\\\"\" << val.str() << \"\\\",\\\"width\\\":\" << width");
+        builder.AppendLine("              << \",\\\"isSigned\\\":\" << (is_signed ? \"true\" : \"false\") << \"}}\" << std::endl;");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("void write_ack() { std::cout << \"{\\\"kind\\\":\\\"ack\\\"}\" << std::endl; }");
+        builder.AppendLine("void write_error(const std::string& msg) {");
+        builder.AppendLine("    std::cout << \"{\\\"kind\\\":\\\"error\\\",\\\"message\\\":\\\"\" << json_escape(msg) << \"\\\"}\" << std::endl;");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("void write_probe_list() {");
+        builder.AppendLine("    std::cout << \"{\\\"kind\\\":\\\"probeList\\\",\\\"probes\\\":[\";");
+        builder.AppendLine("    bool first = true;");
+        builder.AppendLine("    for (const auto& kv : probe_table) {");
+        builder.AppendLine("        if (!first) std::cout << \",\"; first = false;");
+        builder.AppendLine("        std::cout << \"{\\\"path\\\":\\\"\" << json_escape(kv.first)");
+        builder.AppendLine("                  << \"\\\",\\\"width\\\":\" << kv.second.width");
+        builder.AppendLine("                  << \",\\\"isSigned\\\":\" << (kv.second.is_signed ? \"true\" : \"false\")");
+        builder.AppendLine("                  << \",\\\"isRegistered\\\":\" << (kv.second.is_registered ? \"true\" : \"false\")");
+        builder.AppendLine("                  << \",\\\"isMemory\\\":\" << (kv.second.is_memory ? \"true\" : \"false\")");
+        builder.AppendLine("                  << \",\\\"memoryDepth\\\":\" << kv.second.memory_depth << \"}\";");
+        builder.AppendLine("    }");
+        builder.AppendLine("    std::cout << \"]}\" << std::endl;");
+        builder.AppendLine("}");
+        builder.AppendLine();
+    }
+
     private static void AppendDriveClockFunction(StringBuilder builder, string modelType, ModuleMetadata metadata, bool traceEnabled)
     {
         string traceParameter = traceEnabled ? "trace_file_t* trace_file, std::uint64_t& trace_time, " : string.Empty;
+        // Phase 3 force semantics: after every eval inside the clock toggle we
+        // re-apply forced signals so user-pinned values survive the FF latch
+        // on the rising edge. Without this, force-then-tick would just become
+        // "write-then-let-FF-overwrite".
+        string reForce = "apply_forced_signals(); ";
         builder.AppendLine("void drive_clock(" + modelType + "& model, " + traceParameter + "const std::string& clock, std::uint64_t time, trace_buffer& trace) {");
-        builder.AppendLine("    if (clock.empty()) { model.eval();" + (traceEnabled ? " dump_trace(trace_file, trace_time);" : string.Empty) + " append_output_trace(model, time, trace); return; }");
+        builder.AppendLine("    if (clock.empty()) { model.eval(); " + reForce + (traceEnabled ? "dump_trace(trace_file, trace_time); " : string.Empty) + "append_output_trace(model, time, trace); return; }");
         foreach (SignalPort port in metadata.Inputs.Where(static port => port.Width == 1))
         {
             builder.AppendLine($"    if (clock == \"{port.Name}\") {{");
-            builder.AppendLine($"        model.{port.Name} = 0; append_trace(trace, \"{port.Name}\", \"0\", time); model.eval();{(traceEnabled ? " dump_trace(trace_file, trace_time);" : string.Empty)} append_output_trace(model, time, trace);");
-            builder.AppendLine($"        model.{port.Name} = 1; append_trace(trace, \"{port.Name}\", \"1\", time); model.eval();{(traceEnabled ? " dump_trace(trace_file, trace_time);" : string.Empty)} append_output_trace(model, time, trace);");
-            builder.AppendLine($"        model.{port.Name} = 0; append_trace(trace, \"{port.Name}\", \"0\", time + 1); model.eval();{(traceEnabled ? " dump_trace(trace_file, trace_time);" : string.Empty)} append_output_trace(model, time + 1, trace);");
+            builder.AppendLine($"        model.{port.Name} = 0; append_trace(trace, \"{port.Name}\", \"0\", time); model.eval(); {reForce}{(traceEnabled ? "dump_trace(trace_file, trace_time); " : string.Empty)}append_output_trace(model, time, trace);");
+            builder.AppendLine($"        model.{port.Name} = 1; append_trace(trace, \"{port.Name}\", \"1\", time); model.eval(); {reForce}{(traceEnabled ? "dump_trace(trace_file, trace_time); " : string.Empty)}append_output_trace(model, time, trace);");
+            builder.AppendLine($"        model.{port.Name} = 0; append_trace(trace, \"{port.Name}\", \"0\", time + 1); model.eval(); {reForce}{(traceEnabled ? "dump_trace(trace_file, trace_time); " : string.Empty)}append_output_trace(model, time + 1, trace);");
             builder.AppendLine("        return;");
             builder.AppendLine("    }");
         }
 
         builder.AppendLine("    model.eval();");
+        builder.AppendLine("    apply_forced_signals();");
         if (traceEnabled)
         {
             builder.AppendLine("    dump_trace(trace_file, trace_time);");
