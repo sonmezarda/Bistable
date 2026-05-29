@@ -1089,8 +1089,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         _worker = new SimulationWorkerClient(build.ExecutablePath);
         _traceFilePath = build.TraceFilePath;
         await PushInputsAsync(cancellationToken);
-        SimulationSnapshot snapshot = await _worker.SendAsync(new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
-        ApplySnapshot(snapshot);
+        SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
+        ApplyFrame(frame);
         RefreshTraceState();
         Status = $"Worker ready: {Path.GetFileName(build.ExecutablePath)}";
     }
@@ -1190,9 +1190,9 @@ public sealed class MainWindowViewModel : ViewModelBase
         TopModule = moduleName;
         IsSubSimActive = true;
 
-        SimulationSnapshot snapshot = await _worker.SendAsync(
+        SimulationFrame frame = await _worker.StepAsync(
             new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
-        ApplySnapshot(snapshot);
+        ApplyFrame(frame);
         RefreshTraceState();
 
         Status = $"Isolated simulation active: {moduleName}. Drive inputs, then Eval / Tick.";
@@ -1260,8 +1260,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         if (_worker is not null)
         {
             await PushInputsAsync(cancellationToken);
-            SimulationSnapshot snapshot = await _worker.SendAsync(new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
-            ApplySnapshot(snapshot);
+            SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
+            ApplyFrame(frame);
             RefreshTraceState();
             Status = "Native eval completed.";
             return;
@@ -1284,8 +1284,8 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         await PushInputsAsync(cancellationToken);
         string? clock = ResolveActiveClockName();
-        SimulationSnapshot snapshot = await _worker.SendAsync(new SimulationCommand(SimulationCommandType.Tick, Signal: clock), cancellationToken);
-        ApplySnapshot(snapshot);
+        SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.Tick, Signal: clock), cancellationToken);
+        ApplyFrame(frame);
         RefreshTraceState();
         SetInputValueSilently(clock, "0");
         Status = $"Native tick pulsed {clock ?? "clock"} 0->1->0 at t={Time}.";
@@ -1308,8 +1308,8 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        SimulationSnapshot snapshot = await _worker.SendAsync(new SimulationCommand(SimulationCommandType.RunCycles, Signal: clock, Cycles: cycles), cancellationToken);
-        ApplySnapshot(snapshot);
+        SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.RunCycles, Signal: clock, Cycles: cycles), cancellationToken);
+        ApplyFrame(frame);
         RefreshTraceState();
         SetInputValueSilently(clock, "0");
         Status = $"Native run pulsed {clock ?? "clock"} for {cycles} cycles; t={Time}.";
@@ -1325,9 +1325,9 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        SimulationSnapshot snapshot = await _worker.SendAsync(new SimulationCommand(SimulationCommandType.Reset), cancellationToken);
+        SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.Reset), cancellationToken);
         ClearWaveformSamples();
-        ApplySnapshot(snapshot);
+        ApplyFrame(frame);
         RefreshTraceState();
         string? reset = ActiveProject?.Resets.FirstOrDefault()?.Name;
         if (reset is not null)
@@ -1387,27 +1387,27 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         foreach (SignalViewModel input in Inputs)
         {
-            SimulationSnapshot snapshot = await _worker.SendAsync(
+            SimulationFrame frame = await _worker.StepAsync(
                 new SimulationCommand(SimulationCommandType.SetInput, input.Name, input.Value),
                 cancellationToken);
-            ApplySnapshot(snapshot);
+            ApplyFrame(frame);
         }
     }
 
-    private void ApplySnapshot(SimulationSnapshot snapshot)
+    private void ApplyFrame(SimulationFrame frame)
     {
-        Time = snapshot.Time;
+        Time = frame.Time;
         bool useTraceDocument = !string.IsNullOrWhiteSpace(_traceFilePath);
-        if (!useTraceDocument && snapshot.Trace is not null)
+        if (!useTraceDocument && frame.Trace is not null)
         {
-            foreach (SignalSample sample in snapshot.Trace)
+            foreach (SignalSample sample in frame.Trace)
             {
                 AppendWaveformSample(sample.Signal, sample.Value, sample.Time);
             }
         }
 
         Dictionary<string, SignalViewModel> outputs = Outputs.ToDictionary(static output => output.Name, StringComparer.OrdinalIgnoreCase);
-        foreach (SignalSample sample in snapshot.Signals)
+        foreach (SignalSample sample in frame.Signals)
         {
             if (outputs.TryGetValue(sample.Signal, out SignalViewModel? output))
             {
@@ -1415,7 +1415,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                 output.Value = formattedValue;
                 if (!useTraceDocument)
                 {
-                    AppendWaveformSample(sample.Signal, formattedValue, snapshot.Time);
+                    AppendWaveformSample(sample.Signal, formattedValue, frame.Time);
                 }
             }
         }

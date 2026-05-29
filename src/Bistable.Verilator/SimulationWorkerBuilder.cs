@@ -61,42 +61,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             progress?.Report(new SimulationWorkerBuildProgress("generate", "Generating C++ simulation wrapper..."));
             await File.WriteAllTextAsync(wrapperPath, GenerateWorkerSource(configuration.TopModule, metadata, options), cancellationToken);
 
-            List<string> arguments =
-            [
-                "--cc",
-                "--exe",
-                "--build",
-                "--top-module",
-                configuration.TopModule,
-                "--Mdir",
-                buildDirectory,
-                "-o",
-                "bistable-worker"
-            ];
-
-            foreach (string includeDir in configuration.IncludeDirs)
-            {
-                arguments.Add("-I" + ResolvePath(projectDirectory, includeDir));
-            }
-
-            foreach (KeyValuePair<string, string> define in configuration.Defines)
-            {
-                arguments.Add($"+define+{define.Key}={define.Value}");
-            }
-
-            foreach (KeyValuePair<string, string> parameter in configuration.Parameters)
-            {
-                arguments.Add("-G" + parameter.Key + "=" + parameter.Value);
-            }
-
-            if (configuration.Trace.Enabled)
-            {
-                arguments.Add("--trace");
-            }
-
-            arguments.AddRange(configuration.VerilatorOptions);
-            arguments.AddRange(configuration.Sources.Select(source => ResolvePath(projectDirectory, source)));
-            arguments.Add(wrapperPath);
+            List<string> arguments = BuildVerilatorArguments(configuration, buildDirectory, projectDirectory, wrapperPath);
 
             progress?.Report(new SimulationWorkerBuildProgress("verilator", "Running Verilator C++ generation/build..."));
             using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -143,6 +108,56 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
             | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
             | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+    }
+
+    /// <summary>
+    /// Assembles the Verilator command-line argument list for one worker build.
+    /// Extracted from BuildAsync to keep that method's cognitive complexity
+    /// under the 15-statement budget. Pure: no I/O, no async, no side effects.
+    /// </summary>
+    private static List<string> BuildVerilatorArguments(
+        ProjectConfiguration configuration,
+        string buildDirectory,
+        string projectDirectory,
+        string wrapperPath)
+    {
+        List<string> arguments =
+        [
+            "--cc",
+            "--exe",
+            "--build",
+            "--top-module",
+            configuration.TopModule,
+            "--Mdir",
+            buildDirectory,
+            "-o",
+            "bistable-worker"
+        ];
+
+        foreach (string includeDir in configuration.IncludeDirs)
+            arguments.Add("-I" + ResolvePath(projectDirectory, includeDir));
+
+        foreach (KeyValuePair<string, string> define in configuration.Defines)
+            arguments.Add($"+define+{define.Key}={define.Value}");
+
+        foreach (KeyValuePair<string, string> parameter in configuration.Parameters)
+            arguments.Add("-G" + parameter.Key + "=" + parameter.Value);
+
+        if (configuration.Trace.Enabled)
+            arguments.Add("--trace");
+
+        // Phase 3 (P3-2): expose every hierarchical signal as a public field
+        // on the compiled Verilator model so the worker's probe table can read
+        // and write internal signals at runtime. Conditional so that designs
+        // sensitive to compile time / binary size can opt out via
+        // ProjectConfiguration.EnableInternalProbes = false.
+        if (configuration.EnableInternalProbes)
+            arguments.Add("--public-flat-rw");
+
+        arguments.AddRange(configuration.VerilatorOptions);
+        arguments.AddRange(configuration.Sources.Select(source => ResolvePath(projectDirectory, source)));
+        arguments.Add(wrapperPath);
+        return arguments;
     }
 
     private static string GenerateWorkerSource(string topModule, ModuleMetadata metadata, WorkerGenerationOptions options)
@@ -258,8 +273,11 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         AppendDriveClockFunction(builder, modelType, metadata, options.TraceEnabled);
         AppendApplyResetFunction(builder, modelType, metadata, options, options.TraceEnabled);
         builder.AppendLine();
+        // Emit a SimulationFrame: { "kind":"frame", "time":N, "signals":[...], "trace":[...] }.
+        // The "kind" discriminator selects the SimulationFrame subtype of WorkerResponse
+        // on the C# deserializer side (System.Text.Json polymorphic dispatch).
         builder.AppendLine("void write_snapshot(const " + modelType + "& model, std::uint64_t time, const trace_buffer& trace) {");
-        builder.AppendLine("    std::cout << \"{\\\"time\\\":\" << time << \",\\\"signals\\\":[\";");
+        builder.AppendLine("    std::cout << \"{\\\"kind\\\":\\\"frame\\\",\\\"time\\\":\" << time << \",\\\"signals\\\":[\";");
         builder.AppendLine("    write_signals(model);");
         builder.AppendLine("    std::cout << \"],\\\"trace\\\":[\";");
         builder.AppendLine("    write_trace(trace);");
@@ -350,7 +368,8 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("                write_snapshot(*model, time, trace);");
         builder.AppendLine("            }");
         builder.AppendLine("        } catch (const std::exception& ex) {");
-        builder.AppendLine("            std::cout << \"{\\\"time\\\":\" << time << \",\\\"signals\\\":[],\\\"trace\\\":[],\\\"error\\\":\\\"\" << json_escape(ex.what()) << \"\\\"}\" << std::endl;");
+        // Emit an ErrorResponse: { "kind":"error", "message":"..." }
+        builder.AppendLine("            std::cout << \"{\\\"kind\\\":\\\"error\\\",\\\"message\\\":\\\"\" << json_escape(ex.what()) << \"\\\"}\" << std::endl;");
         builder.AppendLine("        }");
         builder.AppendLine("    }");
         if (options.TraceEnabled)

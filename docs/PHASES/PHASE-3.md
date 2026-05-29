@@ -59,12 +59,12 @@ Status legend: ☐ todo · 🟡 in progress · ✅ done · ⛔ blocked
 
 | ID | Task | Status | Model | Est. | Notes |
 |----|------|--------|-------|------|-------|
-| P3-1 | Protocol v2 type definitions | ☐ | Sonnet | 1 d | `Bistable.Protocol`: new enum values + DTOs |
-| P3-2 | Worker code-gen: add `--public-flat-rw` flag | ☐ | Sonnet | 0.5 d | One-line in `SimulationWorkerBuilder.GenerateWorkerSource` |
-| P3-3 | Probe table generation (C++) | ☐ | Opus | 2 d | Generate code from AST that maps "hier.path" → field pointer |
+| P3-1 | Protocol v2 type definitions | ✅ | Sonnet | 1 d | 7 new `SimulationCommandType` values; `SimulationCommand` extended with `Path`/`MemoryAddress`/`MemoryCount`; new DTOs `SignalReadResult`/`MemoryReadResult`/`ProbeDescriptor`; `SimulationSnapshot` extended with optional `ReadResult`/`MemoryReadResult`/`ProbeList`/`Acknowledged`/`Error`. 22 round-trip tests + backwards-compat guard. |
+| P3-2 | Worker code-gen: add `--public-flat-rw` flag | ✅ | Sonnet | 0.5 d | `ProjectConfiguration.EnableInternalProbes` (default `true`) gates the flag. `BuildVerilatorArguments` helper extracted to keep `BuildAsync` cognitive complexity under budget. 3 config tests. |
+| P3-3 | Probe table generation (C++) | ☐ | Opus | 2 d | Generate code from AST that maps "hier.path" → field pointer. See "Opus handoff" section below. |
 | P3-4 | Worker handler: ReadSignal / ReadMemory | ☐ | Opus | 2 d | C++ command dispatch + JSON encode |
 | P3-5 | Worker handler: WriteSignal / ForceSignal / ReleaseSignal | ☐ | Opus | 2 d | Same dispatch, plus force-state re-apply in Eval |
-| P3-6 | C# client API: `ReadSignalAsync` / `ForceSignalAsync` / `ReadMemoryAsync` / `ListProbesAsync` | ☐ | Sonnet | 1 d | Strongly-typed wrappers around `SendAsync` |
+| P3-6 | C# client API: `ReadSignalAsync` / `ForceSignalAsync` / `ReadMemoryAsync` / `ListProbesAsync` | ✅ | Sonnet | 1 d | 6 typed wrappers in `SimulationWorkerClient.cs` (App side). Until P3-3/4/5 land, calls surface worker's "unknown command" errors via `InvalidOperationException`. |
 | P3-7 | Probe enumeration: `ListProbes` returns AST signal list | ☐ | Sonnet | 1 d | Worker emits its known probe paths |
 | P3-8 | Per-config opt-in flag (large designs may want to skip probes) | ☐ | Sonnet | 0.5 d | `ProjectConfiguration.EnableInternalProbes`, default true |
 | P3-9 | C++ test harness (native unit tests) | ☐ | Opus | 2 d | Small `tests/native/` with CMake; build a tiny module, exercise read/write/force/release |
@@ -362,4 +362,141 @@ If you're picking this up cold:
 
 ## 10. Recent activity
 
-(empty — phase has not started)
+- **2026-05-25**: **P3-1, P3-2, P3-6 landed** (C# side of Phase 3 is complete; worker side P3-3/4/5 is the remaining critical path).
+  - **P3-1** (`src/Bistable.Protocol/`):
+    - `SimulationCommandType` gains 7 new enum values: `ReadSignal`, `WriteSignal`, `ForceSignal`, `ReleaseSignal`, `ReadMemory`, `WriteMemory`, `ListProbes`.
+    - `SimulationCommand` extended with optional `Path` (hierarchy), `MemoryAddress`, `MemoryCount`. Old (v1) fields preserved unchanged.
+    - New DTOs: `SignalReadResult(Path, Value, Width, IsSigned)`, `MemoryReadResult(Path, StartAddress, CellWidth, Cells)`, `ProbeDescriptor(Path, Width, IsSigned, IsRegistered, IsMemory, MemoryDepth)`.
+    - `SimulationSnapshot` extended with optional `ReadResult`/`MemoryReadResult`/`ProbeList`/`Acknowledged`/`Error` fields. Only one is non-null per response, chosen by the command that produced it.
+    - 22 tests in `tests/Bistable.Tests/Protocol/ProtocolV2JsonTests.cs`: per-command JSON discriminator, payload round-trips for all new types (including 128-bit wide hex value), v1 snapshot still parses (forward-compat).
+  - **P3-2** (`Bistable.Core/Projects/ProjectConfiguration.cs` + `Bistable.Verilator/SimulationWorkerBuilder.cs`):
+    - New field `ProjectConfiguration.EnableInternalProbes` (default `true`). Existing `.bistable.json` files without the field still load with the default.
+    - Worker build pipeline appends `--public-flat-rw` to the Verilator command line when the flag is enabled.
+    - `BuildAsync` refactored: the argument-list assembly extracted into a pure `BuildVerilatorArguments` helper to keep `BuildAsync`'s cognitive complexity inside the 15-statement budget.
+    - 3 tests in `tests/Bistable.Tests/Protocol/InternalProbesConfigTests.cs`: default value, init-only override, JSON round-trip (with and without the field present).
+  - **P3-6** (`Bistable.App/Services/SimulationWorkerClient.cs`):
+    - 6 typed async methods: `ReadSignalAsync`, `WriteSignalAsync`, `ForceSignalAsync`, `ReleaseSignalAsync`, `ReadMemoryAsync`, `WriteMemoryAsync`, `ListProbesAsync`.
+    - Centralized error handling: every method calls `ThrowIfError` on the snapshot so callers see a clean `InvalidOperationException` instead of silently-null fields.
+    - Until P3-3/4/5 land, these calls surface the worker's "unknown command" error — useful for writing GUI/test code against the final API today.
+  - **Test suite**: 425 → **443** (+25 across 3 new test files). Zero regressions in any of the 4 test projects (4 + 2 + 12 + 425 = 443 total).
+  - **What this unlocks**: the entire Phase 3 C# surface is ready. Phase 4 (live values on schematic) can be written against this API today — the calls just won't return real data until the worker C++ side is done.
+  - **Remaining critical path**: **P3-3/P3-4/P3-5** — C++ worker code-gen (probe table from AST + command dispatch + force/release state). Sized for one focused Opus session (~5-6 days serial work, condensable to ~2-3 days with strong focus). Detailed handoff spec follows below.
+
+---
+
+## 11. Opus handoff — P3-3 / P3-4 / P3-5 (C++ worker code-gen)
+
+Cold-start prompt for the next session:
+
+```
+Repo: /home/ardac/projects/verilatorGUI
+Bugünün tarihi: 2026-05-25 (or later)
+Branch: kullanıcının committed olduğu branch
+
+GÖREV
+Phase 3'ün worker side'ını tamamla: probe table generation + command handlers +
+force/release state. P3-3, P3-4, P3-5 birlikte tek bir tutarlı C++ değişikliği.
+
+ÖNCE OKU
+1. docs/PHASES/PHASE-3.md — bu dosyanın TÜMÜ. Özellikle Bölüm 2 (architecture)
+   ve Bölüm 4'teki P3-3/P3-4/P3-5 spec'leri.
+2. docs/PROTOCOL.md (varsa — yoksa bu görevin parçası olarak oluşturulacak).
+3. src/Bistable.Protocol/*.cs — P3-1'de eklenen yeni tiplere bak.
+4. src/Bistable.Verilator/SimulationWorkerBuilder.cs — GenerateWorkerSource
+   method. Mevcut C++ kod üretimi pipeline'ı + main() dispatcher.
+5. src/Bistable.App/Services/SimulationWorkerClient.cs — P3-6'da eklenen
+   typed wrapper'lar. Worker'ın produced edeceği JSON'un beklenen şekli.
+
+YAPILACAKLAR
+
+KATMAN A: Probe table generation (P3-3)
+1. SimulationWorkerBuilder.BuildAsync'e DesignAst parametresi ekle
+   (veya ModuleMetadata'dan elaborated design alınabilirse — kontrol et).
+2. GenerateWorkerSource içinde, model class'ından sonra şu C++ kodu ekle:
+     - struct ProbeEntry { std::function<uint64_t()> read; std::function<void(uint64_t)> write; int width; bool isSigned; bool isRegistered; bool isMemory; int memoryDepth; };
+     - static std::unordered_map<std::string, ProbeEntry> probeTable;
+     - Setup function init_probe_table(model_t* m) — AST'ten her SignalDecl
+       için bir entry üret:
+         probeTable["arnicomp_top.acc.q"] = ProbeEntry{
+             .read = [m]() -> uint64_t { return m->arnicomp_top->acc->q; },
+             .write = [m](uint64_t v) { m->arnicomp_top->acc->q = v; },
+             .width = 8, ...
+         };
+3. AST yolundan C++ field path'ine çeviri: AST signal path "arnicomp_top.acc.q"
+   → Verilator field path "arnicomp_top->acc->q" (DOT → ->).
+4. Memory signal'ler (SignalDecl.ArrayDims.Count > 0) için, read/write
+   lambda'ları address index alır.
+5. main() başında init_probe_table çağrısı.
+
+KATMAN B: Read/Write handlers (P3-4)
+1. main() dispatch'ine yeni komutlar ekle:
+   - type == "readSignal": probeTable lookup, ProbeEntry.read() çağrı, JSON cevap:
+       {"time":..., "signals":[], "readResult":{"path":"...","value":"0x42","width":8,"isSigned":false}}
+   - type == "writeSignal": lookup, write() çağrı, ACK cevap: {"acknowledged":true}.
+   - type == "readMemory": lookup + memoryAddress + memoryCount; range loop;
+     {"memoryReadResult":{"path":"...","startAddress":0,"cellWidth":8,"cells":["0x00","0xA2",...]}}
+   - type == "writeMemory": lookup + address + value; write to cell.
+   - type == "listProbes": JSON array of {"path","width","isSigned","isRegistered","isMemory","memoryDepth"} for every probeTable entry.
+2. Path lookup başarısız: error JSON: {"signals":[],"error":"unknown probe path: ..."}.
+3. Out-of-range memory: structured error.
+
+KATMAN C: Force/Release (P3-5)
+1. static std::unordered_map<std::string, uint64_t> forcedSignals;
+2. type == "forceSignal": probeTable lookup; forcedSignals[path] = value; ack.
+3. type == "releaseSignal": forcedSignals.erase(path); ack.
+4. apply_forced_signals() function — her EVAL ÖNCESİ çağrılacak. Modify
+   "eval"/"tick"/"runCycles" branches: model->eval() çağrısından ÖNCE
+   her forced signal için probeTable[path].write(value).
+5. Bu sayede simulation bir sonraki cycle'da bile forced değeri ezse,
+   apply_forced_signals onu geri yazar.
+
+KATMAN D: Tests
+1. tests/Bistable.Tests/Protocol/HotProbeTests.cs (NEW):
+   - [Trait("Category", "Integration")] — Verilator gerek
+   - HasVerilator() skip pattern
+   - arnicomp build → worker spawn → ReadSignal/WriteSignal/Force/Release roundtrip
+   - 8-10 test
+2. native test harness (tests/native/) — opsiyonel, P3-9 bağımsız task
+
+DİKKAT EDİLECEK NOKTALAR
+- Verilator field naming: --public-flat-rw ile hierarchical sinyaller
+  "model->__PVT__top->__PVT__acc->q" gibi name-mangled alanlara dönüşebilir
+  veya doğrudan "model->top->acc->q" olabilir. Verilator 5.x'te ikincisi yaygın
+  ama önce manuel bir arnicomp build çıktısını incele.
+- Wide signals (>64 bit) için VlWide<N> tipi var. Probe table read/write
+  lambdaları bu tipi handle etmeli (en az 128 bit'e kadar — hex string ile).
+- JSON encoding: mevcut json_escape helper var. ReadResult / MemoryReadResult
+  şekli ProtocolV2JsonTests.cs'teki C# round-trip ile birebir eşleşmeli.
+- forcedSignals re-apply order: eval ÖNCESİ (semantically: at clock edge before
+  Verilog assignments execute).
+
+KISITLAR
+- Mevcut v1 command'lar (SetInput, Eval, Tick, vs.) DOKUNULMASIN. Sadece
+  yeni v2 branch'leri ekle.
+- SimulationWorkerBuilder.BuildAsync imzasını değiştirmek gerekirse,
+  geriye dönük uyumluluk için overload bırak veya ModuleMetadata yerine
+  ElaboratedDesign al.
+- Test suite mevcut 443'ten en az 10 yeni HotProbe testi eklenmeli.
+- Commit YAPMA. Bittiğinde diff göster.
+
+DOĞRULAMA
+- dotnet build temiz
+- HasVerilator() varsa: HotProbeTests yeşil
+- arnicomp build temiz (uzun sürebilir — --public-flat-rw flag yüzünden)
+- Connectivity audit (Phase 2.5 polish'ten): hâlâ "0 problematic unconnected ports"
+
+BİTİNCE
+- PHASE-3.md güncelle: P3-3/4/5 ✅, Recent activity'ye detaylı entry
+- 8-10 cümlede özetle
+- git diff --stat HEAD
+- "Phase 4'e geçmeye hazırız" mesajı
+
+ÇALIŞMA STİLİ
+- TodoWrite ile her katmanı (A/B/C/D) takip et
+- C++ code-gen — her büyük değişiklikten sonra bir arnicomp build dene
+- Türkçe konuş ama kod İngilizce
+- Verilator name mangling konusunda çok dikkatli ol — yanlış path = silent
+  runtime failure
+```
+
+---
