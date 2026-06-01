@@ -221,6 +221,27 @@ public sealed class VerilatorXmlParser
 
     private static DesignInstancePortConnection ParseInstancePortConnection(XElement element)
     {
+        // P4.5: concat-bundled pin (e.g. `.d({a, b, c})`). Flatten nested concats.
+        XElement? concatWrapper = element.Element("concat");
+        if (concatWrapper is not null)
+        {
+            List<string> parts = concatWrapper
+                .Descendants(VarRefElement)
+                .Select(static v => (string?)v.Attribute("name"))
+                .Where(static n => !string.IsNullOrEmpty(n))
+                .Cast<string>()
+                .ToList();
+            if (parts.Count > 0)
+            {
+                return new DesignInstancePortConnection(
+                    RequiredAttribute(element, "name"),
+                    "?",
+                    (string?)element.Attribute("direction") ?? string.Empty,
+                    ParseInt((string?)element.Attribute("portIndex"), 0),
+                    ConcatParts: parts);
+            }
+        }
+
         // Direct varref (simple wire connection)
         string? signalName = (string?)element.Element(VarRefElement)?.Attribute("name");
 

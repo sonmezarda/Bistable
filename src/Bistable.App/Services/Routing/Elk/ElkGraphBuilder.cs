@@ -346,7 +346,10 @@ internal sealed class ElkGraphBuilder
             Labels =
             [
                 new ElkLabel { Text = $"MUX {mux.OutputSignal}{WidthSuffix(mux.Width)}" },
-                new ElkLabel { Text = mux.OutputSignal },   // P4-6: bare output signal name for live value lookup
+                new ElkLabel { Text = mux.OutputSignal },                                       // P4-6: bare output signal name for live value lookup
+                // P4-3: primary selector signal name so the renderer can read
+                // its live value and decide which input edge is active.
+                new ElkLabel { Text = mux.SelectSignals.Count > 0 ? mux.SelectSignals[0] : string.Empty },
             ],
             Ports = []
         };
@@ -555,7 +558,153 @@ internal sealed class ElkGraphBuilder
                     nodeIdOverride: ElkNodeIds.ForInnerConstantTie(compoundPath, tie.OutputSignal),
                     portRefKeyPrefix: keyPrefix);
                 break;
+            case JoinerPrimitive joiner:
+                AddInnerJoinerNode(target, joiner, compoundPath, portRefs);
+                break;
+            case SplitterPrimitive splitter:
+                AddInnerSplitterNode(target, splitter, compoundPath, portRefs);
+                break;
+            case TriStatePrimitive ts:
+                AddTriStateNode(target, ts, portRefs,
+                    nodeIdOverride: ElkNodeIds.ForInnerTriState(compoundPath, ts.OutputSignal),
+                    portRefKeyPrefix: keyPrefix);
+                break;
+            case StructFanOutPrimitive fanOut:
+                AddInnerStructFanOutNode(target, fanOut, compoundPath, portRefs);
+                break;
         }
+    }
+
+    /// <summary>
+    /// P4.5-1: render a JoinerPrimitive inside an expanded compound. Mirrors
+    /// <see cref="AddJoinerNode"/> but works from the primitive (which already
+    /// carries the operand list) instead of a contassign — and registers its
+    /// ports under the <c>@inner::&lt;path&gt;::</c> key prefix so the inner
+    /// edge collector can find them.
+    /// </summary>
+    private static void AddInnerJoinerNode(
+        IList<ElkNode> target,
+        JoinerPrimitive joiner,
+        string compoundPath,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        const double portRowHeight = 24;
+        const double nodeWidth = 40;
+
+        string nodeId = ElkNodeIds.ForInnerJoiner(compoundPath, joiner.OutputSignal);
+        string kp = "@inner::" + compoundPath;
+        double height = Math.Max(OperatorNodeSize, joiner.InputSignals.Count * portRowHeight + 8);
+
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = nodeWidth,
+            Height = height,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [],
+            Ports = []
+        };
+
+        for (int i = 0; i < joiner.InputSignals.Count; i++)
+        {
+            string portId = $"{nodeId}.in.{i}";
+            node.Ports!.Add(new ElkPort { Id = portId, LayoutOptions = PortLayout(PortSideWest, i) });
+            portRefs[kp + ElkSignalKey.JoinerInput(joiner.OutputSignal, i)] =
+                new ElkPortRef(nodeId, portId, ElkPortRole.JoinerInput, 1);
+        }
+
+        string outPortId = $"{nodeId}.out";
+        node.Ports!.Add(new ElkPort { Id = outPortId, LayoutOptions = PortLayout(PortSideEast, 0) });
+        portRefs[kp + ElkSignalKey.JoinerOutput(joiner.OutputSignal)] =
+            new ElkPortRef(nodeId, outPortId, ElkPortRole.JoinerOutput, joiner.OutputWidth);
+
+        target.Add(node);
+    }
+
+    /// <summary>
+    /// P4.5-1: render a SplitterPrimitive inside an expanded compound. The
+    /// existing scope-side <see cref="AddSplitterNode"/> works from a list of
+    /// slice contassigns — for the primitive-based path here each splitter
+    /// emits a single output port (this primitive instance represents just one
+    /// slice; sibling slices each get their own SplitterPrimitive).
+    /// </summary>
+    private static void AddInnerSplitterNode(
+        IList<ElkNode> target,
+        SplitterPrimitive splitter,
+        string compoundPath,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        const double nodeWidth = 40;
+        string nodeId = ElkNodeIds.ForInnerSplitter(compoundPath, splitter.OutputSignal);
+        string kp = "@inner::" + compoundPath;
+
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = nodeWidth,
+            Height = OperatorNodeSize,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [new ElkLabel { Text = $"[{splitter.Range.Hi}:{splitter.Range.Lo}]" }],
+            Ports = []
+        };
+
+        string inPortId = $"{nodeId}.in";
+        node.Ports!.Add(new ElkPort { Id = inPortId, LayoutOptions = PortLayout(PortSideWest, 0) });
+        portRefs[kp + ElkSignalKey.SplitterInput(splitter.InputSignal)] =
+            new ElkPortRef(nodeId, inPortId, ElkPortRole.SplitterInput, splitter.InputWidth);
+
+        string outPortId = $"{nodeId}.out";
+        node.Ports!.Add(new ElkPort { Id = outPortId, LayoutOptions = PortLayout(PortSideEast, 0) });
+        portRefs[kp + ElkSignalKey.SplitterOutput(splitter.InputSignal, splitter.OutputSignal)] =
+            new ElkPortRef(nodeId, outPortId, ElkPortRole.SplitterOutput, splitter.OutputWidth);
+
+        target.Add(node);
+    }
+
+    /// <summary>
+    /// P4.5-1: render a StructFanOutPrimitive inside an expanded compound. Each
+    /// leg becomes an output port; the single struct signal feeds the west input.
+    /// </summary>
+    private static void AddInnerStructFanOutNode(
+        IList<ElkNode> target,
+        StructFanOutPrimitive fanOut,
+        string compoundPath,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        string nodeId = ElkNodeIds.ForInnerStructFanOut(compoundPath, fanOut.StructSignal);
+        string kp = "@inner::" + compoundPath;
+        double height = Math.Max(48, 12 + fanOut.Legs.Count * 18);
+
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = 64,
+            Height = height,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [new ElkLabel { Text = $"{fanOut.StructSignal} ({fanOut.StructTypeName})" }],
+            Ports = []
+        };
+
+        string inPortId = $"{nodeId}.in";
+        node.Ports!.Add(new ElkPort { Id = inPortId, LayoutOptions = PortLayout(PortSideWest, 0) });
+        portRefs[kp + ElkSignalKey.StructFanOutInput(fanOut.StructSignal)] =
+            new ElkPortRef(nodeId, inPortId, ElkPortRole.StructFanOutInput, fanOut.StructWidth);
+
+        for (int i = 0; i < fanOut.Legs.Count; i++)
+        {
+            StructFanOutLeg leg = fanOut.Legs[i];
+            string legPortId = $"{nodeId}.leg.{i}";
+            node.Ports!.Add(new ElkPort
+            {
+                Id = legPortId,
+                LayoutOptions = PortLayout(PortSideEast, i),
+                Labels = [new ElkLabel { Text = leg.FieldName }]
+            });
+            portRefs[kp + ElkSignalKey.StructFanOutLeg(fanOut.StructSignal, leg.FieldName)] =
+                new ElkPortRef(nodeId, legPortId, ElkPortRole.StructFanOutLeg, leg.Range.Width);
+        }
+
+        target.Add(node);
     }
 
     // ── Buffer / Inverter / Gate / Arith (P2-4d) ─────────────────────────
@@ -1145,12 +1294,19 @@ internal sealed class ElkGraphBuilder
         double width = ComputeChildNodeWidth(child, inputs, outputs);
         double height = Math.Max(80, ModuleHeaderHeight + portRows * PortRowHeight + ModuleFooterHeight);
 
+        Dictionary<string, string> layoutOptions = FixedOrderPortConstraints();
+        // P4.5-6: explicit top padding so the first port row never overlaps the
+        // title text. Without this, ELK can place the first west-side port
+        // at Y≈8-16 — right on top of the title baseline — which was the
+        // root cause of the "flag_reg_i text spilling into v_f_in" overlap.
+        // Combined with ModuleHeaderHeight=48 the title gets a 32px-clear zone.
+        layoutOptions["elk.padding"] = "[top=32,left=0,right=0,bottom=8]";
         ElkNode node = new()
         {
             Id = nodeId,
             Width = width,
             Height = height,
-            LayoutOptions = FixedOrderPortConstraints(),
+            LayoutOptions = layoutOptions,
             // labels[0] = rendered instance name; labels[1] = hierarchy path; labels[2] =
             // "expandable" sentinel when the instance has sub-instances. The renderer uses
             // these to attach a +/- expansion button at the correct depth.
@@ -1248,9 +1404,18 @@ internal sealed class ElkGraphBuilder
         IReadOnlyDictionary<string, IReadOnlyList<SchematicPrimitive>>? primitivesByModule = null)
     {
         parent.Children ??= [];
+        int concatBundleCount = 0;
         foreach (HierarchyScopeInstanceViewModel grandchild in child.ChildInstances)
         {
             parent.Children.Add(BuildChildNode(grandchild, portRefs, expandedPaths, primitivesByModule));
+            // P4.5-12: explicit splitter/joiner nodes for the grandchild's concat
+            // pins (e.g. flag_register.d({z,n,c,v}) / .out({z,n,c,v})). Without
+            // these the boundary signals can't reach the bundled port cleanly —
+            // the user reported "out[4b] hits 4 separate 1-bit outputs" which is
+            // exactly this case. AddConcatBundleNodes appends a joiner for every
+            // concat input pin and a fan-out for every concat output pin so the
+            // schematic matches Vivado-style bus split/merge visuals.
+            concatBundleCount += AddConcatBundleNodes(parent.Children, child.HierarchyPath, grandchild, portRefs);
         }
 
         // P2.5-5: render the compound's inner primitives (FF / Mux / Latch / Memory /
@@ -1277,14 +1442,155 @@ internal sealed class ElkGraphBuilder
         parent.LayoutOptions["elk.direction"] = "RIGHT";
         parent.LayoutOptions["elk.padding"] = "[top=48,left=24,right=24,bottom=20]";
         // Compound nodes need a generous min size so their children layout cleanly.
-        // P2.5-5: grow with inner content so symbols don't pile on top of each other —
-        // each grandchild instance is ~module-width worth of horizontal layered space,
-        // each inner primitive is narrower but still needs room for its title + ports.
+        // P2.5-5 / P4.5-7: grow with inner content so symbols don't pile on top of
+        // each other. The earlier formula undersized for designs heavy in joiners
+        // and splitters (every contassign produces a node); we now budget more
+        // per primitive AND scale height with the wider of grandchild-count or
+        // primitive-count so deep registers like flag_reg_i lay out cleanly.
         int grandchildCount = child.ChildInstances.Count;
-        double requiredWidth  = 320 + grandchildCount * 80 + innerCount * 40;
-        double requiredHeight = 200 + Math.Max(0, innerCount - 4) * 24;
+        double requiredWidth  = 360 + grandchildCount * 96 + innerCount * 56 + concatBundleCount * 64;
+        double requiredHeight = 220 + Math.Max(0, Math.Max(grandchildCount * 80, innerCount * 28) - 80);
         parent.Width  = Math.Max(parent.Width,  requiredWidth);
         parent.Height = Math.Max(parent.Height, requiredHeight);
+    }
+
+    // ── P4.5-12: synthetic concat bundle nodes ─────────────────────────────
+    //
+    // When a grandchild port is bound via a Verilog concat (e.g.
+    // `.d({z_f_in, n_f_in, c_f_in, v_f_in})`), the connection cannot be
+    // represented by a single signal name. The pre-P4.5-12 path registered the
+    // same physical port under each constituent name which got the wires drawn
+    // but produced a visually noisy fan-in. Worse, when the grandchild itself
+    // was expanded the inner-namespace routing collapsed silently.
+    //
+    // This helper emits an explicit joiner per concat input pin and an explicit
+    // fan-out (StructFanOut-style) per concat output pin, with port-ref keys
+    // routed through a synthetic intermediate signal so CollectGrandchildEndpoints
+    // can wire the boundary side to the joiner/fanout, and the joiner/fanout's
+    // grandchild side to the grandchild's bundled port.
+    //
+    // Returns the number of bundle nodes added so the compound's min-size can
+    // budget for them.
+    private static int AddConcatBundleNodes(
+        IList<ElkNode> target,
+        string compoundPath,
+        HierarchyScopeInstanceViewModel grandchild,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        int added = 0;
+        string kp = "@inner::" + compoundPath;
+        foreach (HierarchyScopeInstancePortConnectionViewModel pin in grandchild.PortConnections)
+        {
+            if (!pin.IsConcat) continue;
+            string intermediateSignal = ConcatBundleSignalName(grandchild.HierarchyPath, pin.PortName);
+            if (pin.IsInput)
+            {
+                AddConcatJoinerNode(target, compoundPath, grandchild, pin, intermediateSignal, portRefs);
+            }
+            else
+            {
+                AddConcatFanOutNode(target, compoundPath, grandchild, pin, intermediateSignal, portRefs);
+            }
+            added++;
+        }
+        return added;
+    }
+
+    private static string ConcatBundleSignalName(string grandchildPath, string portName) =>
+        $"__concat__{ElkNodeIds.SanitizeId(grandchildPath)}__{portName}";
+
+    // Joiner for a concat INPUT pin: each constituent bit on the west side, one
+    // bundled output on the east side feeding the grandchild's `.in.<port>` pin
+    // through the intermediate signal.
+    private static void AddConcatJoinerNode(
+        IList<ElkNode> target,
+        string compoundPath,
+        HierarchyScopeInstanceViewModel grandchild,
+        HierarchyScopeInstancePortConnectionViewModel pin,
+        string intermediateSignal,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        const double portRowHeight = 24;
+        const double nodeWidth = 36;
+        string nodeId = $"join_{ElkNodeIds.SanitizeId(compoundPath)}__concat_in__{ElkNodeIds.SanitizeId(grandchild.HierarchyPath)}__{pin.PortName}";
+        string kp = "@inner::" + compoundPath;
+        int n = pin.ConcatParts!.Count;
+        double height = Math.Max(OperatorNodeSize, n * portRowHeight + 8);
+
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = nodeWidth,
+            Height = height,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [new ElkLabel { Text = "{}" }],
+            Ports = []
+        };
+
+        for (int i = 0; i < n; i++)
+        {
+            string portId = $"{nodeId}.in.{i}";
+            node.Ports!.Add(new ElkPort { Id = portId, LayoutOptions = PortLayout(PortSideWest, i) });
+            // Each joiner input consumes the constituent signal at compound scope.
+            portRefs[$"{kp}::__bundlein__{grandchild.HierarchyPath}__{pin.PortName}__{i}"] =
+                new ElkPortRef(nodeId, portId, ElkPortRole.JoinerInput, 1);
+        }
+
+        string outPortId = $"{nodeId}.out";
+        node.Ports!.Add(new ElkPort { Id = outPortId, LayoutOptions = PortLayout(PortSideEast, 0) });
+        portRefs[$"{kp}::__bundleout__{grandchild.HierarchyPath}__{pin.PortName}"] =
+            new ElkPortRef(nodeId, outPortId, ElkPortRole.JoinerOutput, pin.Width);
+
+        target.Add(node);
+    }
+
+    // Fan-out for a concat OUTPUT pin: single west input fed by the grandchild's
+    // `.out.<port>`, one east leg per constituent which then drives the matching
+    // compound-scope signal.
+    private static void AddConcatFanOutNode(
+        IList<ElkNode> target,
+        string compoundPath,
+        HierarchyScopeInstanceViewModel grandchild,
+        HierarchyScopeInstancePortConnectionViewModel pin,
+        string intermediateSignal,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        const double portRowHeight = 24;
+        const double nodeWidth = 36;
+        string nodeId = $"split_{ElkNodeIds.SanitizeId(compoundPath)}__concat_out__{ElkNodeIds.SanitizeId(grandchild.HierarchyPath)}__{pin.PortName}";
+        string kp = "@inner::" + compoundPath;
+        int n = pin.ConcatParts!.Count;
+        double height = Math.Max(OperatorNodeSize, n * portRowHeight + 8);
+
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = nodeWidth,
+            Height = height,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [new ElkLabel { Text = "{}" }],
+            Ports = []
+        };
+
+        string inPortId = $"{nodeId}.in";
+        node.Ports!.Add(new ElkPort { Id = inPortId, LayoutOptions = PortLayout(PortSideWest, 0) });
+        portRefs[$"{kp}::__bundlein__{grandchild.HierarchyPath}__{pin.PortName}"] =
+            new ElkPortRef(nodeId, inPortId, ElkPortRole.SplitterInput, pin.Width);
+
+        for (int i = 0; i < n; i++)
+        {
+            string legId = $"{nodeId}.leg.{i}";
+            node.Ports!.Add(new ElkPort
+            {
+                Id = legId,
+                LayoutOptions = PortLayout(PortSideEast, i),
+                Labels = [new ElkLabel { Text = pin.ConcatParts![i] }]
+            });
+            portRefs[$"{kp}::__bundleout__{grandchild.HierarchyPath}__{pin.PortName}__{i}"] =
+                new ElkPortRef(nodeId, legId, ElkPortRole.SplitterOutput, 1);
+        }
+
+        target.Add(node);
     }
 
     private static void AddEdges(ElkGraph graph, ElkScopeData scope, Dictionary<string, ElkPortRef> portRefs)
@@ -1354,6 +1660,7 @@ internal sealed class ElkGraphBuilder
         foreach (HierarchyScopeInstanceViewModel grandchild in compound.ChildInstances)
         {
             CollectGrandchildEndpoints(compound.HierarchyPath, grandchild, portRefs, producers, consumers);
+            CollectConcatBundleEndpoints(compound.HierarchyPath, grandchild, portRefs, producers, consumers);
             bool gcHasInnerPrims = primitivesByModule is not null
                 && primitivesByModule.TryGetValue(grandchild.ModuleName, out var gcPrims)
                 && gcPrims.Count > 0;
@@ -1466,6 +1773,47 @@ internal sealed class ElkGraphBuilder
                     if (TryRef(ElkSignalKey.ArithRight(arith.OutputSignal), out var arithR))
                         AddTo(consumers, ScopedSignalKey(compoundPath, arith.RightSignal), arithR);
                     break;
+                // P4.5-2: four primitive types that were silently dropped from
+                // inner wiring — joiner / splitter / tri-state / struct fan-out.
+                // Each registers its inputs as @inner namespace consumers and
+                // outputs as producers so EmitEdges can connect them across
+                // the compound boundary.
+                case JoinerPrimitive joiner:
+                    if (TryRef(ElkSignalKey.JoinerOutput(joiner.OutputSignal), out var joinerOut))
+                        AddTo(producers, ScopedSignalKey(compoundPath, joiner.OutputSignal), joinerOut);
+                    for (int i = 0; i < joiner.InputSignals.Count; i++)
+                        if (TryRef(ElkSignalKey.JoinerInput(joiner.OutputSignal, i), out var joinerIn))
+                            AddTo(consumers, ScopedSignalKey(compoundPath, joiner.InputSignals[i]), joinerIn);
+                    break;
+                case SplitterPrimitive splitter:
+                    if (TryRef(ElkSignalKey.SplitterOutput(splitter.InputSignal, splitter.OutputSignal), out var splitterOut))
+                        AddTo(producers, ScopedSignalKey(compoundPath, splitter.OutputSignal), splitterOut);
+                    if (TryRef(ElkSignalKey.SplitterInput(splitter.InputSignal), out var splitterIn))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, splitter.InputSignal), splitterIn);
+                    break;
+                case TriStatePrimitive ts:
+                    // TriState reuses Buffer keys for data in/out, so the existing
+                    // BufferIn/BufferOut lookups land on the right ports here too.
+                    if (TryRef(ElkSignalKey.BufferOut(ts.OutputSignal), out var tsOut))
+                        AddTo(producers, ScopedSignalKey(compoundPath, ts.OutputSignal), tsOut);
+                    if (TryRef(ElkSignalKey.BufferIn(ts.OutputSignal), out var tsIn))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, ts.DataSignal), tsIn);
+                    if (TryRef(ElkSignalKey.TriStateEnable(ts.OutputSignal), out var tsEn))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, ts.EnableSignal), tsEn);
+                    break;
+                case StructFanOutPrimitive fanOut:
+                    if (TryRef(ElkSignalKey.StructFanOutInput(fanOut.StructSignal), out var fanIn))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, fanOut.StructSignal), fanIn);
+                    foreach (StructFanOutLeg leg in fanOut.Legs)
+                    {
+                        if (!TryRef(ElkSignalKey.StructFanOutLeg(fanOut.StructSignal, leg.FieldName), out var legRef))
+                            continue;
+                        // One leg feeds N consumers — register each so any
+                        // matching @inner signal name picks it up.
+                        foreach (string consumerName in leg.Consumers)
+                            AddTo(producers, ScopedSignalKey(compoundPath, consumerName), legRef);
+                    }
+                    break;
             }
         }
     }
@@ -1479,12 +1827,56 @@ internal sealed class ElkGraphBuilder
     {
         foreach (HierarchyScopeInstancePortConnectionViewModel pin in grandchild.PortConnections)
         {
-            string innerKey = ScopedSignalKey(compoundPath, pin.SignalName);
             string portRefKey = pin.IsInput
                 ? ElkSignalKey.ChildInput(grandchild.HierarchyPath, pin.PortName)
                 : ElkSignalKey.ChildOutput(grandchild.HierarchyPath, pin.PortName);
             if (!portRefs.TryGetValue(portRefKey, out ElkPortRef? portRef)) continue;
-            AddTo(pin.IsInput ? consumers : producers, innerKey, portRef);
+
+            Dictionary<string, List<ElkPortRef>> target = pin.IsInput ? consumers : producers;
+            // P4.5-12: concat pins go through a synthetic joiner (in) / fan-out
+            // (out) node. The grandchild's bundled port hooks to the bundle's
+            // bundled side; the bundle's constituent side hooks to each compound-
+            // scope signal in CollectConcatBundleEndpoints below.
+            if (pin.IsConcat)
+            {
+                string bundleKey = pin.IsInput
+                    ? $"@inner::{compoundPath}::__bundleout__{grandchild.HierarchyPath}__{pin.PortName}"
+                    : $"@inner::{compoundPath}::__bundlein__{grandchild.HierarchyPath}__{pin.PortName}";
+                AddTo(target, bundleKey, portRef);
+            }
+            else
+            {
+                AddTo(target, ScopedSignalKey(compoundPath, pin.SignalName), portRef);
+            }
+        }
+    }
+
+    // P4.5-12: register the constituent side of concat bundle nodes so each
+    // constituent signal in the compound's @inner namespace connects to the
+    // joiner's input ports (for input concat pins) or to the fan-out's output
+    // legs (for output concat pins). The bundled side is registered in
+    // CollectGrandchildEndpoints above so the bundle's own ports tie back to
+    // the grandchild's bundled port.
+    private static void CollectConcatBundleEndpoints(
+        string compoundPath,
+        HierarchyScopeInstanceViewModel grandchild,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        foreach (HierarchyScopeInstancePortConnectionViewModel pin in grandchild.PortConnections)
+        {
+            if (!pin.IsConcat) continue;
+            for (int i = 0; i < pin.ConcatParts!.Count; i++)
+            {
+                string sideKey = pin.IsInput
+                    ? $"@inner::{compoundPath}::__bundlein__{grandchild.HierarchyPath}__{pin.PortName}__{i}"
+                    : $"@inner::{compoundPath}::__bundleout__{grandchild.HierarchyPath}__{pin.PortName}__{i}";
+                if (!portRefs.TryGetValue(sideKey, out ElkPortRef? portRef)) continue;
+                string constituentKey = ScopedSignalKey(compoundPath, pin.ConcatParts![i]);
+                // Joiner input is a consumer of the constituent; fan-out leg is a producer.
+                AddTo(pin.IsInput ? consumers : producers, constituentKey, portRef);
+            }
         }
     }
 
@@ -1909,7 +2301,19 @@ internal sealed class ElkGraphBuilder
                 }
 
                 Dictionary<string, List<ElkPortRef>> target = pin.IsInput ? consumers : producers;
-                AddTo(target, pin.SignalName, portRef);
+                // P4.5: concat pins (e.g. `.d({a,b,c})`) register the SAME physical
+                // port under each constituent signal name so every wire reaches it.
+                if (pin.IsConcat)
+                {
+                    foreach (string part in pin.ConcatParts!)
+                    {
+                        AddTo(target, part, portRef);
+                    }
+                }
+                else
+                {
+                    AddTo(target, pin.SignalName, portRef);
+                }
             }
         }
     }
@@ -2241,6 +2645,12 @@ internal static class ElkNodeIds
     public static string ForInnerGate(string scopePath, string outputSignal)       => "gate_"  + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
     public static string ForInnerArith(string scopePath, string outputSignal)      => "arith_" + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
     public static string ForInnerConstantTie(string scopePath, string outputSignal) => "tie_"   + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
+    // P4.5-1: inner-scope node IDs for the four primitive types that were missing
+    // from AddInnerPrimitiveNode dispatch — joiner, splitter, tri-state, struct fan-out.
+    public static string ForInnerJoiner(string scopePath, string targetName)         => "join_"   + SanitizeId(scopePath) + "__" + SanitizeId(targetName);
+    public static string ForInnerSplitter(string scopePath, string sourceName)       => "split_"  + SanitizeId(scopePath) + "__" + SanitizeId(sourceName);
+    public static string ForInnerTriState(string scopePath, string outputSignal)     => "tristate_" + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
+    public static string ForInnerStructFanOut(string scopePath, string structSignal) => "fanout_" + SanitizeId(scopePath) + "__" + SanitizeId(structSignal);
 
     public static bool IsOperator(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("op_", StringComparison.Ordinal);
@@ -2290,7 +2700,7 @@ internal static class ElkNodeIds
     public static bool IsStructFanOut(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("fanout_", StringComparison.Ordinal);
 
-    private static string SanitizeId(string raw) =>
+    public static string SanitizeId(string raw) =>
         raw.Replace('.', '_').Replace('/', '_').Replace(':', '_').Replace('[', '_').Replace(']', '_');
 }
 

@@ -2976,7 +2976,8 @@ public sealed class MainWindowViewModel : ViewModelBase
                     connection.PortName,
                     connection.SignalName,
                     isInput,
-                    width));
+                    width,
+                    connection.ConcatParts));
             }
         }
 

@@ -306,6 +306,24 @@ public sealed class VerilatorXmlAstReader
         string direction = (string?)e.Attribute("direction") ?? string.Empty;
         int portIndex = ParseInt((string?)e.Attribute("portIndex"), 0);
 
+        // P4.5: concat-bundled pin (e.g. `.d({a, b, c})`). Verilator nests these
+        // right-associatively, so flatten all descendant <varref>s in document
+        // order — that matches MSB-first concat layout.
+        XElement? concatWrapper = e.Element("concat");
+        if (concatWrapper is not null)
+        {
+            List<string> parts = concatWrapper
+                .Descendants("varref")
+                .Select(static v => (string?)v.Attribute("name"))
+                .Where(static n => !string.IsNullOrEmpty(n))
+                .Cast<string>()
+                .ToList();
+            if (parts.Count > 0)
+            {
+                return new PortConnectionDecl(portName, "?", direction, portIndex, SignalRange: null, ConcatParts: parts);
+            }
+        }
+
         // Signal name extraction: direct varref > sel-wrapped varref > const literal > "?"
         XElement? selWrapper = e.Element("sel");
         string? signalName =

@@ -677,10 +677,94 @@ public sealed partial class SchematicPreviewControl
         IReadOnlyDictionary<string, string> signalValues)
     {
         bool anyHovered = !string.IsNullOrEmpty(_hoveredSignalName);
+        // P4-3: pre-build a lookup of "which mux-input port is active right now"
+        // so the edge renderer can highlight the wire that's currently selected.
+        IReadOnlySet<string> activeMuxInputs = BuildActiveMuxInputSet(graph);
         foreach (ElkEdge edge in graph.Edges)
         {
-            RenderElkEdge(context, edge, transform, signalValues, anyHovered);
+            RenderElkEdge(context, edge, transform, signalValues, anyHovered, activeMuxInputs);
         }
+    }
+
+    /// <summary>
+    /// P4-3: walk every mux node, read its selector value through the
+    /// LiveProbeService cache, and return the set of input-port IDs that
+    /// correspond to the currently-selected branch. The edge renderer then
+    /// thickens any edge whose target is in this set.
+    /// </summary>
+    private IReadOnlySet<string> BuildActiveMuxInputSet(ElkGraph graph)
+    {
+        HashSet<string> active = new(StringComparer.Ordinal);
+        if (LiveProbes is null) return active;
+
+        foreach (ElkNode node in graph.Children ?? [])
+        {
+            CollectActiveMuxInputs(node, active);
+        }
+        return active;
+    }
+
+    private void CollectActiveMuxInputs(ElkNode node, HashSet<string> active)
+    {
+        if (ElkNodeIds.IsMux(node.Id) && node.Labels is { Count: > 2 })
+        {
+            string selectorSignal = node.Labels[2].Text;
+            if (!string.IsNullOrEmpty(selectorSignal))
+            {
+                string selPath = string.IsNullOrWhiteSpace(ActiveScopePath)
+                    ? selectorSignal
+                    : ActiveScopePath + "." + selectorSignal;
+                string? selValue = LiveProbes?.GetCached(selPath);
+                if (!string.IsNullOrWhiteSpace(selValue))
+                {
+                    MatchActiveMuxInput(node, selValue!, active);
+                }
+            }
+        }
+        if (node.Children is { Count: > 0 })
+        {
+            foreach (ElkNode child in node.Children) CollectActiveMuxInputs(child, active);
+        }
+    }
+
+    /// <summary>
+    /// For each west-side input port of the mux (Id ends with <c>.in.{N}</c>),
+    /// compare its branch label (port.Labels[0]) with the parsed selector value.
+    /// The branch label format produced by <c>DecodeMux</c> is "0"/"1" for binary
+    /// muxes and "{signal}"/"else" for chained ones — we only match the numeric
+    /// cases for now (chained-mux highlighting needs more semantic plumbing).
+    /// </summary>
+    private static void MatchActiveMuxInput(ElkNode muxNode, string selValue, HashSet<string> active)
+    {
+        if (muxNode.Ports is null) return;
+        if (!TryParseSelectorValue(selValue, out ulong selNumeric)) return;
+
+        foreach (ElkPort port in muxNode.Ports)
+        {
+            if (!port.Id.Contains(".in.", StringComparison.Ordinal)) continue;
+            if (port.Labels is not { Count: > 0 }) continue;
+            string branchLabel = port.Labels[0].Text;
+            if (ulong.TryParse(branchLabel, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out ulong branchValue)
+                && branchValue == selNumeric)
+            {
+                active.Add(port.Id);
+                return;
+            }
+        }
+    }
+
+    private static bool TryParseSelectorValue(string text, out ulong value)
+    {
+        value = 0;
+        text = text.Trim();
+        if (string.IsNullOrEmpty(text)) return false;
+        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            return ulong.TryParse(text[2..], System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out value);
+        }
+        return ulong.TryParse(text, out value);
     }
 
     private void RenderElkEdge(
@@ -688,7 +772,8 @@ public sealed partial class SchematicPreviewControl
         ElkEdge edge,
         ElkTransform transform,
         IReadOnlyDictionary<string, string> signalValues,
-        bool anyHovered)
+        bool anyHovered,
+        IReadOnlySet<string> activeMuxInputs)
     {
         if (edge.Sections is null || edge.Sections.Count == 0)
         {
@@ -697,7 +782,9 @@ public sealed partial class SchematicPreviewControl
 
         string? signalName = edge.Labels is { Count: > 0 } ? edge.Labels[0].Text : null;
         int bitWidth = ReadEdgeBitWidth(edge);
-        ElkEdgeStyle style = BuildElkEdgeStyle(signalName, bitWidth, signalValues, anyHovered);
+        // P4-3: edge ends at an active mux input → thicker, accented pen.
+        bool isActiveMuxPath = edge.Targets.Any(t => activeMuxInputs.Contains(t));
+        ElkEdgeStyle style = BuildElkEdgeStyle(signalName, bitWidth, signalValues, anyHovered, isActiveMuxPath);
         IReadOnlyList<Point> polyline = BuildEdgePolyline(edge.Sections, transform);
 
         IDisposable? dimScope = style.ShouldDim ? context.PushOpacity(0.22) : null;
@@ -799,7 +886,8 @@ public sealed partial class SchematicPreviewControl
         string? signalName,
         int bitWidth,
         IReadOnlyDictionary<string, string> signalValues,
-        bool anyHovered)
+        bool anyHovered,
+        bool isActiveMuxPath = false)
     {
         bool isSelected = !string.IsNullOrWhiteSpace(signalName)
             && string.Equals(SelectedSignalName, signalName, StringComparison.OrdinalIgnoreCase);
@@ -820,11 +908,18 @@ public sealed partial class SchematicPreviewControl
         {
             brush = Palette.Selected;
         }
+        else if (isActiveMuxPath)
+        {
+            // P4-3: active mux input — paint with a bright cyan so the active
+            // data flow stands out from the other input wires. Sits below the
+            // selected/forced precedence so user interactions still dominate.
+            brush = new SolidColorBrush(Color.FromRgb(140, 220, 255));
+        }
         else
         {
             brush = ResolveLogisimBrush(signalName, bitWidth, signalValues);
         }
-        double thickness = ResolveEdgeThickness(bitWidth > 1, isSelected || isForced);
+        double thickness = ResolveEdgeThickness(bitWidth > 1, isSelected || isForced || isActiveMuxPath);
         Pen pen = new(brush, thickness, lineCap: PenLineCap.Square);
         return new ElkEdgeStyle(pen, shouldDim);
     }

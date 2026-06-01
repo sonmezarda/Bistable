@@ -69,7 +69,7 @@ public static class LegacyDesignFlattener
     private static DesignInstanceDefinition FlattenInstance(InstanceDecl inst)
     {
         List<DesignInstancePortConnection> ports = inst.PortConnections
-            .Select(static p => new DesignInstancePortConnection(p.PortName, p.SignalName, p.Direction, p.PortIndex))
+            .Select(static p => new DesignInstancePortConnection(p.PortName, p.SignalName, p.Direction, p.PortIndex, p.ConcatParts))
             .OrderBy(static p => p.PortIndex)
             .ToList();
         return new DesignInstanceDefinition(inst.InstanceName, inst.ModuleName, ports);
