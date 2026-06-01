@@ -27,6 +27,7 @@ public sealed class ElkRunner : IDisposable
     };
 
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    private static int s_dumpSequence;
 
     private readonly string _nodeExecutable;
     private readonly string _scriptPath;
@@ -69,13 +70,41 @@ public sealed class ElkRunner : IDisposable
         lock (_lock)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            int dumpId = TryDumpJson("request", requestJson);
             string responseLine = InvokeOnPersistentProcess(requestJson);
+            if (dumpId > 0)
+            {
+                TryDumpJson("response", responseLine, dumpId);
+            }
             return ParseResponse(responseLine);
         }
     }
 
     /// <summary>Returns the serialized ELK request JSON. Useful for diagnostics.</summary>
     public static string SerializeForDebug(ElkGraph input) => JsonSerializer.Serialize(input, JsonOptions);
+
+    private static int TryDumpJson(string kind, string json, int? existingDumpId = null)
+    {
+        string? dumpDir = Environment.GetEnvironmentVariable("BISTABLE_ELK_DUMP_DIR");
+        if (string.IsNullOrWhiteSpace(dumpDir))
+        {
+            return 0;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(dumpDir);
+            int dumpId = existingDumpId ?? Interlocked.Increment(ref s_dumpSequence);
+            string path = Path.Combine(dumpDir, $"elk-{dumpId:0000}-{kind}.json");
+            File.WriteAllText(path, json, Utf8NoBom);
+            return dumpId;
+        }
+        catch
+        {
+            // Diagnostics must never break schematic rendering.
+            return 0;
+        }
+    }
 
     public void Dispose()
     {

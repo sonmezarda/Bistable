@@ -47,6 +47,7 @@ internal sealed class ElkGraphBuilder
         foreach (HierarchyScopeInstanceViewModel child in scope.ChildScopes)
         {
             AddChildNode(graph, child, portRefs, scope.ExpandedPaths, scope.PrimitivesByModule);
+            AddTopScopeConcatBundleNodes(graph.Children, child, portRefs);
         }
 
         // Collect target names that primitives will render. When a primitive owns a
@@ -1482,38 +1483,52 @@ internal sealed class ElkGraphBuilder
         foreach (HierarchyScopeInstancePortConnectionViewModel pin in grandchild.PortConnections)
         {
             if (!pin.IsConcat) continue;
-            string intermediateSignal = ConcatBundleSignalName(grandchild.HierarchyPath, pin.PortName);
             if (pin.IsInput)
             {
-                AddConcatJoinerNode(target, compoundPath, grandchild, pin, intermediateSignal, portRefs);
+                AddConcatJoinerNode(target, compoundPath, $"@inner::{compoundPath}::", grandchild, pin, portRefs);
             }
             else
             {
-                AddConcatFanOutNode(target, compoundPath, grandchild, pin, intermediateSignal, portRefs);
+                AddConcatFanOutNode(target, compoundPath, $"@inner::{compoundPath}::", grandchild, pin, portRefs);
             }
             added++;
         }
         return added;
     }
 
-    private static string ConcatBundleSignalName(string grandchildPath, string portName) =>
-        $"__concat__{ElkNodeIds.SanitizeId(grandchildPath)}__{portName}";
+    private static void AddTopScopeConcatBundleNodes(
+        IList<ElkNode> target,
+        HierarchyScopeInstanceViewModel child,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        foreach (HierarchyScopeInstancePortConnectionViewModel pin in child.PortConnections)
+        {
+            if (!pin.IsConcat) continue;
+            if (pin.IsInput)
+            {
+                AddConcatJoinerNode(target, "top", string.Empty, child, pin, portRefs);
+            }
+            else
+            {
+                AddConcatFanOutNode(target, "top", string.Empty, child, pin, portRefs);
+            }
+        }
+    }
 
     // Joiner for a concat INPUT pin: each constituent bit on the west side, one
     // bundled output on the east side feeding the grandchild's `.in.<port>` pin
     // through the intermediate signal.
     private static void AddConcatJoinerNode(
         IList<ElkNode> target,
-        string compoundPath,
+        string nodeScopePath,
+        string keyPrefix,
         HierarchyScopeInstanceViewModel grandchild,
         HierarchyScopeInstancePortConnectionViewModel pin,
-        string intermediateSignal,
         Dictionary<string, ElkPortRef> portRefs)
     {
         const double portRowHeight = 24;
         const double nodeWidth = 36;
-        string nodeId = $"join_{ElkNodeIds.SanitizeId(compoundPath)}__concat_in__{ElkNodeIds.SanitizeId(grandchild.HierarchyPath)}__{pin.PortName}";
-        string kp = "@inner::" + compoundPath;
+        string nodeId = $"join_{ElkNodeIds.SanitizeId(nodeScopePath)}__concat_in__{ElkNodeIds.SanitizeId(grandchild.HierarchyPath)}__{pin.PortName}";
         int n = pin.ConcatParts!.Count;
         double height = Math.Max(OperatorNodeSize, n * portRowHeight + 8);
 
@@ -1532,13 +1547,13 @@ internal sealed class ElkGraphBuilder
             string portId = $"{nodeId}.in.{i}";
             node.Ports!.Add(new ElkPort { Id = portId, LayoutOptions = PortLayout(PortSideWest, i) });
             // Each joiner input consumes the constituent signal at compound scope.
-            portRefs[$"{kp}::__bundlein__{grandchild.HierarchyPath}__{pin.PortName}__{i}"] =
+            portRefs[$"{keyPrefix}__bundlein__{grandchild.HierarchyPath}__{pin.PortName}__{i}"] =
                 new ElkPortRef(nodeId, portId, ElkPortRole.JoinerInput, 1);
         }
 
         string outPortId = $"{nodeId}.out";
         node.Ports!.Add(new ElkPort { Id = outPortId, LayoutOptions = PortLayout(PortSideEast, 0) });
-        portRefs[$"{kp}::__bundleout__{grandchild.HierarchyPath}__{pin.PortName}"] =
+        portRefs[$"{keyPrefix}__bundleout__{grandchild.HierarchyPath}__{pin.PortName}"] =
             new ElkPortRef(nodeId, outPortId, ElkPortRole.JoinerOutput, pin.Width);
 
         target.Add(node);
@@ -1549,16 +1564,15 @@ internal sealed class ElkGraphBuilder
     // compound-scope signal.
     private static void AddConcatFanOutNode(
         IList<ElkNode> target,
-        string compoundPath,
+        string nodeScopePath,
+        string keyPrefix,
         HierarchyScopeInstanceViewModel grandchild,
         HierarchyScopeInstancePortConnectionViewModel pin,
-        string intermediateSignal,
         Dictionary<string, ElkPortRef> portRefs)
     {
         const double portRowHeight = 24;
         const double nodeWidth = 36;
-        string nodeId = $"split_{ElkNodeIds.SanitizeId(compoundPath)}__concat_out__{ElkNodeIds.SanitizeId(grandchild.HierarchyPath)}__{pin.PortName}";
-        string kp = "@inner::" + compoundPath;
+        string nodeId = $"split_{ElkNodeIds.SanitizeId(nodeScopePath)}__concat_out__{ElkNodeIds.SanitizeId(grandchild.HierarchyPath)}__{pin.PortName}";
         int n = pin.ConcatParts!.Count;
         double height = Math.Max(OperatorNodeSize, n * portRowHeight + 8);
 
@@ -1574,7 +1588,7 @@ internal sealed class ElkGraphBuilder
 
         string inPortId = $"{nodeId}.in";
         node.Ports!.Add(new ElkPort { Id = inPortId, LayoutOptions = PortLayout(PortSideWest, 0) });
-        portRefs[$"{kp}::__bundlein__{grandchild.HierarchyPath}__{pin.PortName}"] =
+        portRefs[$"{keyPrefix}__bundlein__{grandchild.HierarchyPath}__{pin.PortName}"] =
             new ElkPortRef(nodeId, inPortId, ElkPortRole.SplitterInput, pin.Width);
 
         for (int i = 0; i < n; i++)
@@ -1586,7 +1600,7 @@ internal sealed class ElkGraphBuilder
                 LayoutOptions = PortLayout(PortSideEast, i),
                 Labels = [new ElkLabel { Text = pin.ConcatParts![i] }]
             });
-            portRefs[$"{kp}::__bundleout__{grandchild.HierarchyPath}__{pin.PortName}__{i}"] =
+            portRefs[$"{keyPrefix}__bundleout__{grandchild.HierarchyPath}__{pin.PortName}__{i}"] =
                 new ElkPortRef(nodeId, legId, ElkPortRole.SplitterOutput, 1);
         }
 
@@ -1600,6 +1614,7 @@ internal sealed class ElkGraphBuilder
 
         CollectBoundaryEndpoints(scope, portRefs, producers, consumers);
         CollectChildEndpoints(scope, portRefs, producers, consumers);
+        CollectTopScopeConcatBundleEndpoints(scope, portRefs, producers, consumers);
         CollectOperatorEndpoints(scope, portRefs, producers, consumers);
         CollectSplitterEndpoints(scope, portRefs, producers, consumers);
         CollectFlipFlopEndpoints(scope, portRefs, producers, consumers);
@@ -1867,6 +1882,9 @@ internal sealed class ElkGraphBuilder
         foreach (HierarchyScopeInstancePortConnectionViewModel pin in grandchild.PortConnections)
         {
             if (!pin.IsConcat) continue;
+
+            // (1) Constituent side: each constituent signal hooks to one joiner
+            //     input (input concat) or to one fan-out leg (output concat).
             for (int i = 0; i < pin.ConcatParts!.Count; i++)
             {
                 string sideKey = pin.IsInput
@@ -1874,8 +1892,22 @@ internal sealed class ElkGraphBuilder
                     : $"@inner::{compoundPath}::__bundleout__{grandchild.HierarchyPath}__{pin.PortName}__{i}";
                 if (!portRefs.TryGetValue(sideKey, out ElkPortRef? portRef)) continue;
                 string constituentKey = ScopedSignalKey(compoundPath, pin.ConcatParts![i]);
-                // Joiner input is a consumer of the constituent; fan-out leg is a producer.
                 AddTo(pin.IsInput ? consumers : producers, constituentKey, portRef);
+            }
+
+            // (2) Bundled side: register the joiner's output / fan-out's input
+            //     under the same synthetic key the grandchild's bundled port
+            //     was registered against in CollectGrandchildEndpoints, so the
+            //     two endpoints get joined by EmitEdges.
+            string bundledKey = pin.IsInput
+                ? $"@inner::{compoundPath}::__bundleout__{grandchild.HierarchyPath}__{pin.PortName}"
+                : $"@inner::{compoundPath}::__bundlein__{grandchild.HierarchyPath}__{pin.PortName}";
+            if (portRefs.TryGetValue(bundledKey, out ElkPortRef? bundledRef))
+            {
+                // Joiner.out produces the synthetic signal that grandchild.in.<port>
+                // consumes. Fan-out.in consumes the synthetic signal that
+                // grandchild.out.<port> produces.
+                AddTo(pin.IsInput ? producers : consumers, bundledKey, bundledRef);
             }
         }
     }
@@ -2301,18 +2333,51 @@ internal sealed class ElkGraphBuilder
                 }
 
                 Dictionary<string, List<ElkPortRef>> target = pin.IsInput ? consumers : producers;
-                // P4.5: concat pins (e.g. `.d({a,b,c})`) register the SAME physical
-                // port under each constituent signal name so every wire reaches it.
+                // P4.5: concat pins (e.g. `.d({a,b,c})`) route through explicit
+                // top-scope joiner/fan-out nodes. This avoids N overlaid wires
+                // landing directly on one bundled child port.
                 if (pin.IsConcat)
                 {
-                    foreach (string part in pin.ConcatParts!)
-                    {
-                        AddTo(target, part, portRef);
-                    }
+                    string bundleKey = pin.IsInput
+                        ? $"__bundleout__{child.HierarchyPath}__{pin.PortName}"
+                        : $"__bundlein__{child.HierarchyPath}__{pin.PortName}";
+                    AddTo(target, bundleKey, portRef);
                 }
                 else
                 {
                     AddTo(target, pin.SignalName, portRef);
+                }
+            }
+        }
+    }
+
+    private static void CollectTopScopeConcatBundleEndpoints(
+        ElkScopeData scope,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        foreach (HierarchyScopeInstanceViewModel child in scope.ChildScopes)
+        {
+            foreach (HierarchyScopeInstancePortConnectionViewModel pin in child.PortConnections)
+            {
+                if (!pin.IsConcat) continue;
+
+                for (int i = 0; i < pin.ConcatParts!.Count; i++)
+                {
+                    string sideKey = pin.IsInput
+                        ? $"__bundlein__{child.HierarchyPath}__{pin.PortName}__{i}"
+                        : $"__bundleout__{child.HierarchyPath}__{pin.PortName}__{i}";
+                    if (!portRefs.TryGetValue(sideKey, out ElkPortRef? portRef)) continue;
+                    AddTo(pin.IsInput ? consumers : producers, pin.ConcatParts[i], portRef);
+                }
+
+                string bundledKey = pin.IsInput
+                    ? $"__bundleout__{child.HierarchyPath}__{pin.PortName}"
+                    : $"__bundlein__{child.HierarchyPath}__{pin.PortName}";
+                if (portRefs.TryGetValue(bundledKey, out ElkPortRef? bundledRef))
+                {
+                    AddTo(pin.IsInput ? producers : consumers, bundledKey, bundledRef);
                 }
             }
         }

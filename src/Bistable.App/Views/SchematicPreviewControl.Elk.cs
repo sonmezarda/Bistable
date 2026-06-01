@@ -48,8 +48,9 @@ public sealed partial class SchematicPreviewControl
         ElkTransform transform = ComputeFitTransform(layoutResult.Graph, canvas);
         IReadOnlyDictionary<string, string> signalValues = BuildSignalValueLookup(contAssigns);
 
+        DrawElkNodeBackgrounds(context, layoutResult.Graph, transform);
         DrawElkEdges(context, layoutResult.Graph, transform, signalValues);
-        DrawElkNodes(context, layoutResult.Graph, transform);
+        DrawElkNodeForegrounds(context, layoutResult.Graph, transform);
         DrawScopeProbeSummary(context, panel, scopeSignals);
     }
 
@@ -95,16 +96,45 @@ public sealed partial class SchematicPreviewControl
         return new ElkTransform(originX, originY, scale, graph.X, graph.Y);
     }
 
-    private void DrawElkNodes(DrawingContext context, ElkGraph graph, ElkTransform transform)
+    private void DrawElkNodeBackgrounds(DrawingContext context, ElkGraph graph, ElkTransform transform)
     {
-        DrawElkNodesRecursive(context, graph.Children, transform, baseX: 0, baseY: 0);
+        DrawElkNodeBackgroundsRecursive(context, graph.Children, transform, baseX: 0, baseY: 0);
+    }
+
+    private void DrawElkNodeForegrounds(DrawingContext context, ElkGraph graph, ElkTransform transform)
+    {
+        DrawElkNodeForegroundsRecursive(context, graph.Children, transform, baseX: 0, baseY: 0);
     }
 
     // ELK's compound layout positions sub-children relative to their parent node, so the
     // recursion accumulates absolute coordinates (baseX/baseY) before applying the global
     // viewport transform. Without this, nested children would render at the same root-origin
     // as their parent's coordinate.
-    private void DrawElkNodesRecursive(
+    private void DrawElkNodeBackgroundsRecursive(
+        DrawingContext context,
+        IList<ElkNode> nodes,
+        ElkTransform transform,
+        double baseX,
+        double baseY)
+    {
+        foreach (ElkNode node in nodes)
+        {
+            double absX = baseX + node.X;
+            double absY = baseY + node.Y;
+            if (IsElkCardNode(node))
+            {
+                Rect rect = transform.Apply(absX, absY, node.Width, node.Height);
+                DrawElkNodeCardBackground(context, rect);
+            }
+
+            if (node.Children is { Count: > 0 } childNodes)
+            {
+                DrawElkNodeBackgroundsRecursive(context, childNodes, transform, absX, absY);
+            }
+        }
+    }
+
+    private void DrawElkNodeForegroundsRecursive(
         DrawingContext context,
         IList<ElkNode> nodes,
         ElkTransform transform,
@@ -183,16 +213,34 @@ public sealed partial class SchematicPreviewControl
             }
             else
             {
-                DrawElkNodeCard(context, node, rect, transform.Scale);
+                DrawElkNodeCardForeground(context, node, rect, transform.Scale);
                 DrawElkChildExpansionButton(context, node, rect);
             }
 
             if (node.Children is { Count: > 0 } childNodes)
             {
-                DrawElkNodesRecursive(context, childNodes, transform, absX, absY);
+                DrawElkNodeForegroundsRecursive(context, childNodes, transform, absX, absY);
             }
         }
     }
+
+    private static bool IsElkCardNode(ElkNode node) =>
+        node.Id is not ElkNodeIds.BoundaryIn
+        && node.Id is not ElkNodeIds.BoundaryOut
+        && !ElkNodeIds.IsOperator(node.Id)
+        && !ElkNodeIds.IsSplitter(node.Id)
+        && !ElkNodeIds.IsJoiner(node.Id)
+        && !ElkNodeIds.IsFlipFlop(node.Id)
+        && !ElkNodeIds.IsMux(node.Id)
+        && !ElkNodeIds.IsLatch(node.Id)
+        && !ElkNodeIds.IsMemory(node.Id)
+        && !ElkNodeIds.IsBuffer(node.Id)
+        && !ElkNodeIds.IsConstantTie(node.Id)
+        && !ElkNodeIds.IsTriState(node.Id)
+        && !ElkNodeIds.IsInverter(node.Id)
+        && !ElkNodeIds.IsGate(node.Id)
+        && !ElkNodeIds.IsArith(node.Id)
+        && !ElkNodeIds.IsStructFanOut(node.Id);
 
     private void DrawElkChildExpansionButton(DrawingContext context, ElkNode node, Rect rect)
     {
@@ -580,9 +628,13 @@ public sealed partial class SchematicPreviewControl
         ];
     }
 
-    private void DrawElkNodeCard(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkNodeCardBackground(DrawingContext context, Rect rect)
     {
-        IBrush fill = Palette.NodeFill;
+        context.FillRectangle(Palette.NodeFill, rect, 6);
+    }
+
+    private void DrawElkNodeCardForeground(DrawingContext context, ElkNode node, Rect rect, double scale)
+    {
         // If this child node corresponds to the currently-selected hierarchy
         // scope, draw it with the accent stroke + a thicker pen so the user
         // sees at a glance which block matches their hierarchy selection.
@@ -600,7 +652,6 @@ public sealed partial class SchematicPreviewControl
         }
         double strokeWidth = isSelectedScope ? 2.4 : 1.2;
 
-        context.FillRectangle(fill, rect, 6);
         context.DrawRectangle(new Pen(stroke, strokeWidth), rect, 6);
 
         // Register a scope hit target so OnPointerPressed → HandleScopeHit
@@ -680,9 +731,10 @@ public sealed partial class SchematicPreviewControl
         // P4-3: pre-build a lookup of "which mux-input port is active right now"
         // so the edge renderer can highlight the wire that's currently selected.
         IReadOnlySet<string> activeMuxInputs = BuildActiveMuxInputSet(graph);
+        ElkEdgeCoordinateContext coordinateContext = BuildEdgeCoordinateContext(graph);
         foreach (ElkEdge edge in graph.Edges)
         {
-            RenderElkEdge(context, edge, transform, signalValues, anyHovered, activeMuxInputs);
+            RenderElkEdge(context, edge, transform, signalValues, anyHovered, activeMuxInputs, coordinateContext);
         }
     }
 
@@ -773,7 +825,8 @@ public sealed partial class SchematicPreviewControl
         ElkTransform transform,
         IReadOnlyDictionary<string, string> signalValues,
         bool anyHovered,
-        IReadOnlySet<string> activeMuxInputs)
+        IReadOnlySet<string> activeMuxInputs,
+        ElkEdgeCoordinateContext coordinateContext)
     {
         if (edge.Sections is null || edge.Sections.Count == 0)
         {
@@ -785,13 +838,14 @@ public sealed partial class SchematicPreviewControl
         // P4-3: edge ends at an active mux input → thicker, accented pen.
         bool isActiveMuxPath = edge.Targets.Any(t => activeMuxInputs.Contains(t));
         ElkEdgeStyle style = BuildElkEdgeStyle(signalName, bitWidth, signalValues, anyHovered, isActiveMuxPath);
-        IReadOnlyList<Point> polyline = BuildEdgePolyline(edge.Sections, transform);
+        Point coordinateOffset = ResolveEdgeCoordinateOffset(edge, coordinateContext);
+        IReadOnlyList<Point> polyline = BuildEdgePolyline(edge.Sections, transform, coordinateOffset);
 
         IDisposable? dimScope = style.ShouldDim ? context.PushOpacity(0.22) : null;
         try
         {
             DrawPolyline(context, polyline, style.Pen);
-            DrawJunctions(context, edge.JunctionPoints, transform, style.Pen.Brush!);
+            DrawJunctions(context, edge.JunctionPoints, transform, coordinateOffset, style.Pen.Brush!);
         }
         finally
         {
@@ -944,7 +998,12 @@ public sealed partial class SchematicPreviewControl
         }
     }
 
-    private static void DrawJunctions(DrawingContext context, IReadOnlyList<ElkPoint>? junctions, ElkTransform transform, IBrush brush)
+    private static void DrawJunctions(
+        DrawingContext context,
+        IReadOnlyList<ElkPoint>? junctions,
+        ElkTransform transform,
+        Point coordinateOffset,
+        IBrush brush)
     {
         if (junctions is null || junctions.Count == 0)
         {
@@ -953,7 +1012,7 @@ public sealed partial class SchematicPreviewControl
 
         foreach (ElkPoint jp in junctions)
         {
-            Point center = transform.Apply(jp);
+            Point center = transform.Apply(jp, coordinateOffset);
             context.DrawEllipse(brush, null, center, 2.8, 2.8);
         }
     }
@@ -1033,12 +1092,91 @@ public sealed partial class SchematicPreviewControl
         return CompactLayout ? 1.2 : 1.4;
     }
 
-    private static IReadOnlyList<Point> BuildEdgePolyline(IReadOnlyList<ElkEdgeSection> sections, ElkTransform transform)
+    private static ElkEdgeCoordinateContext BuildEdgeCoordinateContext(ElkGraph graph)
+    {
+        Dictionary<string, string[]> endpointPaths = new(StringComparer.Ordinal);
+        Dictionary<string, Point> nodeOrigins = new(StringComparer.Ordinal);
+        Visit(graph.Children, [], absoluteX: 0, absoluteY: 0);
+        return new ElkEdgeCoordinateContext(endpointPaths, nodeOrigins);
+
+        void Visit(IReadOnlyList<ElkNode> nodes, string[] parentPath, double absoluteX, double absoluteY)
+        {
+            foreach (ElkNode node in nodes)
+            {
+                double nodeAbsoluteX = absoluteX + node.X;
+                double nodeAbsoluteY = absoluteY + node.Y;
+                string[] nodePath = [.. parentPath, node.Id];
+                endpointPaths[node.Id] = nodePath;
+                nodeOrigins[PathKey(nodePath)] = new Point(nodeAbsoluteX, nodeAbsoluteY);
+
+                if (node.Ports is { Count: > 0 })
+                {
+                    foreach (ElkPort port in node.Ports)
+                    {
+                        endpointPaths[port.Id] = nodePath;
+                    }
+                }
+
+                if (node.Children is { Count: > 0 })
+                {
+                    Visit(node.Children, nodePath, nodeAbsoluteX, nodeAbsoluteY);
+                }
+            }
+        }
+    }
+
+    private static Point ResolveEdgeCoordinateOffset(ElkEdge edge, ElkEdgeCoordinateContext context)
+    {
+        string[]? commonPath = null;
+        foreach (string endpoint in edge.Sources.Concat(edge.Targets))
+        {
+            if (!context.EndpointPaths.TryGetValue(endpoint, out string[]? endpointPath))
+            {
+                continue;
+            }
+
+            commonPath = commonPath is null
+                ? endpointPath
+                : CommonPrefix(commonPath, endpointPath);
+            if (commonPath.Length == 0)
+            {
+                return default;
+            }
+        }
+
+        if (commonPath is null || commonPath.Length == 0)
+        {
+            return default;
+        }
+
+        return context.NodeOrigins.TryGetValue(PathKey(commonPath), out Point origin)
+            ? origin
+            : default;
+    }
+
+    private static string[] CommonPrefix(string[] left, string[] right)
+    {
+        int count = Math.Min(left.Length, right.Length);
+        int i = 0;
+        while (i < count && string.Equals(left[i], right[i], StringComparison.Ordinal))
+        {
+            i++;
+        }
+
+        return left[..i];
+    }
+
+    private static string PathKey(IReadOnlyList<string> path) => string.Join('\u001f', path);
+
+    private static IReadOnlyList<Point> BuildEdgePolyline(
+        IReadOnlyList<ElkEdgeSection> sections,
+        ElkTransform transform,
+        Point coordinateOffset)
     {
         List<Point> points = [];
         foreach (ElkEdgeSection section in sections)
         {
-            Point start = transform.Apply(section.StartPoint);
+            Point start = transform.Apply(section.StartPoint, coordinateOffset);
             if (points.Count == 0 || !AreClose(points[^1], start))
             {
                 points.Add(start);
@@ -1048,11 +1186,11 @@ public sealed partial class SchematicPreviewControl
             {
                 foreach (ElkPoint bp in section.BendPoints)
                 {
-                    points.Add(transform.Apply(bp));
+                    points.Add(transform.Apply(bp, coordinateOffset));
                 }
             }
 
-            points.Add(transform.Apply(section.EndPoint));
+            points.Add(transform.Apply(section.EndPoint, coordinateOffset));
         }
 
         return points;
@@ -1071,5 +1209,14 @@ public sealed partial class SchematicPreviewControl
 
         public Point Apply(ElkPoint p) =>
             new(OriginX + (p.X - GraphX) * Scale, OriginY + (p.Y - GraphY) * Scale);
+
+        public Point Apply(ElkPoint p, Point coordinateOffset) =>
+            new(
+                OriginX + (p.X + coordinateOffset.X - GraphX) * Scale,
+                OriginY + (p.Y + coordinateOffset.Y - GraphY) * Scale);
     }
+
+    private sealed record ElkEdgeCoordinateContext(
+        IReadOnlyDictionary<string, string[]> EndpointPaths,
+        IReadOnlyDictionary<string, Point> NodeOrigins);
 }
