@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Media;
+using Bistable.App.Services;
 using Bistable.App.Services.Routing.Elk;
 
 namespace Bistable.App.Views;
@@ -24,7 +25,12 @@ public sealed partial class SchematicPreviewControl
     //  - D / R / Q pin labels rendered inside the body
     //  - A small ▷ (triangle) drawn inside at the clock pin to indicate edge-trigger
     //  - The QSignal name centred above the box as a title
-    private void DrawElkFlipFlopNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkFlipFlopNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         Pen stroke = new(Palette.ModuleStroke, 1.5);
         context.DrawRectangle(Palette.NodeFill, stroke, rect.Deflate(1));
@@ -60,7 +66,7 @@ public sealed partial class SchematicPreviewControl
             }
         }
 
-        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
     }
 
     // Small right-pointing triangle attached to the inside of a port — the
@@ -118,7 +124,12 @@ public sealed partial class SchematicPreviewControl
     //
     // Rectangle body, identical to FF *except* no clock-edge triangle.
     // The G (gate) pin label is enough to communicate level-sensitivity.
-    private void DrawElkLatchNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkLatchNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         Pen stroke = new(Palette.ModuleStroke, 1.5);
         context.DrawRectangle(Palette.NodeFill, stroke, rect.Deflate(1));
@@ -134,7 +145,7 @@ public sealed partial class SchematicPreviewControl
                 Palette.Text, fontSize);
         }
 
-        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
         DrawPrimitiveLiveOutput(context, node, rect);
     }
 
@@ -145,7 +156,12 @@ public sealed partial class SchematicPreviewControl
     //
     // The trapezoid is symmetric around the horizontal midline. The east side is inset
     // by ~25% of the node width to give the trapezoid silhouette.
-    private void DrawElkMuxNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkMuxNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         Pen stroke = new(Palette.ModuleStroke, 1.5);
         double inset = rect.Height * 0.20;
@@ -172,7 +188,7 @@ public sealed partial class SchematicPreviewControl
                 Palette.Text, fontSize);
         }
 
-        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
         DrawPrimitiveLiveOutput(context, node, rect);
     }
 
@@ -181,7 +197,12 @@ public sealed partial class SchematicPreviewControl
     // Tall stacked rectangle with horizontal divider lines suggesting addressable
     // cells. The cell count is decorative (up to 8 visible lines regardless of the
     // actual depth) — the precise dimensions live in the label.
-    private void DrawElkMemoryNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkMemoryNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         _ = scale; // ports are not drawn (memory has none yet); scale unused
         Pen stroke = new(Palette.ModuleStroke, 1.5);
@@ -214,12 +235,17 @@ public sealed partial class SchematicPreviewControl
     //
     // Classic non-inverting buffer symbol: triangle pointing east, output coming
     // out of the apex. No output bubble (distinguishes it from the inverter).
-    private void DrawElkBufferNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkBufferNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         Pen stroke = new(Palette.ModuleStroke, 1.5);
         DrawTriangleBody(context, rect, stroke, drawBubble: false);
         DrawSymbolTitle(context, node, rect);
-        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
         DrawPrimitiveLiveOutput(context, node, rect);
     }
 
@@ -228,12 +254,17 @@ public sealed partial class SchematicPreviewControl
     // Classic tri-state symbol: a buffer triangle with an enable pin entering
     // perpendicular to the data flow. We use the existing buffer triangle and
     // overlay an enable connection from the south face.
-    private void DrawElkTriStateNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkTriStateNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         Pen stroke = new(Palette.ModuleStroke, 1.5);
         DrawTriangleBody(context, rect, stroke, drawBubble: false);
         DrawSymbolTitle(context, node, rect);
-        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
     }
 
     // ── Constant tie (P2.6-8: GND/VDD-style stub) ────────────────────────
@@ -275,12 +306,17 @@ public sealed partial class SchematicPreviewControl
     //
     // Same triangle as Buffer with a small circle at the apex — the classic NOT
     // gate / inverter symbol. Reuses DrawTriangleBody with drawBubble: true.
-    private void DrawElkInverterNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkInverterNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         Pen stroke = new(Palette.ModuleStroke, 1.5);
         DrawTriangleBody(context, rect, stroke, drawBubble: true);
         DrawSymbolTitle(context, node, rect);
-        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
         DrawPrimitiveLiveOutput(context, node, rect);
     }
 
@@ -290,7 +326,12 @@ public sealed partial class SchematicPreviewControl
     // based on the GateKind embedded in the node label as the first whitespace-separated
     // token. The N-variants (Nand/Nor/Xnor) draw the matching base shape plus an output
     // bubble that overlays the symbol's east apex.
-    private void DrawElkGateNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkGateNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         Pen stroke = new(Palette.ModuleStroke, 1.5);
         string kind = ParseFirstToken(node);
@@ -323,7 +364,7 @@ public sealed partial class SchematicPreviewControl
         }
 
         DrawSymbolTitle(context, node, rect);
-        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
         DrawPrimitiveLiveOutput(context, node, rect);
     }
 
@@ -331,7 +372,12 @@ public sealed partial class SchematicPreviewControl
     //
     // Rectangle with an operator glyph centred inside (e.g. "+", "−", "×", "÷", "=", "<").
     // Distinct from logic gates so the reader can quickly tell datapath from control logic.
-    private void DrawElkArithNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkArithNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         Pen stroke = new(Palette.ModuleStroke, 1.5);
         context.DrawRectangle(Palette.NodeFill, stroke, rect.Deflate(1));
@@ -349,7 +395,7 @@ public sealed partial class SchematicPreviewControl
         }
 
         DrawSymbolTitle(context, node, rect);
-        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
         DrawPrimitiveLiveOutput(context, node, rect);
     }
 
@@ -429,7 +475,12 @@ public sealed partial class SchematicPreviewControl
     // The struct's qualified type name (e.g. control_pkg::ctrl_t) renders above
     // the wedge; per-field labels (port.Labels[0]) render inside the wedge body,
     // right-aligned next to each east port.
-    private void DrawElkStructFanOutNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkStructFanOutNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         Pen stroke = new(Palette.ModuleStroke, 1.5);
         double midY = rect.Y + rect.Height / 2;
@@ -449,7 +500,7 @@ public sealed partial class SchematicPreviewControl
         context.DrawGeometry(Palette.NodeFill, stroke, geo);
 
         DrawSymbolTitle(context, node, rect);
-        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
     }
 
     // ── Shared port painter ──────────────────────────────────────────────
@@ -458,7 +509,13 @@ public sealed partial class SchematicPreviewControl
     // paints the port label just inside or just outside the symbol body depending
     // on side. West-side labels are left of the pin, East-side labels right of the
     // pin, and South-side selector labels sit below the pin.
-    private void DrawSymbolPortsAndLabels(DrawingContext context, ElkNode node, Rect rect, double scale, Pen stroke)
+    private void DrawSymbolPortsAndLabels(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        Pen stroke,
+        SchematicLabelPlacementContext labelPlacement)
     {
         _ = stroke;
         if (node.Ports is null) return;
@@ -487,7 +544,16 @@ public sealed partial class SchematicPreviewControl
                     ? px - labelInset - textW
                     : px + labelInset;
             double labelY = onSouth ? py + labelFont * 0.25 : py - labelFont * 0.6;
-            DrawText(context, label, labelX, labelY, Palette.PinStroke, labelFont);
+            double sideOffset = onEast ? -8 * scale : 8 * scale;
+            Rect placed = labelPlacement.PlaceLabel(new Size(textW, labelFont * 1.2),
+            [
+                new Point(labelX, labelY),
+                new Point(labelX, py - labelFont - 7 * scale),
+                new Point(labelX, py + 6 * scale),
+                new Point(labelX + sideOffset, py - labelFont - 7 * scale),
+                new Point(labelX + sideOffset, py + 6 * scale)
+            ]);
+            DrawText(context, label, placed.X, placed.Y, Palette.PinStroke, labelFont);
         }
     }
 

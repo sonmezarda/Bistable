@@ -47,10 +47,15 @@ public sealed partial class SchematicPreviewControl
         Rect canvas = panel.Deflate(new Thickness(20, 76, 20, 36));
         ElkTransform transform = ComputeFitTransform(layoutResult.Graph, canvas);
         IReadOnlyDictionary<string, string> signalValues = BuildSignalValueLookup(contAssigns);
+        ElkEdgeCoordinateContext coordinateContext = BuildEdgeCoordinateContext(layoutResult.Graph);
+        SchematicLabelPlacementContext labelPlacement = BuildElkLabelPlacementContext(
+            layoutResult.Graph,
+            transform,
+            coordinateContext);
 
         DrawElkNodeBackgrounds(context, layoutResult.Graph, transform);
-        DrawElkEdges(context, layoutResult.Graph, transform, signalValues);
-        DrawElkNodeForegrounds(context, layoutResult.Graph, transform);
+        DrawElkEdges(context, layoutResult.Graph, transform, signalValues, coordinateContext);
+        DrawElkNodeForegrounds(context, layoutResult.Graph, transform, labelPlacement);
         DrawScopeProbeSummary(context, panel, scopeSignals);
     }
 
@@ -101,9 +106,13 @@ public sealed partial class SchematicPreviewControl
         DrawElkNodeBackgroundsRecursive(context, graph.Children, transform, baseX: 0, baseY: 0);
     }
 
-    private void DrawElkNodeForegrounds(DrawingContext context, ElkGraph graph, ElkTransform transform)
+    private void DrawElkNodeForegrounds(
+        DrawingContext context,
+        ElkGraph graph,
+        ElkTransform transform,
+        SchematicLabelPlacementContext labelPlacement)
     {
-        DrawElkNodeForegroundsRecursive(context, graph.Children, transform, baseX: 0, baseY: 0);
+        DrawElkNodeForegroundsRecursive(context, graph.Children, transform, labelPlacement, baseX: 0, baseY: 0);
     }
 
     // ELK's compound layout positions sub-children relative to their parent node, so the
@@ -138,6 +147,7 @@ public sealed partial class SchematicPreviewControl
         DrawingContext context,
         IList<ElkNode> nodes,
         ElkTransform transform,
+        SchematicLabelPlacementContext labelPlacement,
         double baseX,
         double baseY)
     {
@@ -149,19 +159,19 @@ public sealed partial class SchematicPreviewControl
 
             if (node.Id is ElkNodeIds.BoundaryIn)
             {
-                DrawElkBoundaryPins(context, node, rect, transform.Scale, isInput: true);
+                DrawElkBoundaryPins(context, node, rect, transform.Scale, isInput: true, labelPlacement);
             }
             else if (node.Id is ElkNodeIds.BoundaryOut)
             {
-                DrawElkBoundaryPins(context, node, rect, transform.Scale, isInput: false);
+                DrawElkBoundaryPins(context, node, rect, transform.Scale, isInput: false, labelPlacement);
             }
             else if (ElkNodeIds.IsOperator(node.Id))
             {
-                DrawElkOperatorNode(context, node, rect, transform.Scale);
+                DrawElkOperatorNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else if (ElkNodeIds.IsSplitter(node.Id))
             {
-                DrawElkSplitterNode(context, node, rect, transform.Scale);
+                DrawElkSplitterNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else if (ElkNodeIds.IsJoiner(node.Id))
             {
@@ -169,23 +179,23 @@ public sealed partial class SchematicPreviewControl
             }
             else if (ElkNodeIds.IsFlipFlop(node.Id))
             {
-                DrawElkFlipFlopNode(context, node, rect, transform.Scale);
+                DrawElkFlipFlopNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else if (ElkNodeIds.IsMux(node.Id))
             {
-                DrawElkMuxNode(context, node, rect, transform.Scale);
+                DrawElkMuxNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else if (ElkNodeIds.IsLatch(node.Id))
             {
-                DrawElkLatchNode(context, node, rect, transform.Scale);
+                DrawElkLatchNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else if (ElkNodeIds.IsMemory(node.Id))
             {
-                DrawElkMemoryNode(context, node, rect, transform.Scale);
+                DrawElkMemoryNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else if (ElkNodeIds.IsBuffer(node.Id))
             {
-                DrawElkBufferNode(context, node, rect, transform.Scale);
+                DrawElkBufferNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else if (ElkNodeIds.IsConstantTie(node.Id))
             {
@@ -193,33 +203,33 @@ public sealed partial class SchematicPreviewControl
             }
             else if (ElkNodeIds.IsTriState(node.Id))
             {
-                DrawElkTriStateNode(context, node, rect, transform.Scale);
+                DrawElkTriStateNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else if (ElkNodeIds.IsInverter(node.Id))
             {
-                DrawElkInverterNode(context, node, rect, transform.Scale);
+                DrawElkInverterNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else if (ElkNodeIds.IsGate(node.Id))
             {
-                DrawElkGateNode(context, node, rect, transform.Scale);
+                DrawElkGateNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else if (ElkNodeIds.IsArith(node.Id))
             {
-                DrawElkArithNode(context, node, rect, transform.Scale);
+                DrawElkArithNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else if (ElkNodeIds.IsStructFanOut(node.Id))
             {
-                DrawElkStructFanOutNode(context, node, rect, transform.Scale);
+                DrawElkStructFanOutNode(context, node, rect, transform.Scale, labelPlacement);
             }
             else
             {
-                DrawElkNodeCardForeground(context, node, rect, transform.Scale);
+                DrawElkNodeCardForeground(context, node, rect, transform.Scale, labelPlacement);
                 DrawElkChildExpansionButton(context, node, rect);
             }
 
             if (node.Children is { Count: > 0 } childNodes)
             {
-                DrawElkNodeForegroundsRecursive(context, childNodes, transform, absX, absY);
+                DrawElkNodeForegroundsRecursive(context, childNodes, transform, labelPlacement, absX, absY);
             }
         }
     }
@@ -253,7 +263,12 @@ public sealed partial class SchematicPreviewControl
         DrawScopeExpansionButton(context, rect, hierarchyPath, expanded: isExpanded);
     }
 
-    private void DrawElkOperatorNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkOperatorNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         string? symbol = node.Labels is { Count: > 0 } ? node.Labels[0].Text : null;
         Pen gatePen = new(Palette.ModuleStroke, 1.5);
@@ -270,7 +285,7 @@ public sealed partial class SchematicPreviewControl
         if (node.Ports is not null)
         {
             foreach (ElkPort port in node.Ports)
-                DrawElkPort(context, rect, port, scale, node.Width);
+                DrawElkPort(context, rect, port, scale, node.Width, labelPlacement);
         }
     }
 
@@ -396,7 +411,12 @@ public sealed partial class SchematicPreviewControl
 
     // Right-pointing wedge: left apex at the single WEST input, flat right edge at EAST outputs.
     // Bit-range labels are drawn inside the wedge near each output port (right-aligned to port).
-    private void DrawElkSplitterNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkSplitterNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         double midY = rect.Y + rect.Height / 2;
         double indentX = Math.Min(rect.Width * 0.32, 10 * scale);
@@ -433,7 +453,18 @@ public sealed partial class SchematicPreviewControl
                 string label = port.Labels[0].Text;
                 double fontSize = Math.Clamp(8 * scale, 7, 10);
                 double labelW = MeasureLabelWidth(label, fontSize);
-                DrawText(context, label, px - 4 * scale - labelW, py - fontSize * 0.6, Palette.PinStroke, fontSize);
+                Size labelSize = new(labelW, fontSize * 1.2);
+                double baseX = px - 4 * scale - labelW;
+                double baseY = py - fontSize * 0.6;
+                Rect placed = labelPlacement.PlaceLabel(labelSize,
+                [
+                    new Point(baseX, baseY),
+                    new Point(baseX, py - fontSize - 8 * scale),
+                    new Point(baseX, py + 7 * scale),
+                    new Point(baseX - 8 * scale, py - fontSize - 8 * scale),
+                    new Point(baseX - 8 * scale, py + 7 * scale)
+                ]);
+                DrawText(context, label, placed.X, placed.Y, Palette.PinStroke, fontSize);
             }
         }
     }
@@ -442,7 +473,13 @@ public sealed partial class SchematicPreviewControl
     // but visually they are NOT cards: each port is drawn as a classic schematic pentagon
     // (`[>` for input, `>]` for output) attached to the outer scope frame. The cable polyline
     // already ends exactly at port.X * scale + nodeRect.X, which is the tip of the pentagon.
-    private void DrawElkBoundaryPins(DrawingContext context, ElkNode node, Rect nodeRect, double scale, bool isInput)
+    private void DrawElkBoundaryPins(
+        DrawingContext context,
+        ElkNode node,
+        Rect nodeRect,
+        double scale,
+        bool isInput,
+        SchematicLabelPlacementContext labelPlacement)
     {
         if (node.Ports is null)
         {
@@ -468,7 +505,7 @@ public sealed partial class SchematicPreviewControl
                 label = $"{label} = {v}";
             }
 
-            DrawBoundaryPinGlyph(context, tip, label, isInput, isInOut);
+            DrawBoundaryPinGlyph(context, tip, label, isInput, isInOut, labelPlacement);
 
             // Make expanded-view boundary pins interactive the same way
             // collapsed-view pins are. Find the matching SignalViewModel and
@@ -512,7 +549,13 @@ public sealed partial class SchematicPreviewControl
         return null;
     }
 
-    private void DrawBoundaryPinGlyph(DrawingContext context, Point tip, string label, bool isInput, bool isInOut = false)
+    private void DrawBoundaryPinGlyph(
+        DrawingContext context,
+        Point tip,
+        string label,
+        bool isInput,
+        bool isInOut = false,
+        SchematicLabelPlacementContext? labelPlacement = null)
     {
         double glyphWidth = CompactLayout ? 22 : 26;
         double glyphHeight = CompactLayout ? 14 : 16;
@@ -565,7 +608,22 @@ public sealed partial class SchematicPreviewControl
         double labelX = isInput
             ? tip.X - glyphWidth - labelGap - labelWidth
             : tip.X + glyphWidth + labelGap;
-        DrawText(context, label, labelX, tip.Y - 6, stroke, 10);
+        double labelY = tip.Y - 6;
+        if (labelPlacement is null)
+        {
+            DrawText(context, label, labelX, labelY, stroke, 10);
+            return;
+        }
+
+        Rect placed = labelPlacement.PlaceLabel(new Size(labelWidth, 12),
+        [
+            new Point(labelX, labelY),
+            new Point(labelX, tip.Y - 19),
+            new Point(labelX, tip.Y + 7),
+            new Point(labelX + (isInput ? -10 : 10), tip.Y - 19),
+            new Point(labelX + (isInput ? -10 : 10), tip.Y + 7)
+        ]);
+        DrawText(context, label, placed.X, placed.Y, stroke, 10);
     }
 
     private static Point[] BuildInputPentagon(Point tip, double w, double h)
@@ -633,7 +691,12 @@ public sealed partial class SchematicPreviewControl
         context.FillRectangle(Palette.NodeFill, rect, 6);
     }
 
-    private void DrawElkNodeCardForeground(DrawingContext context, ElkNode node, Rect rect, double scale)
+    private void DrawElkNodeCardForeground(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
     {
         // If this child node corresponds to the currently-selected hierarchy
         // scope, draw it with the accent stroke + a thicker pen so the user
@@ -682,7 +745,7 @@ public sealed partial class SchematicPreviewControl
 
         foreach (ElkPort port in node.Ports)
         {
-            DrawElkPort(context, rect, port, scale, node.Width);
+            DrawElkPort(context, rect, port, scale, node.Width, labelPlacement);
         }
     }
 
@@ -690,7 +753,13 @@ public sealed partial class SchematicPreviewControl
     // so they must be multiplied by the active transform scale to align with the (already
     // scaled) module rect. Edge polylines arrive in root coordinates and are scaled separately
     // by ElkTransform.Apply, so port and edge endpoints converge on the same screen pixel.
-    private void DrawElkPort(DrawingContext context, Rect nodeRect, ElkPort port, double scale, double nodeWidthUnscaled)
+    private void DrawElkPort(
+        DrawingContext context,
+        Rect nodeRect,
+        ElkPort port,
+        double scale,
+        double nodeWidthUnscaled,
+        SchematicLabelPlacementContext labelPlacement)
     {
         double px = nodeRect.X + port.X * scale;
         double py = nodeRect.Y + port.Y * scale;
@@ -716,8 +785,20 @@ public sealed partial class SchematicPreviewControl
             double labelGap = 9;
             double maxLabelPx = Math.Max(40, nodeRect.Width * 0.5 - 12);
             string label = Ellipsize(rawLabel, 9, maxLabelPx);
-            double labelX = onEast ? px - labelGap - MeasureLabelWidth(label, 10) : px + labelGap;
-            DrawText(context, label, labelX, py - 6, Palette.PinStroke, 9);
+            double fontSize = 9;
+            double labelWidth = MeasureLabelWidth(label, fontSize);
+            double labelX = onEast ? px - labelGap - labelWidth : px + labelGap;
+            double labelY = py - 6;
+            double sideOffset = onEast ? -10 * scale : 10 * scale;
+            Rect placed = labelPlacement.PlaceLabel(new Size(labelWidth, fontSize * 1.25),
+            [
+                new Point(labelX, labelY),
+                new Point(labelX, py - 18 * scale),
+                new Point(labelX, py + 8 * scale),
+                new Point(labelX + sideOffset, py - 18 * scale),
+                new Point(labelX + sideOffset, py + 8 * scale)
+            ]);
+            DrawText(context, label, placed.X, placed.Y, Palette.PinStroke, fontSize);
         }
     }
 
@@ -725,13 +806,13 @@ public sealed partial class SchematicPreviewControl
         DrawingContext context,
         ElkGraph graph,
         ElkTransform transform,
-        IReadOnlyDictionary<string, string> signalValues)
+        IReadOnlyDictionary<string, string> signalValues,
+        ElkEdgeCoordinateContext coordinateContext)
     {
         bool anyHovered = !string.IsNullOrEmpty(_hoveredSignalName);
         // P4-3: pre-build a lookup of "which mux-input port is active right now"
         // so the edge renderer can highlight the wire that's currently selected.
         IReadOnlySet<string> activeMuxInputs = BuildActiveMuxInputSet(graph);
-        ElkEdgeCoordinateContext coordinateContext = BuildEdgeCoordinateContext(graph);
         foreach (ElkEdge edge in graph.Edges)
         {
             RenderElkEdge(context, edge, transform, signalValues, anyHovered, activeMuxInputs, coordinateContext);
@@ -1090,6 +1171,27 @@ public sealed partial class SchematicPreviewControl
         }
 
         return CompactLayout ? 1.2 : 1.4;
+    }
+
+    private static SchematicLabelPlacementContext BuildElkLabelPlacementContext(
+        ElkGraph graph,
+        ElkTransform transform,
+        ElkEdgeCoordinateContext coordinateContext)
+    {
+        SchematicLabelPlacementContext labelPlacement = new();
+        foreach (ElkEdge edge in graph.Edges)
+        {
+            if (edge.Sections is null || edge.Sections.Count == 0)
+            {
+                continue;
+            }
+
+            Point coordinateOffset = ResolveEdgeCoordinateOffset(edge, coordinateContext);
+            IReadOnlyList<Point> polyline = BuildEdgePolyline(edge.Sections, transform, coordinateOffset);
+            labelPlacement.AddWirePolyline(polyline, padding: 4);
+        }
+
+        return labelPlacement;
     }
 
     private static ElkEdgeCoordinateContext BuildEdgeCoordinateContext(ElkGraph graph)
