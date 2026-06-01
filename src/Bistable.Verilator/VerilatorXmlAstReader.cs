@@ -120,11 +120,31 @@ public sealed class VerilatorXmlAstReader
     // ── DType map ───────────────────────────────────────────────────────────
 
     private static Dictionary<string, DType> BuildDTypeMap(XDocument doc)
-        => doc.Descendants()
+    {
+        // First pass: parse every dtype with its raw width.
+        Dictionary<string, DType> map = doc.Descendants()
               .Where(static e => e.Name.LocalName.EndsWith("dtype", StringComparison.Ordinal))
               .Select(ParseDType)
               .Where(static d => d.Id is not null)
               .ToDictionary(static d => d.Id!, static d => d);
+
+        // P3-6: a second pass to resolve unpackarraydtype's CELL width by
+        // following sub_dtype_id. Without this, `logic [7:0] mem [0:15]`
+        // ends up reporting Width=1 (the unpackarraydtype itself carries no
+        // basic width) and the memory probe enumerator can't compute the
+        // cell width correctly.
+        foreach (XElement e in doc.Descendants()
+                     .Where(static x => x.Name.LocalName.Equals("unpackarraydtype", StringComparison.Ordinal)))
+        {
+            string? id = (string?)e.Attribute("id");
+            string? subId = (string?)e.Attribute("sub_dtype_id");
+            if (id is null || subId is null) continue;
+            if (!map.TryGetValue(id, out DType? current)) continue;
+            if (!map.TryGetValue(subId, out DType? sub)) continue;
+            map[id] = current with { Width = sub.Width, IsSigned = sub.IsSigned };
+        }
+        return map;
+    }
 
     private static DType ParseDType(XElement e)
     {
@@ -140,15 +160,53 @@ public sealed class VerilatorXmlAstReader
 
     private static IReadOnlyList<BitRange> ParseArrayDims(XElement dtypeElement)
     {
-        // unpackarraydtype: <unpackarraydtype left="N" right="0"> wraps an inner dtype
+        // unpackarraydtype carries its bounds as a nested <range> with two
+        // <const> children whose `name` attribute encodes the literal
+        // (e.g. "32'sh0", "32'shf"). Some Verilator versions also emit
+        // top-level `left`/`right` attributes — handle both.
         if (!dtypeElement.Name.LocalName.Equals("unpackarraydtype", StringComparison.Ordinal))
             return [];
 
-        int left = ParseInt((string?)dtypeElement.Attribute("left"), 0);
-        int right = ParseInt((string?)dtypeElement.Attribute("right"), 0);
+        int left;
+        int right;
+        XElement? range = dtypeElement.Element("range");
+        if (range is not null)
+        {
+            XElement[] consts = range.Elements("const").ToArray();
+            left = consts.Length > 0 ? ParseConstNameValue(consts[0]) : 0;
+            right = consts.Length > 1 ? ParseConstNameValue(consts[1]) : 0;
+        }
+        else
+        {
+            left = ParseInt((string?)dtypeElement.Attribute("left"), 0);
+            right = ParseInt((string?)dtypeElement.Attribute("right"), 0);
+        }
         int hi = Math.Max(left, right);
         int lo = Math.Min(left, right);
         return [new BitRange(hi, lo)];
+    }
+
+    /// <summary>
+    /// Verilator's <c>&lt;const name="32'sh0"/&gt;</c> form: parse the literal
+    /// part after the apostrophe. Handles <c>'sh</c>, <c>'sd</c>, <c>'h</c>,
+    /// <c>'d</c>, <c>'b</c> and a couple of common quirks.
+    /// </summary>
+    private static int ParseConstNameValue(XElement constElement)
+    {
+        string? name = (string?)constElement.Attribute("name");
+        if (string.IsNullOrEmpty(name)) return 0;
+        // Decoded entity already by XLinq, but be defensive.
+        name = name.Replace("&apos;", "'", StringComparison.Ordinal);
+        int apos = name.IndexOf('\'');
+        if (apos < 0) return ParseInt(name, 0);
+        string suffix = name[(apos + 1)..];
+        if (suffix.Length < 2) return 0;
+        char baseChar = char.ToLowerInvariant(suffix[suffix.StartsWith("s", StringComparison.OrdinalIgnoreCase) ? 1 : 0]);
+        string digits = suffix[(suffix.StartsWith("s", StringComparison.OrdinalIgnoreCase) ? 2 : 1)..];
+        int radix = baseChar switch { 'h' => 16, 'd' => 10, 'b' => 2, 'o' => 8, _ => 10 };
+        try { return Convert.ToInt32(digits, radix); }
+        catch (FormatException) { return 0; }
+        catch (OverflowException) { return 0; }
     }
 
     // ── Module ──────────────────────────────────────────────────────────────

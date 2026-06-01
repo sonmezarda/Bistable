@@ -19,7 +19,13 @@ public abstract record ExpressionAst;
 
 public sealed record SignalRef(string Name) : ExpressionAst;
 
-public sealed record ConstExpr(BigInteger Value, int Width, bool IsSigned) : ExpressionAst;
+/// <summary>
+/// Numeric literal. <paramref name="IsHighImpedance"/> distinguishes the
+/// special <c>'z</c> value used in tri-state assignments — Verilator encodes
+/// it as a const node with the high-impedance flag; the decoder recognises it
+/// to emit <c>TriStatePrimitive</c> instead of a Buffer.
+/// </summary>
+public sealed record ConstExpr(BigInteger Value, int Width, bool IsSigned, bool IsHighImpedance = false) : ExpressionAst;
 
 public sealed record BitSelectExpr(ExpressionAst Base, BitRange Range) : ExpressionAst;
 

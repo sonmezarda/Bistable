@@ -35,6 +35,8 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
     /// of the <see cref="WorkerResponse"/> subtypes — pattern-match on the
     /// concrete type to read the payload, or use the typed wrappers below.
     /// </summary>
+    private readonly SemaphoreSlim _ioSemaphore = new(1, 1);
+
     public async Task<WorkerResponse> SendAsync(SimulationCommand command, CancellationToken cancellationToken)
     {
         if (_process.HasExited)
@@ -42,18 +44,29 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
             throw new InvalidOperationException($"Simulation worker exited with code {_process.ExitCode}.");
         }
 
-        await _process.StandardInput.WriteLineAsync(ProtocolJson.Serialize(command).AsMemory(), cancellationToken);
-        await _process.StandardInput.FlushAsync(cancellationToken);
-
-        string? line = await _process.StandardOutput.ReadLineAsync(cancellationToken);
-        if (line is null)
+        // Serialize stdin write + stdout read so concurrent callers (e.g. a
+        // fire-and-forget descriptor refresh racing with the UI's next eval)
+        // don't interleave their commands and garble responses.
+        await _ioSemaphore.WaitAsync(cancellationToken);
+        try
         {
-            string stderr = await _process.StandardError.ReadToEndAsync(cancellationToken);
-            throw new InvalidOperationException($"Simulation worker closed stdout. {stderr}");
-        }
+            await _process.StandardInput.WriteLineAsync(ProtocolJson.Serialize(command).AsMemory(), cancellationToken);
+            await _process.StandardInput.FlushAsync(cancellationToken);
 
-        return ProtocolJson.Deserialize<WorkerResponse>(line)
-            ?? throw new InvalidDataException("Simulation worker returned an invalid response.");
+            string? line = await _process.StandardOutput.ReadLineAsync(cancellationToken);
+            if (line is null)
+            {
+                string stderr = await _process.StandardError.ReadToEndAsync(cancellationToken);
+                throw new InvalidOperationException($"Simulation worker closed stdout. {stderr}");
+            }
+
+            return ProtocolJson.Deserialize<WorkerResponse>(line)
+                ?? throw new InvalidDataException("Simulation worker returned an invalid response.");
+        }
+        finally
+        {
+            _ioSemaphore.Release();
+        }
     }
 
     /// <summary>
@@ -184,6 +197,7 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
         finally
         {
             _process.Dispose();
+            _ioSemaphore.Dispose();
         }
     }
 }

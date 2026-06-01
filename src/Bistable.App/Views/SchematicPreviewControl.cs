@@ -32,6 +32,27 @@ public sealed partial class SchematicPreviewControl : Control
     public static readonly StyledProperty<ICommand?> SelectScopeCommandProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, ICommand?>(nameof(SelectScopeCommand));
 
+    /// <summary>
+    /// Hierarchy paths currently pinned via Phase 3 force. Edges whose signal
+    /// name matches one of these are painted with a distinctive colour so the
+    /// user can see at a glance which wires are not following simulation.
+    /// </summary>
+    public static readonly StyledProperty<IEnumerable<string>?> ForcedSignalPathsProperty =
+        AvaloniaProperty.Register<SchematicPreviewControl, IEnumerable<string>?>(nameof(ForcedSignalPaths));
+
+    /// <summary>
+    /// Phase 4 (P4-1): a live cache of probe values keyed by hierarchy path.
+    /// When set, the edge renderer overlays the current hex value mid-edge so
+    /// every wire shows its live signal value alongside its Logisim-style colour.
+    /// Bound from the VM's <see cref="ViewModels.MainWindowViewModel.LiveProbes"/>.
+    /// </summary>
+    public static readonly StyledProperty<Services.LiveProbeService?> LiveProbesProperty =
+        AvaloniaProperty.Register<SchematicPreviewControl, Services.LiveProbeService?>(nameof(LiveProbes));
+
+    /// <summary>Invoked on double-click of a sub-instance scope body: enter sub-sim for that module.</summary>
+    public static readonly StyledProperty<ICommand?> EnterSubSimCommandProperty =
+        AvaloniaProperty.Register<SchematicPreviewControl, ICommand?>(nameof(EnterSubSimCommand));
+
     public static readonly StyledProperty<ICommand?> ToggleScopeExpansionCommandProperty =
         AvaloniaProperty.Register<SchematicPreviewControl, ICommand?>(nameof(ToggleScopeExpansionCommand));
 
@@ -132,6 +153,9 @@ public sealed partial class SchematicPreviewControl : Control
 
     public event EventHandler<SignalEditorRequestedEventArgs>? SignalEditorRequested;
 
+    /// <summary>Raised on right-click in the schematic. Host shows a context menu.</summary>
+    public event EventHandler<SchematicContextRequestedEventArgs>? SchematicContextRequested;
+
     public event EventHandler<ViewportChangedEventArgs>? ViewportChanged;
 
     public void ZoomIn() => ApplyZoomDelta(1.18, new Point(Bounds.Width / 2, Bounds.Height / 2));
@@ -201,6 +225,37 @@ public sealed partial class SchematicPreviewControl : Control
     {
         get => GetValue(SelectScopeCommandProperty);
         set => SetValue(SelectScopeCommandProperty, value);
+    }
+
+    public IEnumerable<string>? ForcedSignalPaths
+    {
+        get => GetValue(ForcedSignalPathsProperty);
+        set => SetValue(ForcedSignalPathsProperty, value);
+    }
+
+    public Services.LiveProbeService? LiveProbes
+    {
+        get => GetValue(LiveProbesProperty);
+        set => SetValue(LiveProbesProperty, value);
+    }
+
+    private bool IsSignalForced(string signalName)
+    {
+        if (string.IsNullOrWhiteSpace(signalName)) return false;
+        IEnumerable<string>? forced = ForcedSignalPaths;
+        if (forced is null) return false;
+        foreach (string path in forced)
+        {
+            if (string.Equals(path, signalName, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    public ICommand? EnterSubSimCommand
+    {
+        get => GetValue(EnterSubSimCommandProperty);
+        set => SetValue(EnterSubSimCommandProperty, value);
     }
 
     public ICommand? ToggleScopeExpansionCommand
@@ -315,7 +370,12 @@ public sealed partial class SchematicPreviewControl : Control
     {
         base.OnPropertyChanged(change);
 
-        if (change.Property == SignalsProperty)
+        if (change.Property == LiveProbesProperty)
+        {
+            DetachLiveProbes(change.OldValue as Services.LiveProbeService);
+            AttachLiveProbes(change.NewValue as Services.LiveProbeService);
+        }
+        else if (change.Property == SignalsProperty)
         {
             DetachSignalSource(change.OldValue as IEnumerable<SignalViewModel>, ref _observableSignals, OnSignalsChanged);
             AttachSignalSource(change.NewValue as IEnumerable<SignalViewModel>, ref _observableSignals, OnSignalsChanged);
@@ -448,6 +508,17 @@ public sealed partial class SchematicPreviewControl : Control
             {
                 DrawCollapsedTopSymbol(context, worldBounds, moduleRect, inputs, outputs, laneHeight, canExpand: childScopes.Count > 0);
             }
+
+            // Register a scope hit for the top-level boundary box. Sub-instance
+            // hits are registered inside DrawElkNodeCard during the child-node
+            // walk, but the top symbol is drawn by a separate code path —
+            // without this entry, right-clicking the only visible block in a
+            // leaf-module schematic (e.g. memory_demo) showed no context menu.
+            string topHierarchyPath = string.IsNullOrWhiteSpace(ActiveScopePath) ? (ModuleName ?? string.Empty) : ActiveScopePath!;
+            if (!string.IsNullOrWhiteSpace(topHierarchyPath))
+            {
+                _scopeHitTargets.Add(new ScopeHitTarget(topHierarchyPath, moduleRect, CanExpand: childScopes.Count > 0));
+            }
         }
     }
 
@@ -456,10 +527,28 @@ public sealed partial class SchematicPreviewControl : Control
         base.OnPointerPressed(e);
 
         PointerPointProperties props = e.GetCurrentPoint(this).Properties;
-        if (props.IsMiddleButtonPressed || props.IsRightButtonPressed)
+        if (props.IsMiddleButtonPressed)
         {
             _isPanningViewport = true;
             _lastViewportPointer = e.GetPosition(this);
+            e.Handled = true;
+            return;
+        }
+
+        // Right-click no longer pans (middle-click does). Instead it raises a
+        // context-menu request so the host can show actions (sub-sim, force,
+        // add-to-waveform) targeted at whatever was hit.
+        if (props.IsRightButtonPressed)
+        {
+            Point ctxWorld = ViewportToWorld(e.GetPosition(this));
+            ScopeHitTarget? ctxScope = HitTestScope(ctxWorld);
+            SignalReferenceHitTarget? ctxRef = HitTestSignalReference(ctxWorld);
+            SignalHitTarget? ctxSig = HitTestSignal(ctxWorld);
+            SchematicContextRequested?.Invoke(this, new SchematicContextRequestedEventArgs(
+                e.GetPosition(this),
+                ctxScope?.HierarchyPath,
+                ctxRef?.SignalName,
+                ctxSig?.Signal));
             e.Handled = true;
             return;
         }
@@ -485,6 +574,17 @@ public sealed partial class SchematicPreviewControl : Control
         if (signalReferenceHit is not null)
         {
             HandleSignalReferenceHit(signalReferenceHit, e);
+            e.Handled = true;
+            return;
+        }
+
+        // Scope (sub-instance block) hits dispatch last so wires/ports/expansion
+        // targets that overlap a scope body win first. Single click selects the
+        // scope in the hierarchy; double click also enters sub-sim for it.
+        ScopeHitTarget? scopeHit = HitTestScope(point);
+        if (scopeHit is not null)
+        {
+            HandleScopeHit(scopeHit, e);
             e.Handled = true;
             return;
         }
@@ -573,6 +673,27 @@ public sealed partial class SchematicPreviewControl : Control
         || property == ActiveScopeHintProperty;
 
     private void OnSignalsChanged(object? sender, NotifyCollectionChangedEventArgs e) => OnSignalCollectionChanged(e);
+
+    /// <summary>
+    /// Phase 4: subscribe to live-value updates so the schematic redraws when
+    /// a probe's value changes. We invalidate on EVERY update — Avalonia's
+    /// invalidation is lightweight and the renderer reads from a synchronous
+    /// cache, so this is cheaper than diffing visible-vs-not-visible probes.
+    /// </summary>
+    private void AttachLiveProbes(Services.LiveProbeService? service)
+    {
+        if (service is null) return;
+        service.ValueUpdated += OnLiveProbeValueChanged;
+        InvalidateVisual();
+    }
+
+    private void DetachLiveProbes(Services.LiveProbeService? service)
+    {
+        if (service is null) return;
+        service.ValueUpdated -= OnLiveProbeValueChanged;
+    }
+
+    private void OnLiveProbeValueChanged(object? sender, Services.ProbeValueUpdatedEventArgs e) => InvalidateVisual();
 
     private void OnScopeSignalsChanged(object? sender, NotifyCollectionChangedEventArgs e) => OnSignalCollectionChanged(e);
 
@@ -797,6 +918,26 @@ public sealed partial class SchematicPreviewControl : Control
     public sealed class SignalEditorRequestedEventArgs(SignalViewModel signal) : EventArgs
     {
         public SignalViewModel Signal { get; } = signal;
+    }
+
+    /// <summary>
+    /// Right-click on the schematic surface. Carries the screen-space anchor +
+    /// whichever hit type the click landed on (scope body, wire/signal reference,
+    /// or top-level signal pin). The host (MainWindow) is responsible for
+    /// building and showing a context menu against this control.
+    /// </summary>
+    public sealed class SchematicContextRequestedEventArgs(
+        Point screenPosition,
+        string? scopeHierarchyPath,
+        string? signalReferenceName,
+        SignalViewModel? topLevelSignal) : EventArgs
+    {
+        public Point ScreenPosition { get; } = screenPosition;
+        public string? ScopeHierarchyPath { get; } = scopeHierarchyPath;
+        public string? SignalReferenceName { get; } = signalReferenceName;
+        public SignalViewModel? TopLevelSignal { get; } = topLevelSignal;
+        public bool HasAnyHit =>
+            ScopeHierarchyPath is not null || SignalReferenceName is not null || TopLevelSignal is not null;
     }
 
     public sealed class ViewportChangedEventArgs(double zoom, Point pan) : EventArgs

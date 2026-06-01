@@ -1,0 +1,15 @@
+{
+  "topModule": "memory_demo",
+  "sources": [
+    "memory_demo.sv"
+  ],
+  "clocks": [
+    { "name": "clk", "defaultPeriodNs": 10 }
+  ],
+  "resets": [],
+  "trace": {
+    "enabled": true,
+    "format": "vcd",
+    "depth": 1
+  }
+}

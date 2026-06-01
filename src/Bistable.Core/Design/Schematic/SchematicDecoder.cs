@@ -73,7 +73,87 @@ public static class SchematicDecoder
             if (primitive is not null) logic.Add(primitive);
         }
 
-        return new SchematicPrimitiveList(module.Name, ports, signals, instances, logic);
+        IReadOnlyList<MultiDriverDiagnostic> diagnostics = DetectMultiDriver(module);
+        return new SchematicPrimitiveList(module.Name, ports, signals, instances, logic, diagnostics);
+    }
+
+    /// <summary>
+    /// P2.6-5: scan every assignment site in the module and flag signals with
+    /// more than one driver. Sources counted:
+    ///   • each <c>assign x = ...;</c> targeting the signal
+    ///   • each non-blocking / blocking assignment inside a sequential block
+    ///   • each instance output port wired to the signal
+    /// Verilator-internal tmps are excluded from the scan (they're hidden).
+    /// </summary>
+    private static IReadOnlyList<MultiDriverDiagnostic> DetectMultiDriver(ModuleAst module)
+    {
+        Dictionary<string, List<string>> drivers = new(StringComparer.OrdinalIgnoreCase);
+
+        void AddDriver(string signalName, string description)
+        {
+            if (string.IsNullOrEmpty(signalName) || IsVerilatorInternalSignal(signalName)) return;
+            if (!drivers.TryGetValue(signalName, out List<string>? list))
+            {
+                list = new List<string>(2);
+                drivers[signalName] = list;
+            }
+            list.Add(description);
+        }
+
+        foreach (ContAssignAst ca in module.ContAssigns)
+        {
+            string target = LValueName(ca.Target);
+            AddDriver(target, "assign");
+        }
+
+        int seqIndex = 0;
+        foreach (SequentialBlockAst block in module.SequentialBlocks)
+        {
+            AddDriversFromStatement(block.Body, $"always[{seqIndex}]", AddDriver);
+            seqIndex++;
+        }
+
+        foreach (InstanceDecl inst in module.Instances)
+        {
+            foreach (PortConnectionDecl conn in inst.PortConnections)
+            {
+                if (string.Equals(conn.Direction, "out", StringComparison.OrdinalIgnoreCase))
+                {
+                    AddDriver(conn.SignalName, $"{inst.InstanceName}.{conn.PortName}");
+                }
+            }
+        }
+
+        List<MultiDriverDiagnostic> result = [];
+        foreach ((string name, List<string> sources) in drivers)
+        {
+            if (sources.Count > 1)
+            {
+                result.Add(new MultiDriverDiagnostic(name, sources));
+            }
+        }
+        return result;
+    }
+
+    private static void AddDriversFromStatement(StatementAst stmt, string blockTag, Action<string, string> addDriver)
+    {
+        switch (stmt)
+        {
+            case AssignAst asg:
+                addDriver(LValueName(asg.Target), blockTag);
+                break;
+            case BeginAst bk:
+                foreach (StatementAst s in bk.Statements) AddDriversFromStatement(s, blockTag, addDriver);
+                break;
+            case IfAst ifs:
+                AddDriversFromStatement(ifs.Then, blockTag, addDriver);
+                if (ifs.Else is not null) AddDriversFromStatement(ifs.Else, blockTag, addDriver);
+                break;
+            case CaseAst cs:
+                foreach (CaseArm arm in cs.Arms) AddDriversFromStatement(arm.Body, blockTag, addDriver);
+                if (cs.Default is not null) AddDriversFromStatement(cs.Default, blockTag, addDriver);
+                break;
+        }
     }
 
     /// <summary>
@@ -319,16 +399,33 @@ public static class SchematicDecoder
 
         return ca.Source switch
         {
+            // P2.6-8: constant-only contassign → tie primitive instead of a
+            // buffer with a dangling input. The literal carries its formatted
+            // textual form so the symbol can render "8'h00" / "1'b1" verbatim.
+            ConstExpr c             => new ConstantTiePrimitive($"tie_{target}_{index}", target, FormatConstLiteral(c), c.Width),
             SignalRef s             => new BufferPrimitive($"buf_{target}_{index}", target, s.Name, 1),
             BitSelectExpr bs        => DecodeSplitter(target, bs, index),
             ConcatExpr cc           => DecodeJoiner(target, cc, index),
-            CondExpr cond           => DecodeMux(target, cond, index),
+            CondExpr cond           => DecodeTriStateOrMux(target, cond, index),
             UnaryExpr u when u.Op == UnaryOp.Not => new InverterPrimitive($"inv_{target}_{index}", target, ExpressionToSignalName(u.Operand) ?? "?", 1),
             UnaryExpr u             => DecodeUnaryGate(target, u, index),
             BinaryExpr b            => DecodeBinary(target, b, index),
             ExtendExpr ex           => new BufferPrimitive($"buf_{target}_{index}", target, ExpressionToSignalName(ex.Inner) ?? "?", 1),
             _ => null
         };
+    }
+
+    private static string FormatConstLiteral(ConstExpr c)
+    {
+        // Single-bit constants get IEEE-style 1'b0 / 1'b1 (or ground / Vdd symbol
+        // semantics). Wider constants use hex. BigInteger's "X" format pads to
+        // an even number of hex digits when positive — strip the leading zero
+        // when present so the literal reads naturally (16'hCAFE not 16'h0CAFE).
+        if (c.Width == 1) return $"1'b{(c.Value == 0 ? "0" : "1")}";
+        string hex = c.Value.ToString("X");
+        if (hex.Length > 1 && hex[0] == '0') hex = hex.TrimStart('0');
+        if (hex.Length == 0) hex = "0";
+        return $"{c.Width}'h{hex}";
     }
 
     private static SplitterPrimitive DecodeSplitter(string target, BitSelectExpr bs, int index)
@@ -365,6 +462,45 @@ public static class SchematicDecoder
     ///    This makes it visually clear that the chain is `if-elif-elif-else` over different
     ///    signals — NOT a single multi-bit selector.
     /// </summary>
+    /// <summary>
+    /// P2.6-3: dispatch a CondExpr contassign. <c>en ? data : 'z</c> patterns
+    /// (with high-impedance literal on one branch) become a TriStatePrimitive;
+    /// everything else falls through to the regular mux decoder.
+    /// </summary>
+    private static SchematicPrimitive DecodeTriStateOrMux(string target, CondExpr root, int index)
+    {
+        if (TryExtractTriState(target, root, index) is { } tri) return tri;
+        return DecodeMux(target, root, index);
+    }
+
+    private static TriStatePrimitive? TryExtractTriState(string target, CondExpr cond, int index)
+    {
+        // Pattern A: en ? data : 'z (active-high enable, data on the true side)
+        if (cond.IfFalse is ConstExpr { IsHighImpedance: true } && cond.IfTrue is { } trueExpr
+            && ExpressionToSignalName(trueExpr) is { } dataA
+            && cond.Condition is SignalRef enA)
+        {
+            int width = WidthOf(trueExpr) ?? 1;
+            return new TriStatePrimitive($"tristate_{target}_{index}", target, dataA, enA.Name, EnableActiveHigh: true, Width: width);
+        }
+        // Pattern B: en ? 'z : data (active-low enable, data on the false side)
+        if (cond.IfTrue is ConstExpr { IsHighImpedance: true } && cond.IfFalse is { } falseExpr
+            && ExpressionToSignalName(falseExpr) is { } dataB
+            && cond.Condition is SignalRef enB)
+        {
+            int width = WidthOf(falseExpr) ?? 1;
+            return new TriStatePrimitive($"tristate_{target}_{index}", target, dataB, enB.Name, EnableActiveHigh: false, Width: width);
+        }
+        return null;
+    }
+
+    private static int? WidthOf(ExpressionAst expr) => expr switch
+    {
+        ConstExpr c => c.Width,
+        BitSelectExpr bs => bs.Range.Width,
+        _ => null
+    };
+
     private static MuxPrimitive DecodeMux(string target, CondExpr root, int index)
     {
         // Walk the chain iteratively to collect (selector, ifTrue) pairs + the final else.

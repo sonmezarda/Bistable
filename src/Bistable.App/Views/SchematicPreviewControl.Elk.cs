@@ -157,6 +157,14 @@ public sealed partial class SchematicPreviewControl
             {
                 DrawElkBufferNode(context, node, rect, transform.Scale);
             }
+            else if (ElkNodeIds.IsConstantTie(node.Id))
+            {
+                DrawElkConstantTieNode(context, node, rect);
+            }
+            else if (ElkNodeIds.IsTriState(node.Id))
+            {
+                DrawElkTriStateNode(context, node, rect, transform.Scale);
+            }
             else if (ElkNodeIds.IsInverter(node.Id))
             {
                 DrawElkInverterNode(context, node, rect, transform.Scale);
@@ -397,21 +405,93 @@ public sealed partial class SchematicPreviewControl
         {
             Point tip = new(nodeRect.X + port.X * scale, nodeRect.Y + port.Y * scale);
             string label = port.Labels is { Count: > 0 } ? port.Labels[0].Text : string.Empty;
-            DrawBoundaryPinGlyph(context, tip, label, isInput);
+            // P2.6-4: a second label "INOUT" tags bidirectional ports so we
+            // can draw a hexagon (arrows on both sides) instead of a pentagon.
+            bool isInOut = port.Labels is { Count: > 1 }
+                && string.Equals(port.Labels[1].Text, "INOUT", StringComparison.Ordinal);
+
+            // P4 follow-up: append the live value to the label so the expanded
+            // view's boundary pins read like `clk [1b] = 1` — same affordance
+            // as the collapsed top symbol's value chips.
+            string? portName = ExtractPortNameFromId(port.Id);
+            SignalViewModel? signal = portName is null ? null : FindSignalByName(portName, isInput);
+            if (signal?.Value is { } v && v != "-")
+            {
+                label = $"{label} = {v}";
+            }
+
+            DrawBoundaryPinGlyph(context, tip, label, isInput, isInOut);
+
+            // Make expanded-view boundary pins interactive the same way
+            // collapsed-view pins are. Find the matching SignalViewModel and
+            // register a SignalHitTarget so clicking on the pentagon either
+            // toggles a 1-bit input or opens the bus editor.
+            if (signal is not null) RegisterBoundaryPinSignalHit(port, tip, isInput, signal);
         }
     }
 
-    private void DrawBoundaryPinGlyph(DrawingContext context, Point tip, string label, bool isInput)
+    private void RegisterBoundaryPinSignalHit(ElkPort port, Point tip, bool isInput, SignalViewModel signal)
+    {
+        _ = port;
+        double w = CompactLayout ? 22 : 26;
+        double h = CompactLayout ? 14 : 16;
+        // Hit rect spans both the pentagon body AND a small margin around the
+        // tip — generous so cursors aren't required to land precisely on the glyph.
+        Rect hit = isInput
+            ? new Rect(tip.X - w - 4, tip.Y - h / 2 - 4, w + 8, h + 8)
+            : new Rect(tip.X - 4, tip.Y - h / 2 - 4, w + 8, h + 8);
+        _signalHitTargets.Add(new SignalHitTarget(signal, hit));
+    }
+
+    private static string? ExtractPortNameFromId(string? id)
+    {
+        if (string.IsNullOrEmpty(id)) return null;
+        int dot = id.LastIndexOf('.');
+        return dot < 0 || dot == id.Length - 1 ? null : id[(dot + 1)..];
+    }
+
+    private SignalViewModel? FindSignalByName(string portName, bool isInput)
+    {
+        if (Signals is null) return null;
+        foreach (SignalViewModel signal in Signals)
+        {
+            if (string.Equals(signal.Name, portName, StringComparison.OrdinalIgnoreCase)
+                && signal.IsInput == isInput)
+            {
+                return signal;
+            }
+        }
+        return null;
+    }
+
+    private void DrawBoundaryPinGlyph(DrawingContext context, Point tip, string label, bool isInput, bool isInOut = false)
     {
         double glyphWidth = CompactLayout ? 22 : 26;
         double glyphHeight = CompactLayout ? 14 : 16;
-        IBrush stroke = isInput ? Palette.PinStroke : Palette.OutputValue;
+        IBrush stroke;
+        if (isInOut)
+        {
+            stroke = new SolidColorBrush(Color.FromRgb(180, 140, 220));   // distinctive violet for bidir
+        }
+        else
+        {
+            stroke = isInput ? Palette.PinStroke : Palette.OutputValue;
+        }
 
         // Pentagon outline: rectangle body + triangular tip. The tip sits at `tip`; the body
         // extends outward away from the design (left for inputs, right for outputs).
-        Point[] points = isInput
-            ? BuildInputPentagon(tip, glyphWidth, glyphHeight)
-            : BuildOutputPentagon(tip, glyphWidth, glyphHeight);
+        // InOut uses a hexagon with triangular tips on BOTH sides.
+        Point[] points;
+        if (isInOut)
+        {
+            points = BuildInOutHexagon(tip, glyphWidth, glyphHeight);
+        }
+        else
+        {
+            points = isInput
+                ? BuildInputPentagon(tip, glyphWidth, glyphHeight)
+                : BuildOutputPentagon(tip, glyphWidth, glyphHeight);
+        }
 
         StreamGeometry geometry = new();
         using (StreamGeometryContext gc = geometry.Open())
@@ -474,15 +554,63 @@ public sealed partial class SchematicPreviewControl
         ];
     }
 
+    /// <summary>
+    /// P2.6-4: a horizontally-stretched hexagon with triangular tips on both
+    /// the design-facing side (left) and the boundary side (right). Visually
+    /// communicates that the port flows in both directions.
+    /// </summary>
+    private static Point[] BuildInOutHexagon(Point tip, double w, double h)
+    {
+        // tip is the design-facing apex (left). Body sits to the left of tip,
+        // ending in another apex on the outside.
+        double leftApexX = tip.X;
+        double rightApexX = tip.X - w;
+        double bodyLeftEdgeX = tip.X - w * 0.68;
+        double bodyRightEdgeX = tip.X - w * 0.32;
+        double topY = tip.Y - h / 2;
+        double bottomY = tip.Y + h / 2;
+        return
+        [
+            new Point(bodyRightEdgeX, topY),
+            new Point(leftApexX, tip.Y),       // design-side apex
+            new Point(bodyRightEdgeX, bottomY),
+            new Point(bodyLeftEdgeX, bottomY),
+            new Point(rightApexX, tip.Y),      // outside-side apex
+            new Point(bodyLeftEdgeX, topY)
+        ];
+    }
+
     private void DrawElkNodeCard(DrawingContext context, ElkNode node, Rect rect, double scale)
     {
         IBrush fill = Palette.NodeFill;
-        IBrush stroke = node.Id is ElkNodeIds.BoundaryIn or ElkNodeIds.BoundaryOut
-            ? Palette.PinStroke
-            : Palette.ModuleStroke;
+        // If this child node corresponds to the currently-selected hierarchy
+        // scope, draw it with the accent stroke + a thicker pen so the user
+        // sees at a glance which block matches their hierarchy selection.
+        bool isSelectedScope = ElkGraphBuilder.TryGetHierarchyPath(node, out string hierarchyPath)
+            && !string.IsNullOrWhiteSpace(ActiveScopePath)
+            && string.Equals(hierarchyPath, ActiveScopePath, StringComparison.OrdinalIgnoreCase);
+        IBrush stroke;
+        if (node.Id is ElkNodeIds.BoundaryIn or ElkNodeIds.BoundaryOut)
+        {
+            stroke = Palette.PinStroke;
+        }
+        else
+        {
+            stroke = isSelectedScope ? Palette.Selected : Palette.ModuleStroke;
+        }
+        double strokeWidth = isSelectedScope ? 2.4 : 1.2;
 
         context.FillRectangle(fill, rect, 6);
-        context.DrawRectangle(new Pen(stroke, 1.2), rect, 6);
+        context.DrawRectangle(new Pen(stroke, strokeWidth), rect, 6);
+
+        // Register a scope hit target so OnPointerPressed → HandleScopeHit
+        // can route clicks to "select scope in hierarchy" / "enter sub-sim".
+        // Without this the click would fall through and the user sees nothing.
+        if (!string.IsNullOrWhiteSpace(hierarchyPath)
+            && node.Id is not ElkNodeIds.BoundaryIn and not ElkNodeIds.BoundaryOut)
+        {
+            _scopeHitTargets.Add(new ScopeHitTarget(hierarchyPath, rect, CanExpand: ElkGraphBuilder.IsExpandableChild(node)));
+        }
 
         // P2.5-2: title now sits with 8px top padding (was 4px) so its baseline
         // clears the first port row even when the port label is tall. Combined
@@ -518,6 +646,15 @@ public sealed partial class SchematicPreviewControl
         bool onEast = port.X >= nodeWidthUnscaled - 1;
 
         context.DrawEllipse(Palette.PinStroke, null, new Point(px, py), 2.2, 2.2);
+
+        // Register a signal-reference hit target around the pin even when no
+        // wire is incident on it (unconnected internal port pins). The second
+        // label carries the connected signal name as embedded by the builder.
+        if (port.Labels is { Count: > 1 } labels && !string.IsNullOrWhiteSpace(labels[1].Text))
+        {
+            Rect pinHit = new(px - 6, py - 6, 12, 12);
+            _signalReferenceHitTargets.Add(new SignalReferenceHitTarget(labels[1].Text, pinHit, null));
+        }
 
         if (port.Labels is { Count: > 0 })
         {
@@ -578,6 +715,84 @@ public sealed partial class SchematicPreviewControl
         {
             _signalReferenceHitTargets.Add(new SignalReferenceHitTarget(signalName!, null, polyline));
         }
+
+        // P4-1: mid-edge live value label. Suppressed for 1-bit signals
+        // (already encoded by edge colour) and when no value is cached.
+        // Internal signals come from LiveProbeService; top-level/port signals
+        // come from the existing signalValues lookup so we render both.
+        if (!string.IsNullOrWhiteSpace(signalName) && bitWidth > 1)
+        {
+            string? liveValue = LookupLiveValue(signalName!, signalValues);
+            if (!string.IsNullOrWhiteSpace(liveValue) && liveValue != "-")
+            {
+                DrawEdgeLiveValueLabel(context, polyline, liveValue!);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Resolve a wire's live value. Top-level ports and trace signals are
+    /// already in <paramref name="signalValues"/>; internal probes come from
+    /// <see cref="LiveProbeService"/>'s cache (populated by VM's
+    /// post-Eval/Tick refresh).
+    /// </summary>
+    private string? LookupLiveValue(string signalName, IReadOnlyDictionary<string, string> signalValues)
+    {
+        if (signalValues.TryGetValue(signalName, out string? snapshotValue)
+            && !string.IsNullOrWhiteSpace(snapshotValue) && snapshotValue != "-")
+        {
+            return snapshotValue;
+        }
+        return LiveProbes?.GetCached(signalName);
+    }
+
+    /// <summary>
+    /// Draw the hex value as a small chip near the midpoint of the polyline.
+    /// Uses a dark filled pill behind the text so it stays legible against
+    /// any wire colour (including the orange forced state).
+    /// </summary>
+    private void DrawEdgeLiveValueLabel(DrawingContext context, IReadOnlyList<Point> polyline, string value)
+    {
+        if (polyline.Count < 2) return;
+        Point mid = PolylineMidpoint(polyline);
+        string text = value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? value : "0x" + value;
+        double textWidth = MeasureLabelWidth(text, 10);
+        Rect pill = new(mid.X - textWidth / 2 - 4, mid.Y - 8, textWidth + 8, 14);
+        context.FillRectangle(new SolidColorBrush(Color.FromArgb(190, 16, 22, 32)), pill, 3);
+        DrawText(context, text, pill.X + 4, pill.Y, Palette.Text, 10);
+    }
+
+    private static Point PolylineMidpoint(IReadOnlyList<Point> polyline)
+    {
+        // Walk segments until we cross half the total length — keeps the
+        // label centered on the visual path rather than on a single segment.
+        double total = 0;
+        for (int i = 0; i < polyline.Count - 1; i++)
+        {
+            total += Distance(polyline[i], polyline[i + 1]);
+        }
+        if (total <= 0) return polyline[0];
+        double half = total / 2;
+        double walked = 0;
+        for (int i = 0; i < polyline.Count - 1; i++)
+        {
+            double seg = Distance(polyline[i], polyline[i + 1]);
+            if (walked + seg >= half)
+            {
+                double t = (half - walked) / seg;
+                return new Point(
+                    polyline[i].X + (polyline[i + 1].X - polyline[i].X) * t,
+                    polyline[i].Y + (polyline[i + 1].Y - polyline[i].Y) * t);
+            }
+            walked += seg;
+        }
+        return polyline[^1];
+    }
+
+    private static double Distance(Point a, Point b)
+    {
+        double dx = b.X - a.X, dy = b.Y - a.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
     }
 
     private ElkEdgeStyle BuildElkEdgeStyle(
@@ -591,11 +806,25 @@ public sealed partial class SchematicPreviewControl
         bool isHoveredNet = anyHovered
             && string.Equals(signalName, _hoveredSignalName, StringComparison.OrdinalIgnoreCase);
         bool shouldDim = anyHovered && !isHoveredNet && !isSelected;
+        // Phase 3 force visualisation: pinned signals override the normal value
+        // colour with a high-saturation orange so the user can see at a glance
+        // that this wire is not following simulation.
+        bool isForced = !string.IsNullOrWhiteSpace(signalName) && IsSignalForced(signalName!);
 
-        IBrush brush = isSelected
-            ? Palette.Selected
-            : ResolveLogisimBrush(signalName, bitWidth, signalValues);
-        double thickness = ResolveEdgeThickness(bitWidth > 1, isSelected);
+        IBrush brush;
+        if (isForced)
+        {
+            brush = new SolidColorBrush(Color.FromRgb(255, 140, 60));
+        }
+        else if (isSelected)
+        {
+            brush = Palette.Selected;
+        }
+        else
+        {
+            brush = ResolveLogisimBrush(signalName, bitWidth, signalValues);
+        }
+        double thickness = ResolveEdgeThickness(bitWidth > 1, isSelected || isForced);
         Pen pen = new(brush, thickness, lineCap: PenLineCap.Square);
         return new ElkEdgeStyle(pen, shouldDim);
     }

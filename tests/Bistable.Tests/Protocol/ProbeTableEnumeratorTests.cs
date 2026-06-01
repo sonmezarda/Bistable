@@ -155,7 +155,7 @@ public sealed class ProbeTableEnumeratorTests
     }
 
     [Fact]
-    public void Enumerate_MemorySignals_AreFiltered_PendingMemoryProbeSupport()
+    public void Enumerate_SingleDimensionMemory_EmitsMemoryEntry_WithCorrectDepth()
     {
         ModuleAst top = MakeModule("top", isTop: true,
             locals: [
@@ -164,9 +164,27 @@ public sealed class ProbeTableEnumeratorTests
             ]);
         DesignAst ast = new([top]);
 
+        List<ProbeEntry> entries = ProbeTableEnumerator.Enumerate(ast, "top").ToList();
+        Assert.Contains(entries, e => e.Path == "top.scalar" && !e.IsMemory);
+        ProbeEntry mem = Assert.Single(entries, e => e.Path == "top.mem");
+        Assert.True(mem.IsMemory);
+        Assert.Equal(16, mem.MemoryDepth);
+        Assert.Equal(8, mem.Width);
+    }
+
+    [Fact]
+    public void Enumerate_MultiDimensionMemory_IsStillFiltered_BeyondP36Scope()
+    {
+        ModuleAst top = MakeModule("top", isTop: true,
+            locals: [
+                new SignalDecl("scalar", 8, false, []),
+                new SignalDecl("mem2d",  8, false, [new BitRange(3, 0), new BitRange(15, 0)]),
+            ]);
+        DesignAst ast = new([top]);
+
         List<string> paths = ProbeTableEnumerator.Enumerate(ast, "top").Select(e => e.Path).ToList();
         Assert.Contains("top.scalar", paths);
-        Assert.DoesNotContain("top.mem", paths);   // memory path comes later (P3-6 extension)
+        Assert.DoesNotContain("top.mem2d", paths);
     }
 
     // ── Edge cases ───────────────────────────────────────────────────────

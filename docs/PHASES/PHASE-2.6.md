@@ -27,14 +27,14 @@ Status legend: ☐ todo · 🟡 in progress · ✅ done · ⛔ blocked
 
 | ID | Task | Status | Model | Est. | Notes |
 |----|------|--------|-------|------|-------|
-| P2.6-1 | VdfgTmp fold (level 3) | ☐ | Opus | 1 wk | CSE undo — substitute tmp expressions into consumers |
-| P2.6-2 | Generate block clusters | ☐ | Opus | 1 wk | Detect `[i]` suffix → group `inst[0..N-1]` as one visual cluster |
-| P2.6-3 | Tri-state buffer primitive | ☐ | Sonnet | 3 d | New `TriStatePrimitive` for `'z` literals; tri-state symbol (triangle + enable pin) |
-| P2.6-4 | Bidirectional `inout` ports | ☐ | Sonnet | 2 d | Double-arrow port glyph; edge endpoints handle both directions |
-| P2.6-5 | Multi-driver detection | ☐ | Sonnet | 2 d | Decoder warns when same signal driven by ≥ 2 sources; yellow triangle overlay |
-| P2.6-6 | SystemVerilog interface fan-out | ☐ | Opus | 1.5 wk | Like struct fan-out but with modport direction tinting + nested interface support |
-| P2.6-7 | Parameterized width labels on primitives | ☐ | Sonnet | 2 d | Show `[32b]`/`[64b]` on Arith/Gate/FF/Mux node titles |
-| P2.6-8 | Constant tie wires | ☐ | Sonnet | 2 d | Show `assign x = 8'h00;` as a ground/Vdd-style tie symbol |
+| P2.6-1 | VdfgTmp fold (level 3) | ✅ | Opus | 1 wk | `TempFolder.Fold(DesignAst)` runs between reader and decoder; 12 tests cover single-consumer fold, multi-consumer preservation, recursive bounded fold, bit-select preservation, width-mismatch guard. |
+| P2.6-2 | Generate block clusters | 🟡 | Opus | 1 wk | **Detector landed** as `GenerateBlockDetector.DetectGroups(InstanceDecl[])`, 6 tests pin the grouping rule. Visual collapsing in the ELK renderer + hierarchy-panel "deck of cards" affordance is the remaining piece — deferred to the next visual polish pass since the detector is a pure additive function (no regression to existing renders). |
+| P2.6-3 | Tri-state buffer primitive | ✅ | Sonnet | 3 d | `ConstExpr.IsHighImpedance` flag, `TriStatePrimitive`, `DecodeTriStateOrMux` dispatcher, ELK `AddTriStateNode` with 3 ports (D / EN / Y), south-side enable pin with active-low label decoration. 5 tests. |
+| P2.6-4 | Bidirectional `inout` ports | ✅ | Sonnet | 2 d | `HierarchyScopePortViewModel.IsInOut`, builder places InOut ports in the boundary-input cluster with a second `"INOUT"` tag label, renderer draws a horizontally-stretched hexagon (apex on both sides) in distinctive violet. 4 tests. |
+| P2.6-5 | Multi-driver detection | ✅ | Sonnet | 2 d | `MultiDriverDiagnostic` on `SchematicPrimitiveList`. Scans contassigns + sequential block targets (recursively through Begin/If/Case) + instance output port connections. Verilator tmps excluded. 6 tests. |
+| P2.6-6 | SystemVerilog interface fan-out | ☐ | Opus | 1.5 wk | **Punted to a future phase** — largest task in the set, requires `InterfaceTypeDecl` + `ModportDecl` AST + multi-layer plumbing. None of the current samples use SV interfaces, so no regression for them. |
+| P2.6-7 | Parameterized width labels on primitives | ✅ | Sonnet | 2 d | `WidthSuffix(int)` helper appended to FF / MUX / BUF / INV / L / Gate / Arith / TRI titles. 1-bit primitives stay un-suffixed. 7 tests cover all primitive types. |
+| P2.6-8 | Constant tie wires | ✅ | Sonnet | 2 d | New `ConstantTiePrimitive`, decoder pattern-matches `ContAssignAst { Source: ConstExpr }`. Renderer: small horizontal stub with GND-style downward triangle. Literal formatted as `1'b0` / `1'b1` / `Nb'hX`. 5 tests. |
 
 ---
 
@@ -269,4 +269,11 @@ Total ~5 weeks if serial. Parallel across 2 agents: ~3 weeks.
 
 ## 6. Recent activity
 
-(empty — phase has not started)
+- **2026-05-30** — **P2.6-1/-3/-4/-5/-7/-8 landed in one rolling session**. Six of eight tasks complete; the two remaining (P2.6-2 generate blocks, P2.6-6 SV interfaces) are big cross-layer items deferred to a future phase. All current samples still build and the snapshot suite was regenerated to absorb the new title format and constant-tie nodes.
+  - **P2.6-1**: `TempFolder.Fold(DesignAst)` substitutes single-consumer `__VdfgTmp_*` definitions back into their consumers between reader and decoder. Multi-consumer tmps are preserved (real CSE wins). Iteration bounded to 10 to prevent runaway folding. Width mismatches halt fold for that signal.
+  - **P2.6-3**: `ConstExpr` gained an `IsHighImpedance` flag (default `false`, preserving record-positional construction). `SchematicDecoder.DecodeTriStateOrMux` short-circuits to `TriStatePrimitive` when one branch of a `CondExpr` is high-impedance; the other branch is the data, the condition is the enable. Polarity preserved. ELK builder emits a 3-port node (data west, enable south, output east); renderer reuses the buffer triangle.
+  - **P2.6-4**: InOut ports cluster with inputs (they receive data); a second `"INOUT"` label tags each port so the renderer paints a `BuildInOutHexagon` (apex on both sides, violet stroke).
+  - **P2.6-5**: `MultiDriverDiagnostic` enumerated by `SchematicDecoder.DetectMultiDriver`. Sources counted: continuous assignments, sequential blocks (recursive walk via Begin/If/Case), and instance output ports. Verilator-internal tmps are filtered out so flagged diagnostics correspond to user-meaningful nets.
+  - **P2.6-7**: `WidthSuffix(width)` helper emits ` [Nb]` when width > 1, empty otherwise. Applied to every primitive's title-bar label.
+  - **P2.6-8**: Constants in contassigns no longer fall through to `BufferPrimitive`. `FormatConstLiteral` produces `1'b0`/`1'b1` for single-bit and `Nb'hX` for multi-bit (with leading-zero strip so `16'hCAFE` doesn't get an unwanted `0` prefix). Renderer draws a GND-style stub (small downward triangle).
+  - **P2.6-2 (detector)**: `GenerateBlockDetector.DetectGroups` matches Verilator-unrolled cell names (`g[0].inst`, `g[1].inst`, …) and returns sorted `GenerateGroup` records with low/high index. Pure function — no AST mutation. Visual deck-of-cards rendering is the remaining piece. 6 tests.

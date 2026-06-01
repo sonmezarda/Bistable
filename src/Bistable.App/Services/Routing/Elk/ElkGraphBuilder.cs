@@ -141,8 +141,108 @@ internal sealed class ElkGraphBuilder
                 case GatePrimitive gate:    AddGateNode(graph.Children, gate, portRefs); break;
                 case ArithPrimitive arith:  AddArithNode(graph.Children, arith, portRefs); break;
                 case StructFanOutPrimitive fanOut: AddStructFanOutNode(graph, fanOut, portRefs); break;
+                case ConstantTiePrimitive tie: AddConstantTieNode(graph.Children, tie, portRefs); break;
+                case TriStatePrimitive ts: AddTriStateNode(graph.Children, ts, portRefs); break;
             }
         }
+    }
+
+    /// <summary>
+    /// P2.6-3: render a tri-state buffer (<c>assign bus = en ? data : 'z;</c>).
+    /// Three ports: data input (west), enable (south for active-low / north for
+    /// active-high — visual hint about polarity), and bus output (east).
+    /// </summary>
+    private static void AddTriStateNode(
+        IList<ElkNode> target,
+        TriStatePrimitive ts,
+        Dictionary<string, ElkPortRef> portRefs,
+        string? nodeIdOverride = null,
+        string? portRefKeyPrefix = null)
+    {
+        string nodeId = nodeIdOverride ?? ElkNodeIds.ForTriState(ts.OutputSignal);
+        string kp = portRefKeyPrefix ?? string.Empty;
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = 56,
+            Height = 40,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [new ElkLabel { Text = $"TRI {ts.OutputSignal}{WidthSuffix(ts.Width)}" }],
+            Ports = []
+        };
+
+        string inPortId = $"{nodeId}.in";
+        node.Ports!.Add(new ElkPort
+        {
+            Id = inPortId,
+            LayoutOptions = PortLayout(PortSideWest, 0),
+            Labels = [new ElkLabel { Text = "D" }]
+        });
+        portRefs[kp + ElkSignalKey.BufferIn(ts.OutputSignal)] =
+            new ElkPortRef(nodeId, inPortId, ElkPortRole.BufferIn, ts.Width);
+
+        // Enable on the south side; the renderer can show a small inversion
+        // bubble when EnableActiveHigh is false.
+        string enPortId = $"{nodeId}.en";
+        node.Ports!.Add(new ElkPort
+        {
+            Id = enPortId,
+            LayoutOptions = PortLayout(PortSideSouth, 0),
+            Labels = [new ElkLabel { Text = ts.EnableActiveHigh ? "EN" : "EN̄" }]
+        });
+        portRefs[kp + ElkSignalKey.TriStateEnable(ts.OutputSignal)] =
+            new ElkPortRef(nodeId, enPortId, ElkPortRole.TriStateEnable, 1);
+
+        string outPortId = $"{nodeId}.out";
+        node.Ports!.Add(new ElkPort
+        {
+            Id = outPortId,
+            LayoutOptions = PortLayout(PortSideEast, 0),
+            Labels = [new ElkLabel { Text = "Y" }]
+        });
+        portRefs[kp + ElkSignalKey.BufferOut(ts.OutputSignal)] =
+            new ElkPortRef(nodeId, outPortId, ElkPortRole.BufferOut, ts.Width);
+
+        target.Add(node);
+    }
+
+    /// <summary>
+    /// P2.6-8: render a constant assignment (e.g. <c>assign x = 8'h00;</c>) as
+    /// a small tie symbol — no input port, one output port. The literal is the
+    /// node title so the drawer can paint it underneath the body.
+    /// </summary>
+    private static void AddConstantTieNode(
+        IList<ElkNode> target,
+        ConstantTiePrimitive tie,
+        Dictionary<string, ElkPortRef> portRefs,
+        string? nodeIdOverride = null,
+        string? portRefKeyPrefix = null)
+    {
+        string nodeId = nodeIdOverride ?? ElkNodeIds.ForConstantTie(tie.OutputSignal);
+        string kp = portRefKeyPrefix ?? string.Empty;
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = 36,
+            Height = 28,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [new ElkLabel { Text = $"{tie.Literal} → {tie.OutputSignal}" }],
+            Ports = []
+        };
+
+        // Only an output port (the tie has no input by definition).
+        string outPortId = $"{nodeId}.out";
+        node.Ports!.Add(new ElkPort
+        {
+            Id = outPortId,
+            LayoutOptions = PortLayout(PortSideEast, 0),
+            Labels = [new ElkLabel { Text = "Y" }]
+        });
+        // Reuse BufferOut signal key so producer-side lookups still find the source.
+        portRefs[kp + ElkSignalKey.BufferOut(tie.OutputSignal)] =
+            new ElkPortRef(nodeId, outPortId, ElkPortRole.BufferOut, tie.Width);
+
+        target.Add(node);
     }
 
     private static void AddFlipFlopNode(
@@ -162,7 +262,13 @@ internal sealed class ElkGraphBuilder
             Width = 64,
             Height = hasReset ? 60 : 48,
             LayoutOptions = FixedOrderPortConstraints(),
-            Labels = [new ElkLabel { Text = "FF " + ff.QSignal }],
+            Labels =
+            [
+                new ElkLabel { Text = $"FF {ff.QSignal}{WidthSuffix(ff.Width)}" },
+                // P4-2: second label carries the bare Q-signal name so the
+                // renderer can resolve it to a live probe path at draw time.
+                new ElkLabel { Text = ff.QSignal },
+            ],
             Ports = []
         };
 
@@ -237,7 +343,11 @@ internal sealed class ElkGraphBuilder
             Width = width,
             Height = height,
             LayoutOptions = FixedOrderPortConstraints(),
-            Labels = [new ElkLabel { Text = "MUX " + mux.OutputSignal }],
+            Labels =
+            [
+                new ElkLabel { Text = $"MUX {mux.OutputSignal}{WidthSuffix(mux.Width)}" },
+                new ElkLabel { Text = mux.OutputSignal },   // P4-6: bare output signal name for live value lookup
+            ],
             Ports = []
         };
 
@@ -335,7 +445,11 @@ internal sealed class ElkGraphBuilder
             Width = 56,
             Height = 48,
             LayoutOptions = FixedOrderPortConstraints(),
-            Labels = [new ElkLabel { Text = "L " + latch.QSignal }],
+            Labels =
+            [
+                new ElkLabel { Text = $"L {latch.QSignal}{WidthSuffix(latch.Width)}" },
+                new ElkLabel { Text = latch.QSignal },
+            ],
             Ports = []
         };
 
@@ -436,6 +550,11 @@ internal sealed class ElkGraphBuilder
                 AddMemoryNode(target, mem,
                     nodeIdOverride: ElkNodeIds.ForInnerMemory(compoundPath, mem.SignalName));
                 break;
+            case ConstantTiePrimitive tie:
+                AddConstantTieNode(target, tie, portRefs,
+                    nodeIdOverride: ElkNodeIds.ForInnerConstantTie(compoundPath, tie.OutputSignal),
+                    portRefKeyPrefix: keyPrefix);
+                break;
         }
     }
 
@@ -456,7 +575,11 @@ internal sealed class ElkGraphBuilder
             Width = 40,
             Height = 28,
             LayoutOptions = FixedOrderPortConstraints(),
-            Labels = [new ElkLabel { Text = "BUF " + buf.OutputSignal }],
+            Labels =
+            [
+                new ElkLabel { Text = $"BUF {buf.OutputSignal}{WidthSuffix(buf.Width)}" },
+                new ElkLabel { Text = buf.OutputSignal },
+            ],
             Ports = []
         };
 
@@ -498,7 +621,11 @@ internal sealed class ElkGraphBuilder
             Width = 44,
             Height = 32,
             LayoutOptions = FixedOrderPortConstraints(),
-            Labels = [new ElkLabel { Text = "INV " + inv.OutputSignal }],
+            Labels =
+            [
+                new ElkLabel { Text = $"INV {inv.OutputSignal}{WidthSuffix(inv.Width)}" },
+                new ElkLabel { Text = inv.OutputSignal },
+            ],
             Ports = []
         };
 
@@ -544,7 +671,11 @@ internal sealed class ElkGraphBuilder
             Height = height,
             LayoutOptions = FixedOrderPortConstraints(),
             // Label includes gate kind so the renderer can pick the right body shape
-            Labels = [new ElkLabel { Text = $"{gate.Kind} {gate.OutputSignal}" }],
+            Labels =
+            [
+                new ElkLabel { Text = $"{gate.Kind} {gate.OutputSignal}{WidthSuffix(gate.Width)}" },
+                new ElkLabel { Text = gate.OutputSignal },
+            ],
             Ports = []
         };
 
@@ -598,7 +729,11 @@ internal sealed class ElkGraphBuilder
             Height = 44,
             LayoutOptions = FixedOrderPortConstraints(),
             // Label includes arith kind so the renderer can paint the op symbol
-            Labels = [new ElkLabel { Text = $"{arith.Kind} {arith.OutputSignal}" }],
+            Labels =
+            [
+                new ElkLabel { Text = $"{arith.Kind} {arith.OutputSignal}{WidthSuffix(arith.Width)}" },
+                new ElkLabel { Text = arith.OutputSignal },
+            ],
             Ports = []
         };
 
@@ -904,7 +1039,10 @@ internal sealed class ElkGraphBuilder
 
     private static void AddBoundaryInputNode(ElkGraph graph, ElkScopeData scope, Dictionary<string, ElkPortRef> portRefs)
     {
-        HierarchyScopePortViewModel[] inputs = scope.BoundaryPorts.Where(p => p.IsInput).ToArray();
+        // P2.6-4: inout ports live in the input cluster too — they receive data
+        // AND send it. The second label "INOUT" tags them so the renderer can
+        // draw a bidirectional hexagon instead of the unidirectional pentagon.
+        HierarchyScopePortViewModel[] inputs = scope.BoundaryPorts.Where(p => p.IsInput || p.IsInOut).ToArray();
         if (inputs.Length == 0)
         {
             return;
@@ -928,7 +1066,9 @@ internal sealed class ElkGraphBuilder
             {
                 Id = id,
                 LayoutOptions = PortLayout(PortSideEast, i),
-                Labels = [new ElkLabel { Text = port.DisplayLabel }]
+                Labels = port.IsInOut
+                    ? [new ElkLabel { Text = port.DisplayLabel }, new ElkLabel { Text = "INOUT" }]
+                    : [new ElkLabel { Text = port.DisplayLabel }]
             });
             portRefs[port.Name] = new ElkPortRef(ElkNodeIds.BoundaryIn, id, ElkPortRole.BoundaryInput, port.Width);
         }
@@ -1022,11 +1162,19 @@ internal sealed class ElkGraphBuilder
         {
             HierarchyScopeInstancePortConnectionViewModel pin = inputs[i];
             string id = $"{nodeId}.in.{pin.PortName}";
+            // Stash the connected signal name as a SECOND label so the renderer
+            // can register a pin-click hit target — this matters for ports that
+            // have no incident edge (unconnected oe, etc.) where the wire-based
+            // hit detection would otherwise miss.
             node.Ports!.Add(new ElkPort
             {
                 Id = id,
                 LayoutOptions = PortLayout(PortSideWest, i),
-                Labels = [new ElkLabel { Text = FormatPortLabel(pin.PortName, pin.Width) }]
+                Labels =
+                [
+                    new ElkLabel { Text = FormatPortLabel(pin.PortName, pin.Width) },
+                    new ElkLabel { Text = pin.SignalName ?? string.Empty }
+                ]
             });
             portRefs[ElkSignalKey.ChildInput(child.HierarchyPath, pin.PortName)] = new ElkPortRef(nodeId, id, ElkPortRole.ChildInput, pin.Width);
         }
@@ -1039,7 +1187,11 @@ internal sealed class ElkGraphBuilder
             {
                 Id = id,
                 LayoutOptions = PortLayout(PortSideEast, i),
-                Labels = [new ElkLabel { Text = FormatPortLabel(pin.PortName, pin.Width) }]
+                Labels =
+                [
+                    new ElkLabel { Text = FormatPortLabel(pin.PortName, pin.Width) },
+                    new ElkLabel { Text = pin.SignalName ?? string.Empty }
+                ]
             });
             portRefs[ElkSignalKey.ChildOutput(child.HierarchyPath, pin.PortName)] = new ElkPortRef(nodeId, id, ElkPortRole.ChildOutput, pin.Width);
         }
@@ -1149,6 +1301,7 @@ internal sealed class ElkGraphBuilder
         CollectLatchEndpoints(scope, portRefs, producers, consumers);
         CollectBufferEndpoints(scope, portRefs, producers, consumers);
         CollectInverterEndpoints(scope, portRefs, producers, consumers);
+        CollectTriStateEndpoints(scope, portRefs, producers, consumers);
         CollectGateEndpoints(scope, portRefs, producers, consumers);
         CollectArithEndpoints(scope, portRefs, producers, consumers);
         CollectStructFanOutEndpoints(scope, portRefs, producers, consumers);
@@ -1503,6 +1656,30 @@ internal sealed class ElkGraphBuilder
                 AddTo(producers, buf.OutputSignal, outRef);
             if (portRefs.TryGetValue(ElkSignalKey.BufferIn(buf.OutputSignal), out ElkPortRef? inRef))
                 AddTo(consumers, buf.InputSignal, inRef);
+        }
+    }
+
+    /// <summary>
+    /// P2.6-3: wire tri-state primitives into the producer/consumer maps.
+    /// Output uses BufferOut (reused), input uses BufferIn (reused), and the
+    /// enable pin gets its own TriStateEnable key so it doesn't collide with
+    /// anything else feeding the same signal.
+    /// </summary>
+    private static void CollectTriStateEndpoints(
+        ElkScopeData scope,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        if (scope.Primitives is null) return;
+        foreach (TriStatePrimitive ts in scope.Primitives.OfType<TriStatePrimitive>())
+        {
+            if (portRefs.TryGetValue(ElkSignalKey.BufferOut(ts.OutputSignal), out ElkPortRef? outRef))
+                AddTo(producers, ts.OutputSignal, outRef);
+            if (portRefs.TryGetValue(ElkSignalKey.BufferIn(ts.OutputSignal), out ElkPortRef? inRef))
+                AddTo(consumers, ts.DataSignal, inRef);
+            if (portRefs.TryGetValue(ElkSignalKey.TriStateEnable(ts.OutputSignal), out ElkPortRef? enRef))
+                AddTo(consumers, ts.EnableSignal, enRef);
         }
     }
 
@@ -1958,6 +2135,13 @@ internal sealed class ElkGraphBuilder
     private static string FormatPortLabel(string portName, int width) =>
         width == 1 ? portName : $"{portName}[{width}b]";
 
+    /// <summary>
+    /// P2.6-7: Width tag appended to a primitive node title. 1-bit signals are
+    /// suppressed since the clutter outweighs the information.
+    /// </summary>
+    private static string WidthSuffix(int width) =>
+        width > 1 ? $" [{width}b]" : string.Empty;
+
     private static void AddTo<TValue>(Dictionary<string, List<TValue>> map, string key, TValue value)
     {
         if (!map.TryGetValue(key, out List<TValue>? list))
@@ -2021,7 +2205,8 @@ public enum ElkPortRole
     ArithRight,
     ArithOutput,
     StructFanOutInput,
-    StructFanOutLeg
+    StructFanOutLeg,
+    TriStateEnable
 }
 
 internal static class ElkNodeIds
@@ -2055,6 +2240,7 @@ internal static class ElkNodeIds
     public static string ForInnerInverter(string scopePath, string outputSignal)   => "inv_"   + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
     public static string ForInnerGate(string scopePath, string outputSignal)       => "gate_"  + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
     public static string ForInnerArith(string scopePath, string outputSignal)      => "arith_" + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
+    public static string ForInnerConstantTie(string scopePath, string outputSignal) => "tie_"   + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
 
     public static bool IsOperator(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("op_", StringComparison.Ordinal);
@@ -2079,6 +2265,16 @@ internal static class ElkNodeIds
 
     public static bool IsBuffer(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("buf_", StringComparison.Ordinal);
+
+    public static string ForConstantTie(string outputSignal) => "tie_" + SanitizeId(outputSignal);
+
+    public static bool IsConstantTie(string? nodeId) =>
+        nodeId is not null && nodeId.StartsWith("tie_", StringComparison.Ordinal);
+
+    public static string ForTriState(string outputSignal) => "tristate_" + SanitizeId(outputSignal);
+
+    public static bool IsTriState(string? nodeId) =>
+        nodeId is not null && nodeId.StartsWith("tristate_", StringComparison.Ordinal);
 
     public static bool IsInverter(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("inv_", StringComparison.Ordinal);
@@ -2130,4 +2326,5 @@ internal static class ElkSignalKey
     public static string ArithOutput(string output) => $"::arith_out::{output}";
     public static string StructFanOutInput(string structSignal) => $"::fanout_in::{structSignal}";
     public static string StructFanOutLeg(string structSignal, string fieldName) => $"::fanout_leg::{structSignal}::{fieldName}";
+    public static string TriStateEnable(string output) => $"::tristate_en::{output}";
 }

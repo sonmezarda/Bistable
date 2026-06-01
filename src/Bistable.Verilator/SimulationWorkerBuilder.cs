@@ -436,6 +436,22 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine(ExtractPath);
         builder.AppendLine("                forced_signals.erase(path);");
         builder.AppendLine("                write_ack();");
+            // P3-6: memory probe handlers. Address + count are integer JSON fields.
+        builder.AppendLine("            } else if (type == \"readMemory\") {");
+        builder.AppendLine(ExtractPath);
+        builder.AppendLine("                const std::uint64_t addr = get_u64(line, \"memoryAddress\", 0);");
+        builder.AppendLine("                const std::uint64_t cnt = get_u64(line, \"memoryCount\", 1);");
+        builder.AppendLine("                auto mit = memory_table.find(path);");
+        builder.AppendLine("                if (mit == memory_table.end()) { write_error(\"unknown memory probe: \" + path); }");
+        builder.AppendLine("                else { write_memory_read(path, addr, cnt, mit->second); }");
+        builder.AppendLine("            } else if (type == \"writeMemory\") {");
+        builder.AppendLine(ExtractPath);
+        builder.AppendLine("                const std::uint64_t addr = get_u64(line, \"memoryAddress\", 0);");
+        builder.AppendLine("                const std::string raw_value = get_string(line, \"value\");");
+        builder.AppendLine("                auto mit = memory_table.find(path);");
+        builder.AppendLine("                if (mit == memory_table.end()) { write_error(\"unknown memory probe: \" + path); }");
+        builder.AppendLine("                else if (addr >= (std::uint64_t)mit->second.depth) { write_error(\"memory address out of range\"); }");
+        builder.AppendLine("                else { mit->second.write((std::size_t)addr, parse_u64(raw_value)); write_ack(); }");
         builder.AppendLine("            } else if (type == \"listProbes\") {");
         builder.AppendLine("                write_probe_list();");
         builder.AppendLine("            } else {");
@@ -502,6 +518,17 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("};");
         builder.AppendLine("static std::unordered_map<std::string, ProbeEntry> probe_table;");
         builder.AppendLine("static std::map<std::string, std::uint64_t> forced_signals;");
+        // P3-6: memory probes go through a separate accessor map indexed by
+        // the same hierarchy path. Scalar reads of a memory path return 0
+        // (use readMemory instead); the metadata in probe_table is enough for
+        // listProbes to advertise them.
+        builder.AppendLine("struct MemoryAccessor {");
+        builder.AppendLine("    std::function<std::uint64_t(std::size_t)> read;");
+        builder.AppendLine("    std::function<void(std::size_t, std::uint64_t)> write;");
+        builder.AppendLine("    int cell_width;");
+        builder.AppendLine("    int depth;");
+        builder.AppendLine("};");
+        builder.AppendLine("static std::unordered_map<std::string, MemoryAccessor> memory_table;");
         builder.AppendLine();
 
         // init_probe_table: populated once per worker startup from the design's
@@ -519,11 +546,33 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
                 string pathEscaped = p.Path;   // dotted paths are JSON-safe; no escape needed
                 string isSignedC = p.IsSigned ? "true" : "false";
                 string isRegC    = p.IsRegistered ? "true" : "false";
-                builder.AppendLine($"    probe_table[\"{pathEscaped}\"] = ProbeEntry{{");
-                builder.AppendLine($"        [r]() -> std::uint64_t {{ return (std::uint64_t)(r->{field}); }},");
-                builder.AppendLine($"        [r](std::uint64_t v) {{ r->{field} = decltype(r->{field})(v); }},");
-                builder.AppendLine($"        {p.Width}, {isSignedC}, {isRegC}, false, 0");
-                builder.AppendLine("    };");
+                if (p.IsMemory)
+                {
+                    // P3-6: memory probes are listed in the probe_table for
+                    // metadata (ListProbes) but read/write through the array
+                    // indexer. ReadSignal/WriteSignal still return an error on
+                    // memory paths (they need the address); readMemory /
+                    // writeMemory below are the right entry points.
+                    int depth = p.MemoryDepth ?? 0;
+                    builder.AppendLine($"    probe_table[\"{pathEscaped}\"] = ProbeEntry{{");
+                    builder.AppendLine($"        []() -> std::uint64_t {{ return 0; }},");   // scalar read disabled
+                    builder.AppendLine($"        [](std::uint64_t) {{ }},");                  // scalar write disabled
+                    builder.AppendLine($"        {p.Width}, {isSignedC}, false, true, {depth}");
+                    builder.AppendLine("    };");
+                    builder.AppendLine($"    memory_table[\"{pathEscaped}\"] = MemoryAccessor{{");
+                    builder.AppendLine($"        [r](std::size_t i) -> std::uint64_t {{ return (std::uint64_t)(r->{field}[i]); }},");
+                    builder.AppendLine($"        [r](std::size_t i, std::uint64_t v) {{ r->{field}[i] = decltype(r->{field}[i])(v); }},");
+                    builder.AppendLine($"        {p.Width}, {depth}");
+                    builder.AppendLine("    };");
+                }
+                else
+                {
+                    builder.AppendLine($"    probe_table[\"{pathEscaped}\"] = ProbeEntry{{");
+                    builder.AppendLine($"        [r]() -> std::uint64_t {{ return (std::uint64_t)(r->{field}); }},");
+                    builder.AppendLine($"        [r](std::uint64_t v) {{ r->{field} = decltype(r->{field})(v); }},");
+                    builder.AppendLine($"        {p.Width}, {isSignedC}, {isRegC}, false, 0");
+                    builder.AppendLine("    };");
+                }
             }
         }
         builder.AppendLine("}");
@@ -552,6 +601,24 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("void write_error(const std::string& msg) {");
         builder.AppendLine("    std::cout << \"{\\\"kind\\\":\\\"error\\\",\\\"message\\\":\\\"\" << json_escape(msg) << \"\\\"}\" << std::endl;");
         builder.AppendLine("}");
+        // P3-6: emit a MemoryReadResult — `{"kind":"memoryRead","result":{path,startAddress,cellWidth,cells:[hex,...]}}`.
+        // Declared AFTER write_error so the in-range guard can call it.
+        builder.AppendLine("void write_memory_read(const std::string& path, std::uint64_t addr, std::uint64_t count, const MemoryAccessor& mem) {");
+        builder.AppendLine("    std::uint64_t depth = (std::uint64_t)mem.depth;");
+        builder.AppendLine("    if (addr >= depth) { write_error(\"memory address out of range\"); return; }");
+        builder.AppendLine("    if (addr + count > depth) count = depth - addr;");
+        builder.AppendLine("    std::cout << \"{\\\"kind\\\":\\\"memoryRead\\\",\\\"result\\\":{\\\"path\\\":\\\"\" << json_escape(path)");
+        builder.AppendLine("              << \"\\\",\\\"startAddress\\\":\" << addr");
+        builder.AppendLine("              << \",\\\"cellWidth\\\":\" << mem.cell_width");
+        builder.AppendLine("              << \",\\\"cells\\\":[\";");
+        builder.AppendLine("    for (std::uint64_t i = 0; i < count; ++i) {");
+        builder.AppendLine("        if (i > 0) std::cout << \",\";");
+        builder.AppendLine("        std::ostringstream val; val << \"0x\" << std::hex << mem.read((std::size_t)(addr + i));");
+        builder.AppendLine("        std::cout << \"\\\"\" << val.str() << \"\\\"\";");
+        builder.AppendLine("    }");
+        builder.AppendLine("    std::cout << \"]}}\" << std::endl;");
+        builder.AppendLine("}");
+        builder.AppendLine();
         builder.AppendLine();
         builder.AppendLine("void write_probe_list() {");
         builder.AppendLine("    std::cout << \"{\\\"kind\\\":\\\"probeList\\\",\\\"probes\\\":[\";");

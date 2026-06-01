@@ -29,6 +29,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private Bistable.Core.Design.Ast.DesignAst? _currentAst;
     private string? _currentProjectDirectory;
     private SimulationWorkerClient? _worker;
+    private readonly LiveProbeService _liveProbes = new();
     private readonly DockPanelViewModel _projectPanel = new(DockPanelKind.Project, "Project");
     private readonly DockPanelViewModel _waveformPanel = new(DockPanelKind.Waveform, "Waveform");
     private readonly DockPanelViewModel _schematicPanel = new(DockPanelKind.Schematic, "Schematic");
@@ -97,9 +98,15 @@ public sealed class MainWindowViewModel : ViewModelBase
         AddSelectedWaveformSignalCommand = new RelayCommand(AddSelectedWaveformSignal);
         AddHierarchyScopeSignalsToWaveformCommand = new RelayCommand(AddHierarchyScopeSignalsToWaveform);
         SelectHierarchyScopeCommand = new ParameterizedRelayCommand<string>(SelectHierarchyScope);
+        EnterSubSimAtPathCommand = new ParameterizedAsyncCommand<string>(EnterSubSimAtPathAsync);
         ToggleSchematicExpansionCommand = new ParameterizedRelayCommand<string>(ToggleSchematicExpansion);
         ToggleInputSignalCommand = new ParameterizedRelayCommand<string>(ToggleInputSignal);
-        DriveSelectedSchematicInputCommand = new RelayCommand(DriveSelectedSchematicInput);
+        OpenMemoryViewerCommand = new RelayCommand(() => MemoryViewerRequested?.Invoke(this, EventArgs.Empty));
+        DriveSelectedSchematicInputCommand = new AsyncCommand(DriveSelectedSchematicSignalAsync);
+        ForceSelectedSchematicSignalCommand = new AsyncCommand(ForceSelectedSchematicSignalAsync);
+        ReleaseSelectedSchematicSignalCommand = new AsyncCommand(ReleaseSelectedSchematicSignalAsync);
+        ReleasePathCommand = new ParameterizedAsyncCommand<string>(ReleasePathAsync);
+        ReleaseAllForcedCommand = new AsyncCommand(ReleaseAllForcedAsync);
         RemoveSelectedWaveformSignalCommand = new RelayCommand(RemoveSelectedWaveformSignal);
         ClearWaveformCommand = new RelayCommand(ClearWaveform);
         MoveWaveformSignalUpCommand = new RelayCommand(MoveSelectedWaveformSignalUp);
@@ -121,10 +128,30 @@ public sealed class MainWindowViewModel : ViewModelBase
         });
         RebuildDockCollections();
         LoadSamples();
+        // When a live probe value lands (asynchronously after the UI rendered
+        // the previous cached value), re-raise the selected-signal-value PCE so
+        // the bound TextBlock in the Live Probe panel rebinds.
+        _liveProbes.ValueUpdated += OnLiveProbeValueUpdated;
+        _liveProbes.MemoryUpdated += OnLiveMemoryUpdated;
         if (loadPersistedLayout)
         {
             _ = LoadLayoutStateAsync();
         }
+    }
+
+    private void OnLiveProbeValueUpdated(object? sender, ProbeValueUpdatedEventArgs e)
+    {
+        HierarchyScopeLocalSignalViewModel? local = SelectedSchematicLocalSignal;
+        if (local?.ResolvedSignalName is { } resolved
+            && string.Equals(resolved, e.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            OnPropertyChanged(nameof(SelectedSchematicSignalValue));
+        }
+    }
+
+    private void OnLiveMemoryUpdated(object? sender, MemorySnapshotUpdatedEventArgs e)
+    {
+        ApplyMemorySnapshot(e.Snapshot);
     }
 
     public ObservableCollection<SignalViewModel> Inputs { get; } = [];
@@ -146,6 +173,25 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ObservableCollection<HierarchyScopePortViewModel> SelectedHierarchyPorts { get; } = [];
 
     public ObservableCollection<HierarchyScopeLocalSignalViewModel> SelectedHierarchyLocalSignals { get; } = [];
+
+    /// <summary>
+    /// Two-way binding target for the hierarchy panel's "Local Signals" list.
+    /// Clicking a row sets this, which in turn updates the schematic selection
+    /// so the Live Probe panel (and memory viewer) opens for the picked signal.
+    /// </summary>
+    public HierarchyScopeLocalSignalViewModel? SelectedHierarchyLocalSignal
+    {
+        get => _selectedHierarchyLocalSignal;
+        set
+        {
+            if (!SetProperty(ref _selectedHierarchyLocalSignal, value)) return;
+            if (value?.ResolvedSignalName is { } resolved)
+            {
+                SelectedSchematicSignalName = resolved;
+            }
+        }
+    }
+    private HierarchyScopeLocalSignalViewModel? _selectedHierarchyLocalSignal;
 
     public ObservableCollection<Bistable.Core.Design.DesignContAssign> SelectedHierarchyContAssigns { get; } = [];
 
@@ -243,11 +289,90 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ICommand SelectHierarchyScopeCommand { get; }
 
+    /// <summary>Schematic double-click handler: select the clicked scope's hierarchy node AND enter sub-sim for it.</summary>
+    public ICommand EnterSubSimAtPathCommand { get; }
+
     public ICommand ToggleSchematicExpansionCommand { get; }
 
     public ICommand ToggleInputSignalCommand { get; }
 
     public ICommand DriveSelectedSchematicInputCommand { get; }
+
+    /// <summary>
+    /// Fires when the user asks to open the standalone Memory Viewer window for
+    /// the currently-selected memory probe. Handled by <see cref="Views.MainWindow"/>
+    /// (the View owns the Window lifetime).
+    /// </summary>
+    public ICommand OpenMemoryViewerCommand { get; }
+    public event EventHandler? MemoryViewerRequested;
+    public LiveProbeService LiveProbes => _liveProbes;
+
+
+    /// <summary>
+    /// Enumerate every memory probe declared in the module at the given
+    /// hierarchy path. Used by the schematic context menu to surface
+    /// "Open Memory Viewer: X" entries when the user right-clicks on an
+    /// instance/scope. Returns empty when the path doesn't resolve or the
+    /// module has no memories.
+    /// </summary>
+    public IReadOnlyList<MemoryLocation> EnumerateMemoriesAt(string hierarchyPath)
+    {
+        if (_currentAst is null) return [];
+        HierarchyNodeViewModel? node = HierarchyRoot is null
+            ? null
+            : FindHierarchyNodeStatic(HierarchyRoot, hierarchyPath);
+        string? moduleName = node?.ModuleName;
+        if (moduleName is null) return [];
+
+        Bistable.Core.Design.Ast.ModuleAst? module = _currentAst.Modules
+            .FirstOrDefault(m => string.Equals(m.Name, moduleName, StringComparison.OrdinalIgnoreCase));
+        if (module is null) return [];
+
+        List<MemoryLocation> result = [];
+        foreach (Bistable.Core.Design.Ast.SignalDecl sig in module.LocalSignals
+                     .Where(s => s.ArrayDims.Count == 1 && !s.Name.StartsWith("__V", StringComparison.Ordinal))
+                     .OrderBy(static s => s.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            string resolved = BuildResolvedLocalSignalName(hierarchyPath, sig.Name);
+            result.Add(new MemoryLocation(sig.Name, resolved, sig.Width, sig.ArrayDims[0].Width));
+        }
+        return result;
+    }
+
+    private static HierarchyNodeViewModel? FindHierarchyNodeStatic(HierarchyNodeViewModel current, string hierarchyPath)
+    {
+        if (string.Equals(current.HierarchyPath, hierarchyPath, StringComparison.Ordinal)) return current;
+        foreach (HierarchyNodeViewModel child in current.Children)
+        {
+            HierarchyNodeViewModel? match = FindHierarchyNodeStatic(child, hierarchyPath);
+            if (match is not null) return match;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Open the memory viewer for a specific probe path (used from the schematic
+    /// context menu where the path is known directly without going through
+    /// SelectedSchematicSignalName).
+    /// </summary>
+    public void OpenMemoryViewerForPath(string resolvedPath)
+    {
+        if (string.IsNullOrWhiteSpace(resolvedPath)) return;
+        SelectedSchematicSignalName = resolvedPath;
+        MemoryViewerRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Phase 3 force: pin the selected internal signal across subsequent eval/tick cycles.</summary>
+    public ICommand ForceSelectedSchematicSignalCommand { get; }
+
+    /// <summary>Phase 3 release: unfreeze a previously-forced internal signal.</summary>
+    public ICommand ReleaseSelectedSchematicSignalCommand { get; }
+
+    /// <summary>Release a specific path (used from the Forced Signals list).</summary>
+    public ICommand ReleasePathCommand { get; }
+
+    /// <summary>Release every forced signal in one shot.</summary>
+    public ICommand ReleaseAllForcedCommand { get; }
 
     public ICommand RemoveSelectedWaveformSignalCommand { get; }
 
@@ -364,6 +489,16 @@ public sealed class MainWindowViewModel : ViewModelBase
             finally
             {
                 _settingSelectedSchematicReference = false;
+            }
+
+            // Reset the Drive textbox to the new signal's current value so a
+            // stale value from the previous selection doesn't accidentally get
+            // applied. Top-level inputs already get this via the SelectedSignal
+            // setter; this branch covers internal probes where SelectedSignal
+            // stayed null.
+            if (SelectedSignal is null)
+            {
+                SchematicDriveValue = SelectedSchematicSignalValue is { } v && v != "-" ? v : "0";
             }
 
             RaiseSelectedSchematicSignalProperties();
@@ -624,7 +759,58 @@ public sealed class MainWindowViewModel : ViewModelBase
     public string Status
     {
         get => _status;
-        private set => SetProperty(ref _status, value);
+        private set
+        {
+            if (SetProperty(ref _status, value))
+            {
+                ToastMessage = value;
+                _ = ShowToastAsync();
+            }
+        }
+    }
+
+    /// <summary>Mirror of <see cref="Status"/> shown as an overlay toast for ~2.5s.</summary>
+    public string ToastMessage
+    {
+        get => _toastMessage;
+        private set => SetProperty(ref _toastMessage, value);
+    }
+    private string _toastMessage = string.Empty;
+
+    public bool IsToastVisible
+    {
+        get => _isToastVisible;
+        private set => SetProperty(ref _isToastVisible, value);
+    }
+    private bool _isToastVisible;
+
+    private CancellationTokenSource? _toastCancellation;
+
+    private async Task ShowToastAsync()
+    {
+        // Cancel the previous toast so a rapid succession of status updates
+        // doesn't accumulate timers that race to hide a still-fresh message.
+        CancellationTokenSource? previous = _toastCancellation;
+        if (previous is not null) await previous.CancelAsync();
+        previous?.Dispose();
+
+        CancellationTokenSource fresh = new();
+        _toastCancellation = fresh;
+        CancellationToken token = fresh.Token;
+
+        IsToastVisible = true;
+        try
+        {
+            await Task.Delay(2500, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;   // a newer toast superseded this one
+        }
+        if (!token.IsCancellationRequested)
+        {
+            IsToastVisible = false;
+        }
     }
 
     public string ProjectName
@@ -804,7 +990,125 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public bool IsSchematicSignalSelected => SelectedSignal is not null || !string.IsNullOrWhiteSpace(_selectedSchematicReferenceName);
 
-    public bool CanDriveSelectedSchematicInput => SelectedSignal?.IsInput == true;
+    /// <summary>
+    /// True when the user can write a value to the selected schematic signal.
+    /// Top-level inputs use the legacy `SetInput` pipeline; internal signals
+    /// use the Phase 3 `WriteSignalAsync` probe write — available whenever a
+    /// worker is attached and the signal has a resolvable hierarchy path.
+    /// </summary>
+    public bool CanDriveSelectedSchematicInput =>
+        SelectedSignal?.IsInput == true
+        || (_liveProbes.HasWorker && SelectedSchematicLocalSignal?.ResolvedSignalName is not null);
+
+    /// <summary>True when the selected signal is an internal probe AND a worker is attached (force is internal-only).</summary>
+    public bool CanForceSelectedSchematicSignal =>
+        _liveProbes.HasWorker && SelectedSchematicLocalSignal?.ResolvedSignalName is not null;
+
+    /// <summary>True when the selected internal signal is currently in the worker's forced-signal map.</summary>
+    public bool IsSelectedSchematicSignalForced =>
+        SelectedSchematicLocalSignal?.ResolvedSignalName is { } path && IsForced(path);
+
+    /// <summary>
+    /// True when the selected schematic signal's worker descriptor is flagged
+    /// IsMemory — i.e. the Live Probe panel should expose the memory viewer
+    /// section instead of a scalar value cell.
+    /// </summary>
+    public bool IsSelectedSchematicSignalMemory
+    {
+        get
+        {
+            HierarchyScopeLocalSignalViewModel? local = SelectedSchematicLocalSignal;
+            if (local is null) return false;
+            if (local.IsMemory) return true;   // AST-side metadata (available immediately)
+            return local.ResolvedSignalName is { } memPath
+                && _liveProbes.GetDescriptor(memPath)?.IsMemory == true;
+        }
+    }
+
+    /// <summary>Cells from the most recent memory read of the selected probe; live-updated by <see cref="OnLiveMemoryUpdated"/>.</summary>
+    public ObservableCollection<MemoryCellViewModel> SelectedMemoryCells { get; } = [];
+
+    /// <summary>How many cells the memory viewer requests starting at address 0. Capped to the actual depth.</summary>
+    public int MemoryViewerCellCount => Math.Min(MaxMemoryViewerCells, ResolveMemoryDepth() ?? MaxMemoryViewerCells);
+
+    public string SelectedMemoryDepthLabel =>
+        ResolveMemoryDepth() is { } d ? $"{d} cells × {ResolveMemoryCellWidth()}b" : "-";
+
+    /// <summary>Public read of the memory cell width, used by the standalone Memory Viewer window.</summary>
+    public int SelectedSchematicLocalSignalWidthForMemory => ResolveMemoryCellWidth();
+
+    private const int MaxMemoryViewerCells = 256;
+
+    private int? ResolveMemoryDepth()
+    {
+        HierarchyScopeLocalSignalViewModel? local = SelectedSchematicLocalSignal;
+        if (local is null) return null;
+        if (local.IsMemory) return local.MemoryDepth;
+        if (local.ResolvedSignalName is { } path
+            && _liveProbes.GetDescriptor(path) is { IsMemory: true } d)
+        {
+            return d.MemoryDepth;
+        }
+        return null;
+    }
+
+    private int ResolveMemoryCellWidth()
+    {
+        HierarchyScopeLocalSignalViewModel? local = SelectedSchematicLocalSignal;
+        if (local is null) return 0;
+        if (local.IsMemory) return local.Width;
+        if (local.ResolvedSignalName is { } path
+            && _liveProbes.GetDescriptor(path) is { IsMemory: true } d)
+        {
+            return d.Width;
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Tracking set: which hierarchy paths are currently forced (mirror of the
+    /// worker's `forced_signals` map). Observable so the schematic renderer
+    /// can colour forced edges and the Forced Signals panel can list them.
+    /// </summary>
+    public ObservableCollection<string> ForcedPaths { get; } = [];
+
+    private bool IsForced(string path) =>
+        ForcedPaths.Contains(path, StringComparer.OrdinalIgnoreCase);
+
+    private void AddForcedPath(string path)
+    {
+        if (!IsForced(path)) ForcedPaths.Add(path);
+    }
+
+    private void RemoveForcedPath(string path)
+    {
+        for (int i = ForcedPaths.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(ForcedPaths[i], path, StringComparison.OrdinalIgnoreCase))
+            {
+                ForcedPaths.RemoveAt(i);
+            }
+        }
+    }
+
+    /// <summary>
+    /// True for ~800ms after a successful Apply/Force/Release so the Live Probe
+    /// panel's value can flash in a confirmation color. Cleared by a delayed
+    /// continuation in <see cref="MarkLastSchematicWriteFreshAsync"/>.
+    /// </summary>
+    public bool IsLastSchematicWriteFresh
+    {
+        get => _isLastSchematicWriteFresh;
+        private set => SetProperty(ref _isLastSchematicWriteFresh, value);
+    }
+    private bool _isLastSchematicWriteFresh;
+
+    private async Task MarkLastSchematicWriteFreshAsync()
+    {
+        IsLastSchematicWriteFresh = true;
+        await Task.Delay(800);
+        IsLastSchematicWriteFresh = false;
+    }
 
     public bool CanToggleSelectedSchematicInput => SelectedSignal?.IsInput == true && SelectedSignal.IsBoolean;
 
@@ -830,6 +1134,15 @@ public sealed class MainWindowViewModel : ViewModelBase
             HierarchyScopeLocalSignalViewModel? local = SelectedSchematicLocalSignal;
             if (local?.ResolvedSignalName is { } resolved)
             {
+                // Live probe (Phase 3 worker API). Returns the cached value if we
+                // already read this path since the last Invalidate; otherwise kicks
+                // an async refresh whose completion raises PropertyChanged via the
+                // LiveProbeService.ValueUpdated event hooked up in the ctor.
+                string? hot = _liveProbes.GetCached(resolved);
+                if (hot is not null) return hot;
+                if (_liveProbes.HasWorker) KickLiveProbeRefresh(resolved);
+
+                // Fall back to whatever the trace document / waveform snapshot has.
                 string? liveValue = FindAnySignalByName(resolved)?.Value;
                 if (!string.IsNullOrWhiteSpace(liveValue) && liveValue != "-")
                 {
@@ -842,6 +1155,14 @@ public sealed class MainWindowViewModel : ViewModelBase
             return ComputeSliceValue(_selectedSchematicReferenceName) ?? localVal ?? "-";
         }
     }
+
+    /// <summary>
+    /// Fires the async <see cref="LiveProbeService.ReadAsync"/> for a path the
+    /// UI just rendered as stale. Errors swallowed — the probe table may not
+    /// include this path (wide signal, memory, Verilator tmp).
+    /// </summary>
+    private void KickLiveProbeRefresh(string hierarchyPath) =>
+        _ = _liveProbes.ReadAsync(hierarchyPath, CancellationToken.None);
 
     private string? ComputeSliceValue(string? targetName)
     {
@@ -918,7 +1239,57 @@ public sealed class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsSchematicSignalSelected));
         OnPropertyChanged(nameof(CanDriveSelectedSchematicInput));
         OnPropertyChanged(nameof(CanToggleSelectedSchematicInput));
+        OnPropertyChanged(nameof(CanForceSelectedSchematicSignal));
+        OnPropertyChanged(nameof(IsSelectedSchematicSignalForced));
+        OnPropertyChanged(nameof(IsSelectedSchematicSignalMemory));
+        OnPropertyChanged(nameof(SelectedMemoryDepthLabel));
+        OnPropertyChanged(nameof(MemoryViewerCellCount));
         OnPropertyChanged(nameof(SelectedSchematicSignalName));
+        // When the user selects a memory probe, kick a refresh so the cells
+        // populate without an extra round-trip via Eval/Tick.
+        if (SelectedSchematicLocalSignal?.ResolvedSignalName is { } path
+            && IsSelectedSchematicSignalMemory)
+        {
+            KickMemoryRefresh(path);
+        }
+        else if (SelectedMemoryCells.Count > 0)
+        {
+            SelectedMemoryCells.Clear();
+        }
+    }
+
+    private void KickMemoryRefresh(string path)
+    {
+        int count = MemoryViewerCellCount;
+        if (count <= 0 || !_liveProbes.HasWorker) return;
+        _ = RefreshMemoryAsync(path, count);
+    }
+
+    private async Task RefreshMemoryAsync(string path, int count)
+    {
+        MemorySnapshot? snap = await _liveProbes.ReadMemoryAsync(path, startAddress: 0, count, CancellationToken.None);
+        if (snap is null) return;
+        // Best-effort UI thread dispatch — Avalonia's binding system tolerates
+        // ObservableCollection mutations from background threads but explicit
+        // dispatch keeps deterministic ordering with PropertyChanged.
+        ApplyMemorySnapshot(snap);
+    }
+
+    private void ApplyMemorySnapshot(MemorySnapshot snap)
+    {
+        // Only update if this snapshot is still for the currently-selected probe
+        // (the user may have selected something else while the async read was in flight).
+        if (SelectedSchematicLocalSignal?.ResolvedSignalName is not { } activePath
+            || !string.Equals(activePath, snap.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        SelectedMemoryCells.Clear();
+        for (int i = 0; i < snap.Cells.Count; i++)
+        {
+            SelectedMemoryCells.Add(new MemoryCellViewModel(snap.StartAddress + (ulong)i, snap.Cells[i]));
+        }
     }
 
     public string WaveformCursorSummary
@@ -1088,6 +1459,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             _currentAst);
 
         _worker = new SimulationWorkerClient(build.ExecutablePath);
+        _liveProbes.AttachWorker(_worker); _ = _liveProbes.RefreshDescriptorsAsync(CancellationToken.None);
         _traceFilePath = build.TraceFilePath;
         await PushInputsAsync(cancellationToken);
         SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
@@ -1164,11 +1536,24 @@ public sealed class MainWindowViewModel : ViewModelBase
         _subSimProject = subConfig;
 
         _worker = new SimulationWorkerClient(subBuild.ExecutablePath);
+        _liveProbes.AttachWorker(_worker); _ = _liveProbes.RefreshDescriptorsAsync(CancellationToken.None);
         _traceFilePath = subBuild.TraceFilePath;
         _currentDesign = subElab.Design;
         _currentAst = subElab.Ast;
         RebuildPrimitivesByModule();
 
+        // Clear the stale schematic selection: the previous path (e.g.
+        // "arnicomp_top.acc.d") doesn't exist in the sub-worker's namespace
+        // (where it would be "reg_cell.d"). Without this the Live Probe panel
+        // would show ghost values from a path the new probe table can't find.
+        _selectedSchematicReferenceName = null;
+        ForcedPaths.Clear();
+        // CRITICAL: detach the live-mode PropertyChanged hook from the OLD
+        // (top-level) inputs before clearing the collection. Otherwise the new
+        // sub-sim inputs are never observed → ScheduleLiveEvaluation never
+        // fires when the user toggles clk → only manual Tick works. This is
+        // the source of the "isolated sub-sim posedge doesn't react" bug.
+        UnsubscribeFromInputs();
         Inputs.Clear();
         Outputs.Clear();
         AllSignals.Clear();
@@ -1181,6 +1566,9 @@ public sealed class MainWindowViewModel : ViewModelBase
             if (signal.IsInput) Inputs.Add(signal);
             else Outputs.Add(signal);
         }
+        // Re-subscribe so toggling a sub-sim input triggers the live eval that
+        // pushes ALL inputs to the worker (giving the FF its rising-edge transition).
+        SubscribeToInputs();
 
         // Swap the hierarchy view to the sub-design's tree so subscope navigation, signal
         // probing and schematic scope-selection target the sub-module's namespace.
@@ -1205,6 +1593,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         _ = _worker?.DisposeAsync().AsTask();
         _worker = _topLevelWorker;
+        _liveProbes.AttachWorker(_worker); _ = _liveProbes.RefreshDescriptorsAsync(CancellationToken.None);
         _topLevelWorker = null;
         _traceFilePath = _savedTopTraceFilePath;
         _subSimProject = null;
@@ -1226,12 +1615,21 @@ public sealed class MainWindowViewModel : ViewModelBase
         _savedTopModule = null;
 
         SelectedSignal = null;
+        // Same rationale as enter — sub-sim's "reg_cell.X" selection no longer
+        // exists in the restored top-level namespace.
+        _selectedSchematicReferenceName = null;
+        ForcedPaths.Clear();
         IsSubSimActive = false;
         Status = "Returned to top-level simulation.";
     }
 
     private void RestoreTopSimulationCollections()
     {
+        // Detach live-mode hooks from the sub-sim inputs before swapping the
+        // collection contents — same reasoning as the enter-sub-sim branch.
+        // Without unsubscribe + resubscribe, the restored top-level inputs are
+        // not observed and toggling them only "works" through manual Tick.
+        UnsubscribeFromInputs();
         Inputs.Clear();
         Outputs.Clear();
         AllSignals.Clear();
@@ -1242,6 +1640,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         RestoreSaved(Outputs, _savedTopOutputs);
         RestoreSaved(TraceSignals, _savedTopTraceSignals);
         RestoreSaved(SchematicExpandedPaths, _savedTopExpandedPaths);
+        SubscribeToInputs();
     }
 
     private static void RestoreSaved<T>(System.Collections.ObjectModel.ObservableCollection<T> target, IReadOnlyList<T>? saved)
@@ -1361,22 +1760,149 @@ public sealed class MainWindowViewModel : ViewModelBase
         Status = $"Toggled {input.Name} to {input.Value}.";
     }
 
-    private void DriveSelectedSchematicInput()
+    /// <summary>
+    /// Apply the value in the Drive textbox to the currently-selected schematic
+    /// signal. Top-level inputs go through the legacy `SetInput` pipeline (the
+    /// value lands on the SignalViewModel and the next Eval/Tick pushes it).
+    /// Internal signals go through the Phase 3 `WriteSignalAsync` probe write —
+    /// one-shot, may be overwritten by the next eval if a driver is computing
+    /// the same signal. Use Force for sticky writes.
+    /// </summary>
+    private async Task DriveSelectedSchematicSignalAsync(CancellationToken cancellationToken)
     {
-        if (SelectedSignal is null || !SelectedSignal.IsInput)
+        if (SelectedSignal is { IsInput: true } input)
         {
-            Status = "Select an input signal first.";
+            if (!TryParseValueForWidth(SchematicDriveValue, input.Width, out _, out string? err))
+            {
+                Status = $"{input.Name}: {err}";
+                return;
+            }
+            input.Value = SchematicDriveValue.Trim();
+            Status = $"Drove {input.Name} to {input.Value}.";
             return;
         }
 
-        if (!TryParseInputValue(SchematicDriveValue, out _))
+        HierarchyScopeLocalSignalViewModel? local = SelectedSchematicLocalSignal;
+        if (local?.ResolvedSignalName is { } path && _worker is not null)
         {
-            Status = $"Invalid drive value for {SelectedSignal.Name}. Use decimal, 0x, or 0b.";
+            if (!TryParseValueForWidth(SchematicDriveValue, local.Width, out _, out string? err))
+            {
+                Status = $"{path}: {err}";
+                return;
+            }
+            string trimmedValue = SchematicDriveValue.Trim();
+            try
+            {
+                await _worker.WriteSignalAsync(path, trimmedValue, cancellationToken);
+                _liveProbes.InvalidateAll();
+                await _liveProbes.ReadAsync(path, cancellationToken);
+                _ = MarkLastSchematicWriteFreshAsync();
+                Status = $"Wrote {trimmedValue} to {path} (one-shot; next eval may overwrite).";
+            }
+            catch (InvalidOperationException ex)
+            {
+                Status = $"Write failed for {path}: {ex.Message}";
+            }
             return;
         }
 
-        SelectedSignal.Value = SchematicDriveValue.Trim();
-        Status = $"Drove {SelectedSignal.Name} to {SelectedSignal.Value}.";
+        Status = "Select a top-level input or internal probe signal first.";
+    }
+
+    /// <summary>
+    /// Phase 3 force: pin the selected internal signal at the Drive textbox's
+    /// value. The worker re-applies it before every eval (including inside
+    /// `drive_clock`) so the value survives the FF latch on rising clock edges.
+    /// </summary>
+    private async Task ForceSelectedSchematicSignalAsync(CancellationToken cancellationToken)
+    {
+        HierarchyScopeLocalSignalViewModel? local = SelectedSchematicLocalSignal;
+        if (local?.ResolvedSignalName is not { } path || _worker is null)
+        {
+            Status = "Select an internal probe signal first (force is not available for top-level inputs).";
+            return;
+        }
+        if (!TryParseValueForWidth(SchematicDriveValue, local.Width, out _, out string? err))
+        {
+            Status = $"{path}: {err}";
+            return;
+        }
+        string trimmedValue = SchematicDriveValue.Trim();
+        try
+        {
+            await _worker.ForceSignalAsync(path, trimmedValue, cancellationToken);
+            AddForcedPath(path);
+            OnPropertyChanged(nameof(IsSelectedSchematicSignalForced));
+            _liveProbes.InvalidateAll();
+            await _liveProbes.ReadAsync(path, cancellationToken);
+            Status = $"Forced {path} = {trimmedValue} (sticky across ticks until released).";
+        }
+        catch (InvalidOperationException ex)
+        {
+            Status = $"Force failed for {path}: {ex.Message}";
+        }
+    }
+
+    /// <summary>Phase 3 release: drop a previously-forced signal back to simulation-driven behaviour.</summary>
+    private async Task ReleaseSelectedSchematicSignalAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSchematicLocalSignal?.ResolvedSignalName is not { } path || _worker is null)
+        {
+            return;
+        }
+        try
+        {
+            await _worker.ReleaseSignalAsync(path, cancellationToken);
+            RemoveForcedPath(path);
+            OnPropertyChanged(nameof(IsSelectedSchematicSignalForced));
+            _liveProbes.InvalidateAll();
+            await _liveProbes.ReadAsync(path, cancellationToken);
+            Status = $"Released {path}; will follow simulation again.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            Status = $"Release failed for {path}: {ex.Message}";
+        }
+    }
+
+    /// <summary>Release a specific path (called from the Forced Signals list's per-row button).</summary>
+    private async Task ReleasePathAsync(string path, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(path) || _worker is null) return;
+        try
+        {
+            await _worker.ReleaseSignalAsync(path, cancellationToken);
+            RemoveForcedPath(path);
+            OnPropertyChanged(nameof(IsSelectedSchematicSignalForced));
+            _liveProbes.InvalidateAll();
+            await _liveProbes.ReadAsync(path, cancellationToken);
+            Status = $"Released {path}.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            Status = $"Release failed for {path}: {ex.Message}";
+        }
+    }
+
+    /// <summary>Release every currently-forced signal in one batch.</summary>
+    private async Task ReleaseAllForcedAsync(CancellationToken cancellationToken)
+    {
+        if (_worker is null || ForcedPaths.Count == 0) return;
+        string[] paths = ForcedPaths.ToArray();
+        int released = 0;
+        foreach (string path in paths)
+        {
+            try
+            {
+                await _worker.ReleaseSignalAsync(path, cancellationToken);
+                RemoveForcedPath(path);
+                released++;
+            }
+            catch (InvalidOperationException) { /* skip and keep going */ }
+        }
+        OnPropertyChanged(nameof(IsSelectedSchematicSignalForced));
+        _liveProbes.InvalidateAll();
+        Status = $"Released {released}/{paths.Length} forced signals.";
     }
 
     private async Task PushInputsAsync(CancellationToken cancellationToken)
@@ -1397,6 +1923,26 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     private void ApplyFrame(SimulationFrame frame)
     {
+        // P4-1 polish: refresh probe values IN PLACE rather than clearing then
+        // re-reading. Clearing-then-refreshing makes the schematic flicker —
+        // labels vanish for the ~10-50ms it takes the worker round-trip to
+        // re-populate. Old cache values stay visible until ValueUpdated fires
+        // with a fresh value (which only fires when the value actually changed).
+        HierarchyScopeLocalSignalViewModel? activeProbe = SelectedSchematicLocalSignal;
+        if (activeProbe?.ResolvedSignalName is { } activePath && _liveProbes.HasWorker)
+        {
+            KickLiveProbeRefresh(activePath);
+            if (IsSelectedSchematicSignalMemory)
+            {
+                _liveProbes.InvalidateAll();   // memory snapshot equality needs a clean cache
+                KickMemoryRefresh(activePath);
+            }
+        }
+        if (_liveProbes.HasWorker)
+        {
+            _ = _liveProbes.RefreshAllScalarsAsync(CancellationToken.None);
+        }
+
         Time = frame.Time;
         bool useTraceDocument = !string.IsNullOrWhiteSpace(_traceFilePath);
         if (!useTraceDocument && frame.Trace is not null)
@@ -1633,6 +2179,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             await _worker.DisposeAsync();
             _worker = null;
+            _liveProbes.AttachWorker(null);
         }
     }
 
@@ -1860,6 +2407,34 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     private static bool TryParseInputValue(string text, out BigInteger value)
         => SignalValueCodec.TryParse(text, out value);
+
+    /// <summary>
+    /// Width-checked parse: returns true only if the parsed numeric fits in
+    /// <paramref name="width"/> bits. Used to reject Drive/Force inputs whose
+    /// magnitude would overflow the target signal (e.g. <c>0x1FF</c> on an 8b
+    /// port). Negative values rejected — sign extension is the caller's job.
+    /// </summary>
+    private static bool TryParseValueForWidth(string text, int width, out BigInteger value, out string? error)
+    {
+        error = null;
+        if (!SignalValueCodec.TryParse(text, out value))
+        {
+            error = $"Invalid value '{text}'. Use decimal, 0x, or 0b.";
+            return false;
+        }
+        if (value < BigInteger.Zero)
+        {
+            error = "Negative values not supported here.";
+            return false;
+        }
+        BigInteger max = (BigInteger.One << Math.Max(1, width)) - 1;
+        if (value > max)
+        {
+            error = $"Value 0x{value:X} exceeds {width}-bit max 0x{max:X}.";
+            return false;
+        }
+        return true;
+    }
 
     private void RefreshTraceState()
     {
@@ -2137,6 +2712,26 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
 
         SelectedHierarchyPath = hierarchyPath;
+    }
+
+    /// <summary>
+    /// Schematic double-click on a sub-instance block: select that hierarchy
+    /// node then enter sub-sim for it (provided the user isn't already in one).
+    /// Single click already triggers <see cref="SelectHierarchyScopeCommand"/>;
+    /// the double click adds the sub-sim build on top.
+    /// </summary>
+    private async Task EnterSubSimAtPathAsync(string hierarchyPath, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(hierarchyPath)) return;
+        SelectedHierarchyPath = hierarchyPath;
+        if (!CanEnterSubSim)
+        {
+            Status = _isSubSimActive
+                ? "Already in a sub-simulation. Exit first."
+                : $"Cannot enter sub-sim for '{hierarchyPath}'.";
+            return;
+        }
+        await EnterSubSimulationAsync(cancellationToken);
     }
 
     private void ToggleSchematicExpansion(string hierarchyPath)
@@ -2442,7 +3037,37 @@ public sealed class MainWindowViewModel : ViewModelBase
                 traced?.Name ?? BuildResolvedLocalSignalName(hierarchyPath, local.Name)));
         }
 
+        // P3-6 / memory-viewer: memories aren't in DesignLocalSignal (no array
+        // dims propagated through the flattener), so reach into the AST and
+        // append them. Their hierarchy path matches the worker's probe table key.
+        AppendMemoryLocalSignals(signals, hierarchyPath, moduleName);
         return signals;
+    }
+
+    private void AppendMemoryLocalSignals(
+        List<HierarchyScopeLocalSignalViewModel> signals,
+        string hierarchyPath,
+        string moduleName)
+    {
+        if (_currentAst is null) return;
+        Bistable.Core.Design.Ast.ModuleAst? module = _currentAst.Modules
+            .FirstOrDefault(m => string.Equals(m.Name, moduleName, StringComparison.OrdinalIgnoreCase));
+        if (module is null) return;
+
+        foreach (Bistable.Core.Design.Ast.SignalDecl mem in module.LocalSignals
+                     .Where(s => s.ArrayDims.Count == 1 && !s.Name.StartsWith("__V", StringComparison.Ordinal))
+                     .OrderBy(static s => s.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            int depth = mem.ArrayDims[0].Width;
+            signals.Add(new HierarchyScopeLocalSignalViewModel(
+                name: mem.Name,
+                width: mem.Width,
+                isSigned: mem.IsSigned,
+                isTraced: false,
+                currentValue: "-",
+                resolvedSignalName: BuildResolvedLocalSignalName(hierarchyPath, mem.Name),
+                memory: new MemoryShape(depth)));
+        }
     }
 
     private static string BuildResolvedLocalSignalName(string hierarchyPath, string localName) =>
@@ -2584,3 +3209,11 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 }
+
+/// <summary>
+/// One memory probe located inside a specific module scope. Surfaced by
+/// <see cref="MainWindowViewModel.EnumerateMemoriesAt"/> for the schematic
+/// context menu so users can jump straight to "Open Memory Viewer: X" from
+/// a right-click on the owning instance.
+/// </summary>
+public sealed record MemoryLocation(string LocalName, string ResolvedPath, int CellWidth, int Depth);

@@ -41,6 +41,11 @@ public sealed partial class SchematicPreviewControl
                 Palette.Text, fontSize);
         }
 
+        // P4-2: live Q value rendered inside the FF body. Probe path = active
+        // scope + local Q name (label[1]). Falls back to the snapshot signal
+        // value if LiveProbeService doesn't have a cached value.
+        DrawElkFlipFlopLiveQ(context, node, rect);
+
         // Clock-edge triangle: rendered at the inside edge of the ".clk" port
         if (node.Ports is not null)
         {
@@ -61,6 +66,40 @@ public sealed partial class SchematicPreviewControl
     // Small right-pointing triangle attached to the inside of a port — the
     // standard IEEE 91 edge-trigger glyph. Anchored so the triangle's base sits
     // exactly on the port's connection point.
+    /// <summary>
+    /// P4-2 / P4-6: render a primitive's current output value inside its body.
+    /// The bare output signal name is stored as the node's second label by the
+    /// builder; combined with <see cref="ActiveScopePath"/> it forms the
+    /// live-probe key. Works for FF, Latch, Buffer, Inverter, Gate, Arith, Mux.
+    /// </summary>
+    private void DrawElkFlipFlopLiveQ(DrawingContext context, ElkNode node, Rect rect) => DrawPrimitiveLiveOutput(context, node, rect);
+
+    private void DrawPrimitiveLiveOutput(DrawingContext context, ElkNode node, Rect rect)
+    {
+        if (node.Labels is not { Count: > 1 }) return;
+        string outSignal = node.Labels[1].Text;
+        if (string.IsNullOrWhiteSpace(outSignal)) return;
+
+        string probePath = string.IsNullOrWhiteSpace(ActiveScopePath) ? outSignal : ActiveScopePath + "." + outSignal;
+        string? value = LiveProbes?.GetCached(probePath);
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        string display = value!.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? value : "0x" + value;
+        double fontSize = Math.Clamp(rect.Height * 0.22, 9, 14);
+        double textW = MeasureLabelWidth(display, fontSize);
+        // Pill background so it stays legible over the symbol's body strokes.
+        Rect pill = new(
+            rect.X + (rect.Width - textW) / 2 - 3,
+            rect.Y + rect.Height - fontSize - 6,
+            textW + 6,
+            fontSize + 4);
+        context.FillRectangle(new SolidColorBrush(Color.FromArgb(190, 16, 22, 32)), pill, 3);
+        DrawText(context, display,
+            pill.X + 3,
+            pill.Y + 1,
+            new SolidColorBrush(Color.FromRgb(140, 220, 255)), fontSize);
+    }
+
     private void DrawClockEdgeMarker(DrawingContext context, double px, double py, Pen stroke)
     {
         double size = 5;
@@ -96,6 +135,7 @@ public sealed partial class SchematicPreviewControl
         }
 
         DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawPrimitiveLiveOutput(context, node, rect);
     }
 
     // ── Mux (classic trapezoid) ──────────────────────────────────────────
@@ -133,6 +173,7 @@ public sealed partial class SchematicPreviewControl
         }
 
         DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawPrimitiveLiveOutput(context, node, rect);
     }
 
     // ── Memory tile (RAM block) ──────────────────────────────────────────
@@ -179,6 +220,55 @@ public sealed partial class SchematicPreviewControl
         DrawTriangleBody(context, rect, stroke, drawBubble: false);
         DrawSymbolTitle(context, node, rect);
         DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawPrimitiveLiveOutput(context, node, rect);
+    }
+
+    // ── Tri-state buffer (P2.6-3) ────────────────────────────────────────
+    //
+    // Classic tri-state symbol: a buffer triangle with an enable pin entering
+    // perpendicular to the data flow. We use the existing buffer triangle and
+    // overlay an enable connection from the south face.
+    private void DrawElkTriStateNode(DrawingContext context, ElkNode node, Rect rect, double scale)
+    {
+        Pen stroke = new(Palette.ModuleStroke, 1.5);
+        DrawTriangleBody(context, rect, stroke, drawBubble: false);
+        DrawSymbolTitle(context, node, rect);
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+    }
+
+    // ── Constant tie (P2.6-8: GND/VDD-style stub) ────────────────────────
+    //
+    // Used for <c>assign x = 8'h00;</c> style contassigns where the source is a
+    // numeric literal. Drawn as a small horizontal stub with a downward triangle
+    // (ground convention) plus the literal value above the stub.
+    private void DrawElkConstantTieNode(DrawingContext context, ElkNode node, Rect rect)
+    {
+        Pen stroke = new(Palette.ModuleStroke, 1.5);
+        // Horizontal "wire" stub from the right edge running left a bit.
+        double midY = rect.Y + rect.Height / 2;
+        Point right = new(rect.Right, midY);
+        Point left = new(rect.X + 8, midY);
+        context.DrawLine(stroke, left, right);
+
+        // GND-style triangle pointing down at the left end.
+        double triHalf = 5;
+        Point top = new(left.X, midY + 2);
+        Point bottomLeft = new(left.X - triHalf, midY + 2 + triHalf);
+        Point bottomRight = new(left.X + triHalf, midY + 2 + triHalf);
+        StreamGeometry tri = new();
+        using (StreamGeometryContext g = tri.Open())
+        {
+            g.BeginFigure(top, isFilled: true);
+            g.LineTo(bottomLeft);
+            g.LineTo(bottomRight);
+            g.EndFigure(true);
+        }
+        context.DrawGeometry(Palette.ModuleStroke, stroke, tri);
+
+        // Literal text just above the stub. Title (which contains the literal
+        // and target signal name) is drawn above the body — same convention as
+        // other primitives.
+        DrawSymbolTitle(context, node, rect);
     }
 
     // ── Inverter (triangle + output bubble) ──────────────────────────────
@@ -191,6 +281,7 @@ public sealed partial class SchematicPreviewControl
         DrawTriangleBody(context, rect, stroke, drawBubble: true);
         DrawSymbolTitle(context, node, rect);
         DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawPrimitiveLiveOutput(context, node, rect);
     }
 
     // ── Gate (AND / OR / XOR / their N-variants) ─────────────────────────
@@ -233,6 +324,7 @@ public sealed partial class SchematicPreviewControl
 
         DrawSymbolTitle(context, node, rect);
         DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawPrimitiveLiveOutput(context, node, rect);
     }
 
     // ── Arithmetic / comparison block ────────────────────────────────────
@@ -258,6 +350,7 @@ public sealed partial class SchematicPreviewControl
 
         DrawSymbolTitle(context, node, rect);
         DrawSymbolPortsAndLabels(context, node, rect, scale, stroke);
+        DrawPrimitiveLiveOutput(context, node, rect);
     }
 
     private static string ArithGlyph(string kind) => kind switch

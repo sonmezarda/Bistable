@@ -8,7 +8,8 @@ public sealed class HierarchyScopeLocalSignalViewModel
         bool isSigned,
         bool isTraced,
         string currentValue,
-        string? resolvedSignalName)
+        string? resolvedSignalName,
+        MemoryShape? memory = null)
     {
         Name = name;
         Width = width;
@@ -16,6 +17,7 @@ public sealed class HierarchyScopeLocalSignalViewModel
         IsTraced = isTraced;
         CurrentValue = currentValue;
         ResolvedSignalName = resolvedSignalName;
+        Memory = memory;
     }
 
     public string Name { get; }
@@ -30,5 +32,22 @@ public sealed class HierarchyScopeLocalSignalViewModel
 
     public string? ResolvedSignalName { get; }
 
-    public string WidthLabel => Width == 1 ? "1b" : $"{Width}b";
+    /// <summary>P3-6: non-null when this signal is an unpacked-array memory.</summary>
+    public MemoryShape? Memory { get; }
+
+    public bool IsMemory => Memory is not null;
+
+    public int MemoryDepth => Memory?.Depth ?? 0;
+
+    public string WidthLabel
+    {
+        get
+        {
+            if (Memory is { } m) return $"{Width}b × {m.Depth}";
+            return Width == 1 ? "1b" : $"{Width}b";
+        }
+    }
 }
+
+/// <summary>Unpacked-array shape metadata for a memory probe.</summary>
+public sealed record MemoryShape(int Depth);

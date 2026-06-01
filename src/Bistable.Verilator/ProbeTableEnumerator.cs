@@ -63,22 +63,40 @@ public static class ProbeTableEnumerator
                 MemoryDepth: null);
         }
 
-        // Local signals (skip Verilator internal tmps and oversized buses)
+        // Local signals — scalar OR memory (P3-6). Wide buses and Verilator
+        // internal tmps still filtered.
         foreach (SignalDecl signal in module.LocalSignals)
         {
             if (IsVerilatorInternalSignal(signal.Name)) continue;
             if (signal.Width > MaxScalarWidth) continue;   // TODO: wide-signal hex path
-            if (signal.ArrayDims.Count > 0) continue;       // TODO: memory probes
 
             string path = pathPrefix + "." + signal.Name;
-            yield return new ProbeEntry(
-                Path: path,
-                FieldName: MangleFieldName(path),
-                Width: signal.Width,
-                IsSigned: signal.IsSigned,
-                IsRegistered: signal.IsRegistered,
-                IsMemory: false,
-                MemoryDepth: null);
+            if (signal.ArrayDims.Count == 0)
+            {
+                yield return new ProbeEntry(
+                    Path: path,
+                    FieldName: MangleFieldName(path),
+                    Width: signal.Width,
+                    IsSigned: signal.IsSigned,
+                    IsRegistered: signal.IsRegistered,
+                    IsMemory: false,
+                    MemoryDepth: null);
+            }
+            else
+            {
+                // P3-6: a single unpacked dimension is the common case
+                // (registers/RAM). Multi-dim arrays still not handled.
+                if (signal.ArrayDims.Count != 1) continue;
+                BitRange dim = signal.ArrayDims[0];
+                yield return new ProbeEntry(
+                    Path: path,
+                    FieldName: MangleFieldName(path),
+                    Width: signal.Width,
+                    IsSigned: signal.IsSigned,
+                    IsRegistered: false,
+                    IsMemory: true,
+                    MemoryDepth: dim.Width);
+            }
         }
 
         // Recurse into sub-instances

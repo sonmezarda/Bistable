@@ -732,6 +732,6 @@ public sealed class ElkGraphBuilderRecursiveCompoundTests
         ElkBuildResult r = BuildFFCompoundResult(expanded: true);
         ElkNode ff = InnerNode(r, "child_top_reg", "ff_top_reg__q");
         Assert.NotNull(ff.Labels);
-        Assert.Equal("FF q", ff.Labels![0].Text);
+        Assert.Equal("FF q [8b]", ff.Labels![0].Text);
     }
 }

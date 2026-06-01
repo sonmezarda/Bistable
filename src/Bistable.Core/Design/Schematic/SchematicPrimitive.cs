@@ -91,6 +91,30 @@ public sealed record BufferPrimitive(
     string InputSignal,
     int Width) : SchematicPrimitive(Id);
 
+/// <summary>
+/// P2.6-8: constant tie. Source: <c>assign x = 8'h00;</c> or similar where
+/// the RHS is a numeric literal. Rendered as a small GND/VDD-style symbol
+/// instead of a buffer with a dangling input.
+/// </summary>
+public sealed record ConstantTiePrimitive(
+    string Id,
+    string OutputSignal,
+    string Literal,
+    int Width) : SchematicPrimitive(Id);
+
+/// <summary>
+/// P2.6-3: tri-state buffer. Source: <c>assign bus = en ? data : 'z;</c>.
+/// Rendered as a classic tri-state triangle with the enable pin entering
+/// from the side.
+/// </summary>
+public sealed record TriStatePrimitive(
+    string Id,
+    string OutputSignal,
+    string DataSignal,
+    string EnableSignal,
+    bool EnableActiveHigh,
+    int Width) : SchematicPrimitive(Id);
+
 /// <summary>Inverter. Source: contassign with `UnaryExpr(Not, …)`.</summary>
 public sealed record InverterPrimitive(
     string Id,
