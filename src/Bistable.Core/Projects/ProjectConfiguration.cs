@@ -16,6 +16,17 @@ public sealed record ProjectConfiguration
 
     public IReadOnlyList<string> VerilatorOptions { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// Phase 3 (P3-2): when true, the worker is built with Verilator's
+    /// <c>--public-flat-rw</c> flag so every hierarchical signal becomes a
+    /// publicly addressable field on the compiled model. The GUI then probes
+    /// any internal signal via <c>ReadSignal</c>/<c>WriteSignal</c>/<c>ForceSignal</c>.
+    /// <para>Default: <c>true</c>. Set to <c>false</c> on very large designs
+    /// where the flag noticeably slows compilation or bloats the binary —
+    /// the probe API will then return a structured error.</para>
+    /// </summary>
+    public bool EnableInternalProbes { get; init; } = true;
+
     public IReadOnlyList<ClockHint> Clocks { get; init; } = Array.Empty<ClockHint>();
 
     public IReadOnlyList<ResetHint> Resets { get; init; } = Array.Empty<ResetHint>();

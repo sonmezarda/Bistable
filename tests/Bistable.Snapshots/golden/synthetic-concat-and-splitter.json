@@ -1,0 +1,268 @@
+{
+  "id": "root",
+  "layoutOptions": {
+    "elk.algorithm": "layered",
+    "elk.direction": "RIGHT",
+    "elk.edgeRouting": "ORTHOGONAL",
+    "elk.hierarchyHandling": "INCLUDE_CHILDREN",
+    "elk.layered.crossingMinimization.semiInteractive": "true",
+    "elk.layered.feedbackEdges": "true",
+    "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+    "elk.layered.spacing.edgeEdgeBetweenLayers": "10",
+    "elk.layered.spacing.edgeNodeBetweenLayers": "18",
+    "elk.layered.spacing.nodeNodeBetweenLayers": "72",
+    "elk.layered.thoroughness": "3",
+    "elk.spacing.nodeNode": "36"
+  },
+  "children": [
+    {
+      "id": "boundary_in",
+      "labels": [
+        "inputs"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "boundary_in.a",
+          "labels": [
+            "a [8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "boundary_in.b",
+          "labels": [
+            "b [8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "boundary_in.bus",
+          "labels": [
+            "bus [16b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "boundary_out",
+      "labels": [
+        "outputs"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "boundary_out.ab",
+          "labels": [
+            "ab [16b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_top_u_consumer",
+      "labels": [
+        "u_consumer",
+        "top.u_consumer"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_top_u_consumer.in.hi",
+          "labels": [
+            "hi[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_top_u_consumer.in.lo",
+          "labels": [
+            "lo[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "join_ab",
+      "labels": [],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "join_ab.in.0",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "join_ab.in.1",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "join_ab.out",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "split_bus",
+      "labels": [],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "split_bus.in",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "split_bus.out.0",
+          "labels": [
+            "[15:8]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "split_bus.out.1",
+          "labels": [
+            "[7:0]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "sources": [
+        "boundary_in.a"
+      ],
+      "targets": [
+        "join_ab.in.0"
+      ],
+      "labels": [
+        "a",
+        "8"
+      ]
+    },
+    {
+      "id": "e1",
+      "sources": [
+        "boundary_in.b"
+      ],
+      "targets": [
+        "join_ab.in.1"
+      ],
+      "labels": [
+        "b",
+        "8"
+      ]
+    },
+    {
+      "id": "e2",
+      "sources": [
+        "boundary_in.bus"
+      ],
+      "targets": [
+        "split_bus.in"
+      ],
+      "labels": [
+        "bus",
+        "16"
+      ]
+    },
+    {
+      "id": "e3",
+      "sources": [
+        "join_ab.out"
+      ],
+      "targets": [
+        "boundary_out.ab"
+      ],
+      "labels": [
+        "ab",
+        "16"
+      ]
+    },
+    {
+      "id": "e4",
+      "sources": [
+        "split_bus.out.0"
+      ],
+      "targets": [
+        "child_top_u_consumer.in.hi"
+      ],
+      "labels": [
+        "hi",
+        "8"
+      ]
+    },
+    {
+      "id": "e5",
+      "sources": [
+        "split_bus.out.1"
+      ],
+      "targets": [
+        "child_top_u_consumer.in.lo"
+      ],
+      "labels": [
+        "lo",
+        "8"
+      ]
+    }
+  ]
+}

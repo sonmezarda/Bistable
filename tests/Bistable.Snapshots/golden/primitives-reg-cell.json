@@ -1,0 +1,58 @@
+{
+  "ModuleName": "reg_cell",
+  "Ports": [
+    {
+      "Name": "clk",
+      "Direction": "Input",
+      "Width": 1,
+      "Id": "port_clk"
+    },
+    {
+      "Name": "rst_n",
+      "Direction": "Input",
+      "Width": 1,
+      "Id": "port_rst_n"
+    },
+    {
+      "Name": "d_in",
+      "Direction": "Input",
+      "Width": 1,
+      "Id": "port_d_in"
+    },
+    {
+      "Name": "d_out",
+      "Direction": "Output",
+      "Width": 1,
+      "Id": "port_d_out"
+    }
+  ],
+  "Signals": [
+    {
+      "Name": "q",
+      "Width": 1,
+      "IsRegistered": true,
+      "Id": "sig_q"
+    }
+  ],
+  "Instances": [],
+  "Logic": [
+    {
+      "$type": "FlipFlop",
+      "QSignal": "q",
+      "ClockSignal": "clk",
+      "ClockEdge": "Rising",
+      "AsyncResetSignal": "rst_n",
+      "AsyncResetEdge": "Falling",
+      "DSignal": "d_in",
+      "Width": 1,
+      "Id": "ff_q_0"
+    },
+    {
+      "$type": "Buffer",
+      "OutputSignal": "d_out",
+      "InputSignal": "q",
+      "Width": 1,
+      "Id": "buf_d_out_0"
+    }
+  ]
+}

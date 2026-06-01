@@ -1,0 +1,234 @@
+{
+  "id": "root",
+  "layoutOptions": {
+    "elk.algorithm": "layered",
+    "elk.direction": "RIGHT",
+    "elk.edgeRouting": "ORTHOGONAL",
+    "elk.hierarchyHandling": "INCLUDE_CHILDREN",
+    "elk.layered.crossingMinimization.semiInteractive": "true",
+    "elk.layered.feedbackEdges": "true",
+    "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+    "elk.layered.spacing.edgeEdgeBetweenLayers": "10",
+    "elk.layered.spacing.edgeNodeBetweenLayers": "18",
+    "elk.layered.spacing.nodeNodeBetweenLayers": "72",
+    "elk.layered.thoroughness": "3",
+    "elk.spacing.nodeNode": "36"
+  },
+  "children": [
+    {
+      "id": "boundary_in",
+      "labels": [
+        "inputs"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "boundary_in.clk",
+          "labels": [
+            "clk [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "boundary_in.rst_n",
+          "labels": [
+            "rst_n [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "boundary_in.d_in",
+          "labels": [
+            "d_in [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "boundary_out",
+      "labels": [
+        "outputs"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "boundary_out.d_out",
+          "labels": [
+            "d_out [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ff_q",
+      "labels": [
+        "FF q"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "ff_q.d",
+          "labels": [
+            "D"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "ff_q.clk",
+          "labels": [
+            "\u003E"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "ff_q.rst",
+          "labels": [
+            "R"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "ff_q.q",
+          "labels": [
+            "Q"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "buf_d_out",
+      "labels": [
+        "BUF d_out"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "buf_d_out.in",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "buf_d_out.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "ff_q.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e1",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "ff_q.rst"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e2",
+      "sources": [
+        "boundary_in.d_in"
+      ],
+      "targets": [
+        "ff_q.d"
+      ],
+      "labels": [
+        "d_in",
+        "1"
+      ]
+    },
+    {
+      "id": "e3",
+      "sources": [
+        "ff_q.q"
+      ],
+      "targets": [
+        "buf_d_out.in"
+      ],
+      "labels": [
+        "q",
+        "1"
+      ]
+    },
+    {
+      "id": "e4",
+      "sources": [
+        "buf_d_out.out"
+      ],
+      "targets": [
+        "boundary_out.d_out"
+      ],
+      "labels": [
+        "d_out",
+        "1"
+      ]
+    }
+  ]
+}

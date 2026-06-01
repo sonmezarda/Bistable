@@ -24,6 +24,9 @@ public sealed class HierarchyScopePortViewModel
 
     public bool IsOutput => Direction == SignalDirection.Output;
 
+    /// <summary>P2.6-4: bidirectional port (e.g. tri-state bus, I²C SDA).</summary>
+    public bool IsInOut => Direction == SignalDirection.InOut;
+
     public string WidthLabel => Width == 1 ? "1b" : $"{Width}b";
 
     public string DisplayLabel => $"{Name} [{WidthLabel}]";

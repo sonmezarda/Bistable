@@ -70,6 +70,31 @@ public sealed partial class SchematicPreviewControl
         }
     }
 
+    /// <summary>
+    /// Single click on a sub-instance scope body: select its hierarchy node.
+    /// Double click additionally enters sub-sim for that module — turns the
+    /// "click to drill in" expectation into the actual isolation flow.
+    /// </summary>
+    private void HandleScopeHit(ScopeHitTarget hit, PointerPressedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(hit.HierarchyPath)) return;
+
+        ICommand? select = SelectScopeCommand;
+        if (select?.CanExecute(hit.HierarchyPath) == true)
+        {
+            select.Execute(hit.HierarchyPath);
+        }
+
+        if (e.ClickCount >= 2)
+        {
+            ICommand? enterSubSim = EnterSubSimCommand;
+            if (enterSubSim?.CanExecute(hit.HierarchyPath) == true)
+            {
+                enterSubSim.Execute(hit.HierarchyPath);
+            }
+        }
+    }
+
     private SignalHitTarget? HitTestSignal(Point point) => _signalHitTargets.FirstOrDefault(hit => hit.Bounds.Contains(point));
 
     private SignalReferenceHitTarget? HitTestSignalReference(Point point) =>

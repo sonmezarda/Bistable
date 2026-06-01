@@ -19,7 +19,9 @@ public sealed partial class SchematicPreviewControl
         IReadOnlyList<HierarchyScopeInstanceViewModel> childScopes,
         IReadOnlyList<HierarchyScopePortViewModel> scopePorts,
         IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals,
-        IReadOnlyList<DesignContAssign> contAssigns)
+        IReadOnlyList<DesignContAssign> contAssigns,
+        IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>? scopePrimitives = null,
+        IReadOnlyDictionary<string, IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>>? scopePrimitivesByModule = null)
     {
         Rect panel = ComputeElkPanelRect(bounds, moduleRect);
         _lastFocusedScopePanelRect = panel;
@@ -29,7 +31,7 @@ public sealed partial class SchematicPreviewControl
         HashSet<string> expandedPaths = ExpandedScopePaths is null
             ? []
             : new HashSet<string>(ExpandedScopePaths, StringComparer.OrdinalIgnoreCase);
-        ElkScopeData scope = new(scopePorts, childScopes, localSignals, contAssigns, expandedPaths);
+        ElkScopeData scope = new(scopePorts, childScopes, localSignals, contAssigns, expandedPaths, scopePrimitives, scopePrimitivesByModule);
         ElkLayoutResult layoutResult;
         try
         {
@@ -46,8 +48,9 @@ public sealed partial class SchematicPreviewControl
         ElkTransform transform = ComputeFitTransform(layoutResult.Graph, canvas);
         IReadOnlyDictionary<string, string> signalValues = BuildSignalValueLookup(contAssigns);
 
+        DrawElkNodeBackgrounds(context, layoutResult.Graph, transform);
         DrawElkEdges(context, layoutResult.Graph, transform, signalValues);
-        DrawElkNodes(context, layoutResult.Graph, transform);
+        DrawElkNodeForegrounds(context, layoutResult.Graph, transform);
         DrawScopeProbeSummary(context, panel, scopeSignals);
     }
 
@@ -93,16 +96,45 @@ public sealed partial class SchematicPreviewControl
         return new ElkTransform(originX, originY, scale, graph.X, graph.Y);
     }
 
-    private void DrawElkNodes(DrawingContext context, ElkGraph graph, ElkTransform transform)
+    private void DrawElkNodeBackgrounds(DrawingContext context, ElkGraph graph, ElkTransform transform)
     {
-        DrawElkNodesRecursive(context, graph.Children, transform, baseX: 0, baseY: 0);
+        DrawElkNodeBackgroundsRecursive(context, graph.Children, transform, baseX: 0, baseY: 0);
+    }
+
+    private void DrawElkNodeForegrounds(DrawingContext context, ElkGraph graph, ElkTransform transform)
+    {
+        DrawElkNodeForegroundsRecursive(context, graph.Children, transform, baseX: 0, baseY: 0);
     }
 
     // ELK's compound layout positions sub-children relative to their parent node, so the
     // recursion accumulates absolute coordinates (baseX/baseY) before applying the global
     // viewport transform. Without this, nested children would render at the same root-origin
     // as their parent's coordinate.
-    private void DrawElkNodesRecursive(
+    private void DrawElkNodeBackgroundsRecursive(
+        DrawingContext context,
+        IList<ElkNode> nodes,
+        ElkTransform transform,
+        double baseX,
+        double baseY)
+    {
+        foreach (ElkNode node in nodes)
+        {
+            double absX = baseX + node.X;
+            double absY = baseY + node.Y;
+            if (IsElkCardNode(node))
+            {
+                Rect rect = transform.Apply(absX, absY, node.Width, node.Height);
+                DrawElkNodeCardBackground(context, rect);
+            }
+
+            if (node.Children is { Count: > 0 } childNodes)
+            {
+                DrawElkNodeBackgroundsRecursive(context, childNodes, transform, absX, absY);
+            }
+        }
+    }
+
+    private void DrawElkNodeForegroundsRecursive(
         DrawingContext context,
         IList<ElkNode> nodes,
         ElkTransform transform,
@@ -135,18 +167,80 @@ public sealed partial class SchematicPreviewControl
             {
                 DrawElkJoinerNode(context, node, rect, transform.Scale);
             }
+            else if (ElkNodeIds.IsFlipFlop(node.Id))
+            {
+                DrawElkFlipFlopNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsMux(node.Id))
+            {
+                DrawElkMuxNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsLatch(node.Id))
+            {
+                DrawElkLatchNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsMemory(node.Id))
+            {
+                DrawElkMemoryNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsBuffer(node.Id))
+            {
+                DrawElkBufferNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsConstantTie(node.Id))
+            {
+                DrawElkConstantTieNode(context, node, rect);
+            }
+            else if (ElkNodeIds.IsTriState(node.Id))
+            {
+                DrawElkTriStateNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsInverter(node.Id))
+            {
+                DrawElkInverterNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsGate(node.Id))
+            {
+                DrawElkGateNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsArith(node.Id))
+            {
+                DrawElkArithNode(context, node, rect, transform.Scale);
+            }
+            else if (ElkNodeIds.IsStructFanOut(node.Id))
+            {
+                DrawElkStructFanOutNode(context, node, rect, transform.Scale);
+            }
             else
             {
-                DrawElkNodeCard(context, node, rect, transform.Scale);
+                DrawElkNodeCardForeground(context, node, rect, transform.Scale);
                 DrawElkChildExpansionButton(context, node, rect);
             }
 
             if (node.Children is { Count: > 0 } childNodes)
             {
-                DrawElkNodesRecursive(context, childNodes, transform, absX, absY);
+                DrawElkNodeForegroundsRecursive(context, childNodes, transform, absX, absY);
             }
         }
     }
+
+    private static bool IsElkCardNode(ElkNode node) =>
+        node.Id is not ElkNodeIds.BoundaryIn
+        && node.Id is not ElkNodeIds.BoundaryOut
+        && !ElkNodeIds.IsOperator(node.Id)
+        && !ElkNodeIds.IsSplitter(node.Id)
+        && !ElkNodeIds.IsJoiner(node.Id)
+        && !ElkNodeIds.IsFlipFlop(node.Id)
+        && !ElkNodeIds.IsMux(node.Id)
+        && !ElkNodeIds.IsLatch(node.Id)
+        && !ElkNodeIds.IsMemory(node.Id)
+        && !ElkNodeIds.IsBuffer(node.Id)
+        && !ElkNodeIds.IsConstantTie(node.Id)
+        && !ElkNodeIds.IsTriState(node.Id)
+        && !ElkNodeIds.IsInverter(node.Id)
+        && !ElkNodeIds.IsGate(node.Id)
+        && !ElkNodeIds.IsArith(node.Id)
+        && !ElkNodeIds.IsStructFanOut(node.Id);
 
     private void DrawElkChildExpansionButton(DrawingContext context, ElkNode node, Rect rect)
     {
@@ -359,21 +453,93 @@ public sealed partial class SchematicPreviewControl
         {
             Point tip = new(nodeRect.X + port.X * scale, nodeRect.Y + port.Y * scale);
             string label = port.Labels is { Count: > 0 } ? port.Labels[0].Text : string.Empty;
-            DrawBoundaryPinGlyph(context, tip, label, isInput);
+            // P2.6-4: a second label "INOUT" tags bidirectional ports so we
+            // can draw a hexagon (arrows on both sides) instead of a pentagon.
+            bool isInOut = port.Labels is { Count: > 1 }
+                && string.Equals(port.Labels[1].Text, "INOUT", StringComparison.Ordinal);
+
+            // P4 follow-up: append the live value to the label so the expanded
+            // view's boundary pins read like `clk [1b] = 1` — same affordance
+            // as the collapsed top symbol's value chips.
+            string? portName = ExtractPortNameFromId(port.Id);
+            SignalViewModel? signal = portName is null ? null : FindSignalByName(portName, isInput);
+            if (signal?.Value is { } v && v != "-")
+            {
+                label = $"{label} = {v}";
+            }
+
+            DrawBoundaryPinGlyph(context, tip, label, isInput, isInOut);
+
+            // Make expanded-view boundary pins interactive the same way
+            // collapsed-view pins are. Find the matching SignalViewModel and
+            // register a SignalHitTarget so clicking on the pentagon either
+            // toggles a 1-bit input or opens the bus editor.
+            if (signal is not null) RegisterBoundaryPinSignalHit(port, tip, isInput, signal);
         }
     }
 
-    private void DrawBoundaryPinGlyph(DrawingContext context, Point tip, string label, bool isInput)
+    private void RegisterBoundaryPinSignalHit(ElkPort port, Point tip, bool isInput, SignalViewModel signal)
+    {
+        _ = port;
+        double w = CompactLayout ? 22 : 26;
+        double h = CompactLayout ? 14 : 16;
+        // Hit rect spans both the pentagon body AND a small margin around the
+        // tip — generous so cursors aren't required to land precisely on the glyph.
+        Rect hit = isInput
+            ? new Rect(tip.X - w - 4, tip.Y - h / 2 - 4, w + 8, h + 8)
+            : new Rect(tip.X - 4, tip.Y - h / 2 - 4, w + 8, h + 8);
+        _signalHitTargets.Add(new SignalHitTarget(signal, hit));
+    }
+
+    private static string? ExtractPortNameFromId(string? id)
+    {
+        if (string.IsNullOrEmpty(id)) return null;
+        int dot = id.LastIndexOf('.');
+        return dot < 0 || dot == id.Length - 1 ? null : id[(dot + 1)..];
+    }
+
+    private SignalViewModel? FindSignalByName(string portName, bool isInput)
+    {
+        if (Signals is null) return null;
+        foreach (SignalViewModel signal in Signals)
+        {
+            if (string.Equals(signal.Name, portName, StringComparison.OrdinalIgnoreCase)
+                && signal.IsInput == isInput)
+            {
+                return signal;
+            }
+        }
+        return null;
+    }
+
+    private void DrawBoundaryPinGlyph(DrawingContext context, Point tip, string label, bool isInput, bool isInOut = false)
     {
         double glyphWidth = CompactLayout ? 22 : 26;
         double glyphHeight = CompactLayout ? 14 : 16;
-        IBrush stroke = isInput ? Palette.PinStroke : Palette.OutputValue;
+        IBrush stroke;
+        if (isInOut)
+        {
+            stroke = new SolidColorBrush(Color.FromRgb(180, 140, 220));   // distinctive violet for bidir
+        }
+        else
+        {
+            stroke = isInput ? Palette.PinStroke : Palette.OutputValue;
+        }
 
         // Pentagon outline: rectangle body + triangular tip. The tip sits at `tip`; the body
         // extends outward away from the design (left for inputs, right for outputs).
-        Point[] points = isInput
-            ? BuildInputPentagon(tip, glyphWidth, glyphHeight)
-            : BuildOutputPentagon(tip, glyphWidth, glyphHeight);
+        // InOut uses a hexagon with triangular tips on BOTH sides.
+        Point[] points;
+        if (isInOut)
+        {
+            points = BuildInOutHexagon(tip, glyphWidth, glyphHeight);
+        }
+        else
+        {
+            points = isInput
+                ? BuildInputPentagon(tip, glyphWidth, glyphHeight)
+                : BuildOutputPentagon(tip, glyphWidth, glyphHeight);
+        }
 
         StreamGeometry geometry = new();
         using (StreamGeometryContext gc = geometry.Open())
@@ -436,19 +602,77 @@ public sealed partial class SchematicPreviewControl
         ];
     }
 
-    private void DrawElkNodeCard(DrawingContext context, ElkNode node, Rect rect, double scale)
+    /// <summary>
+    /// P2.6-4: a horizontally-stretched hexagon with triangular tips on both
+    /// the design-facing side (left) and the boundary side (right). Visually
+    /// communicates that the port flows in both directions.
+    /// </summary>
+    private static Point[] BuildInOutHexagon(Point tip, double w, double h)
     {
-        IBrush fill = Palette.NodeFill;
-        IBrush stroke = node.Id is ElkNodeIds.BoundaryIn or ElkNodeIds.BoundaryOut
-            ? Palette.PinStroke
-            : Palette.ModuleStroke;
+        // tip is the design-facing apex (left). Body sits to the left of tip,
+        // ending in another apex on the outside.
+        double leftApexX = tip.X;
+        double rightApexX = tip.X - w;
+        double bodyLeftEdgeX = tip.X - w * 0.68;
+        double bodyRightEdgeX = tip.X - w * 0.32;
+        double topY = tip.Y - h / 2;
+        double bottomY = tip.Y + h / 2;
+        return
+        [
+            new Point(bodyRightEdgeX, topY),
+            new Point(leftApexX, tip.Y),       // design-side apex
+            new Point(bodyRightEdgeX, bottomY),
+            new Point(bodyLeftEdgeX, bottomY),
+            new Point(rightApexX, tip.Y),      // outside-side apex
+            new Point(bodyLeftEdgeX, topY)
+        ];
+    }
 
-        context.FillRectangle(fill, rect, 6);
-        context.DrawRectangle(new Pen(stroke, 1.2), rect, 6);
+    private void DrawElkNodeCardBackground(DrawingContext context, Rect rect)
+    {
+        context.FillRectangle(Palette.NodeFill, rect, 6);
+    }
 
+    private void DrawElkNodeCardForeground(DrawingContext context, ElkNode node, Rect rect, double scale)
+    {
+        // If this child node corresponds to the currently-selected hierarchy
+        // scope, draw it with the accent stroke + a thicker pen so the user
+        // sees at a glance which block matches their hierarchy selection.
+        bool isSelectedScope = ElkGraphBuilder.TryGetHierarchyPath(node, out string hierarchyPath)
+            && !string.IsNullOrWhiteSpace(ActiveScopePath)
+            && string.Equals(hierarchyPath, ActiveScopePath, StringComparison.OrdinalIgnoreCase);
+        IBrush stroke;
+        if (node.Id is ElkNodeIds.BoundaryIn or ElkNodeIds.BoundaryOut)
+        {
+            stroke = Palette.PinStroke;
+        }
+        else
+        {
+            stroke = isSelectedScope ? Palette.Selected : Palette.ModuleStroke;
+        }
+        double strokeWidth = isSelectedScope ? 2.4 : 1.2;
+
+        context.DrawRectangle(new Pen(stroke, strokeWidth), rect, 6);
+
+        // Register a scope hit target so OnPointerPressed → HandleScopeHit
+        // can route clicks to "select scope in hierarchy" / "enter sub-sim".
+        // Without this the click would fall through and the user sees nothing.
+        if (!string.IsNullOrWhiteSpace(hierarchyPath)
+            && node.Id is not ElkNodeIds.BoundaryIn and not ElkNodeIds.BoundaryOut)
+        {
+            _scopeHitTargets.Add(new ScopeHitTarget(hierarchyPath, rect, CanExpand: ElkGraphBuilder.IsExpandableChild(node)));
+        }
+
+        // P2.5-2: title now sits with 8px top padding (was 4px) so its baseline
+        // clears the first port row even when the port label is tall. Combined
+        // with the bump to ModuleHeaderHeight=48 in the builder, the title and
+        // first port are guaranteed not to overlap.
         if (node.Labels is { Count: > 0 })
         {
-            DrawText(context, node.Labels[0].Text, rect.X + 8, rect.Y + 4, Palette.Text, 11);
+            string rawTitle = node.Labels[0].Text;
+            double titleMaxWidth = Math.Max(40, rect.Width - 16);
+            string title = Ellipsize(rawTitle, 11, titleMaxWidth);
+            DrawText(context, title, rect.X + 8, rect.Y + 8, Palette.Text, 11);
         }
 
         if (node.Ports is null)
@@ -474,10 +698,24 @@ public sealed partial class SchematicPreviewControl
 
         context.DrawEllipse(Palette.PinStroke, null, new Point(px, py), 2.2, 2.2);
 
+        // Register a signal-reference hit target around the pin even when no
+        // wire is incident on it (unconnected internal port pins). The second
+        // label carries the connected signal name as embedded by the builder.
+        if (port.Labels is { Count: > 1 } labels && !string.IsNullOrWhiteSpace(labels[1].Text))
+        {
+            Rect pinHit = new(px - 6, py - 6, 12, 12);
+            _signalReferenceHitTargets.Add(new SignalReferenceHitTarget(labels[1].Text, pinHit, null));
+        }
+
         if (port.Labels is { Count: > 0 })
         {
-            string label = port.Labels[0].Text;
+            // P2.5-2: ellipsize long port labels so they never overlap with the
+            // node's title region or the opposite-side ports. Available width is
+            // half the node minus a safety margin (~12px), capped to a sensible max.
+            string rawLabel = port.Labels[0].Text;
             double labelGap = 9;
+            double maxLabelPx = Math.Max(40, nodeRect.Width * 0.5 - 12);
+            string label = Ellipsize(rawLabel, 9, maxLabelPx);
             double labelX = onEast ? px - labelGap - MeasureLabelWidth(label, 10) : px + labelGap;
             DrawText(context, label, labelX, py - 6, Palette.PinStroke, 9);
         }
@@ -490,10 +728,95 @@ public sealed partial class SchematicPreviewControl
         IReadOnlyDictionary<string, string> signalValues)
     {
         bool anyHovered = !string.IsNullOrEmpty(_hoveredSignalName);
+        // P4-3: pre-build a lookup of "which mux-input port is active right now"
+        // so the edge renderer can highlight the wire that's currently selected.
+        IReadOnlySet<string> activeMuxInputs = BuildActiveMuxInputSet(graph);
+        ElkEdgeCoordinateContext coordinateContext = BuildEdgeCoordinateContext(graph);
         foreach (ElkEdge edge in graph.Edges)
         {
-            RenderElkEdge(context, edge, transform, signalValues, anyHovered);
+            RenderElkEdge(context, edge, transform, signalValues, anyHovered, activeMuxInputs, coordinateContext);
         }
+    }
+
+    /// <summary>
+    /// P4-3: walk every mux node, read its selector value through the
+    /// LiveProbeService cache, and return the set of input-port IDs that
+    /// correspond to the currently-selected branch. The edge renderer then
+    /// thickens any edge whose target is in this set.
+    /// </summary>
+    private IReadOnlySet<string> BuildActiveMuxInputSet(ElkGraph graph)
+    {
+        HashSet<string> active = new(StringComparer.Ordinal);
+        if (LiveProbes is null) return active;
+
+        foreach (ElkNode node in graph.Children ?? [])
+        {
+            CollectActiveMuxInputs(node, active);
+        }
+        return active;
+    }
+
+    private void CollectActiveMuxInputs(ElkNode node, HashSet<string> active)
+    {
+        if (ElkNodeIds.IsMux(node.Id) && node.Labels is { Count: > 2 })
+        {
+            string selectorSignal = node.Labels[2].Text;
+            if (!string.IsNullOrEmpty(selectorSignal))
+            {
+                string selPath = string.IsNullOrWhiteSpace(ActiveScopePath)
+                    ? selectorSignal
+                    : ActiveScopePath + "." + selectorSignal;
+                string? selValue = LiveProbes?.GetCached(selPath);
+                if (!string.IsNullOrWhiteSpace(selValue))
+                {
+                    MatchActiveMuxInput(node, selValue!, active);
+                }
+            }
+        }
+        if (node.Children is { Count: > 0 })
+        {
+            foreach (ElkNode child in node.Children) CollectActiveMuxInputs(child, active);
+        }
+    }
+
+    /// <summary>
+    /// For each west-side input port of the mux (Id ends with <c>.in.{N}</c>),
+    /// compare its branch label (port.Labels[0]) with the parsed selector value.
+    /// The branch label format produced by <c>DecodeMux</c> is "0"/"1" for binary
+    /// muxes and "{signal}"/"else" for chained ones — we only match the numeric
+    /// cases for now (chained-mux highlighting needs more semantic plumbing).
+    /// </summary>
+    private static void MatchActiveMuxInput(ElkNode muxNode, string selValue, HashSet<string> active)
+    {
+        if (muxNode.Ports is null) return;
+        if (!TryParseSelectorValue(selValue, out ulong selNumeric)) return;
+
+        foreach (ElkPort port in muxNode.Ports)
+        {
+            if (!port.Id.Contains(".in.", StringComparison.Ordinal)) continue;
+            if (port.Labels is not { Count: > 0 }) continue;
+            string branchLabel = port.Labels[0].Text;
+            if (ulong.TryParse(branchLabel, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out ulong branchValue)
+                && branchValue == selNumeric)
+            {
+                active.Add(port.Id);
+                return;
+            }
+        }
+    }
+
+    private static bool TryParseSelectorValue(string text, out ulong value)
+    {
+        value = 0;
+        text = text.Trim();
+        if (string.IsNullOrEmpty(text)) return false;
+        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            return ulong.TryParse(text[2..], System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out value);
+        }
+        return ulong.TryParse(text, out value);
     }
 
     private void RenderElkEdge(
@@ -501,7 +824,9 @@ public sealed partial class SchematicPreviewControl
         ElkEdge edge,
         ElkTransform transform,
         IReadOnlyDictionary<string, string> signalValues,
-        bool anyHovered)
+        bool anyHovered,
+        IReadOnlySet<string> activeMuxInputs,
+        ElkEdgeCoordinateContext coordinateContext)
     {
         if (edge.Sections is null || edge.Sections.Count == 0)
         {
@@ -510,14 +835,17 @@ public sealed partial class SchematicPreviewControl
 
         string? signalName = edge.Labels is { Count: > 0 } ? edge.Labels[0].Text : null;
         int bitWidth = ReadEdgeBitWidth(edge);
-        ElkEdgeStyle style = BuildElkEdgeStyle(signalName, bitWidth, signalValues, anyHovered);
-        IReadOnlyList<Point> polyline = BuildEdgePolyline(edge.Sections, transform);
+        // P4-3: edge ends at an active mux input → thicker, accented pen.
+        bool isActiveMuxPath = edge.Targets.Any(t => activeMuxInputs.Contains(t));
+        ElkEdgeStyle style = BuildElkEdgeStyle(signalName, bitWidth, signalValues, anyHovered, isActiveMuxPath);
+        Point coordinateOffset = ResolveEdgeCoordinateOffset(edge, coordinateContext);
+        IReadOnlyList<Point> polyline = BuildEdgePolyline(edge.Sections, transform, coordinateOffset);
 
         IDisposable? dimScope = style.ShouldDim ? context.PushOpacity(0.22) : null;
         try
         {
             DrawPolyline(context, polyline, style.Pen);
-            DrawJunctions(context, edge.JunctionPoints, transform, style.Pen.Brush!);
+            DrawJunctions(context, edge.JunctionPoints, transform, coordinateOffset, style.Pen.Brush!);
         }
         finally
         {
@@ -528,24 +856,124 @@ public sealed partial class SchematicPreviewControl
         {
             _signalReferenceHitTargets.Add(new SignalReferenceHitTarget(signalName!, null, polyline));
         }
+
+        // P4-1: mid-edge live value label. Suppressed for 1-bit signals
+        // (already encoded by edge colour) and when no value is cached.
+        // Internal signals come from LiveProbeService; top-level/port signals
+        // come from the existing signalValues lookup so we render both.
+        if (!string.IsNullOrWhiteSpace(signalName) && bitWidth > 1)
+        {
+            string? liveValue = LookupLiveValue(signalName!, signalValues);
+            if (!string.IsNullOrWhiteSpace(liveValue) && liveValue != "-")
+            {
+                DrawEdgeLiveValueLabel(context, polyline, liveValue!);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Resolve a wire's live value. Top-level ports and trace signals are
+    /// already in <paramref name="signalValues"/>; internal probes come from
+    /// <see cref="LiveProbeService"/>'s cache (populated by VM's
+    /// post-Eval/Tick refresh).
+    /// </summary>
+    private string? LookupLiveValue(string signalName, IReadOnlyDictionary<string, string> signalValues)
+    {
+        if (signalValues.TryGetValue(signalName, out string? snapshotValue)
+            && !string.IsNullOrWhiteSpace(snapshotValue) && snapshotValue != "-")
+        {
+            return snapshotValue;
+        }
+        return LiveProbes?.GetCached(signalName);
+    }
+
+    /// <summary>
+    /// Draw the hex value as a small chip near the midpoint of the polyline.
+    /// Uses a dark filled pill behind the text so it stays legible against
+    /// any wire colour (including the orange forced state).
+    /// </summary>
+    private void DrawEdgeLiveValueLabel(DrawingContext context, IReadOnlyList<Point> polyline, string value)
+    {
+        if (polyline.Count < 2) return;
+        Point mid = PolylineMidpoint(polyline);
+        string text = value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? value : "0x" + value;
+        double textWidth = MeasureLabelWidth(text, 10);
+        Rect pill = new(mid.X - textWidth / 2 - 4, mid.Y - 8, textWidth + 8, 14);
+        context.FillRectangle(new SolidColorBrush(Color.FromArgb(190, 16, 22, 32)), pill, 3);
+        DrawText(context, text, pill.X + 4, pill.Y, Palette.Text, 10);
+    }
+
+    private static Point PolylineMidpoint(IReadOnlyList<Point> polyline)
+    {
+        // Walk segments until we cross half the total length — keeps the
+        // label centered on the visual path rather than on a single segment.
+        double total = 0;
+        for (int i = 0; i < polyline.Count - 1; i++)
+        {
+            total += Distance(polyline[i], polyline[i + 1]);
+        }
+        if (total <= 0) return polyline[0];
+        double half = total / 2;
+        double walked = 0;
+        for (int i = 0; i < polyline.Count - 1; i++)
+        {
+            double seg = Distance(polyline[i], polyline[i + 1]);
+            if (walked + seg >= half)
+            {
+                double t = (half - walked) / seg;
+                return new Point(
+                    polyline[i].X + (polyline[i + 1].X - polyline[i].X) * t,
+                    polyline[i].Y + (polyline[i + 1].Y - polyline[i].Y) * t);
+            }
+            walked += seg;
+        }
+        return polyline[^1];
+    }
+
+    private static double Distance(Point a, Point b)
+    {
+        double dx = b.X - a.X, dy = b.Y - a.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
     }
 
     private ElkEdgeStyle BuildElkEdgeStyle(
         string? signalName,
         int bitWidth,
         IReadOnlyDictionary<string, string> signalValues,
-        bool anyHovered)
+        bool anyHovered,
+        bool isActiveMuxPath = false)
     {
         bool isSelected = !string.IsNullOrWhiteSpace(signalName)
             && string.Equals(SelectedSignalName, signalName, StringComparison.OrdinalIgnoreCase);
         bool isHoveredNet = anyHovered
             && string.Equals(signalName, _hoveredSignalName, StringComparison.OrdinalIgnoreCase);
         bool shouldDim = anyHovered && !isHoveredNet && !isSelected;
+        // Phase 3 force visualisation: pinned signals override the normal value
+        // colour with a high-saturation orange so the user can see at a glance
+        // that this wire is not following simulation.
+        bool isForced = !string.IsNullOrWhiteSpace(signalName) && IsSignalForced(signalName!);
 
-        IBrush brush = isSelected
-            ? Palette.Selected
-            : ResolveLogisimBrush(signalName, bitWidth, signalValues);
-        double thickness = ResolveEdgeThickness(bitWidth > 1, isSelected);
+        IBrush brush;
+        if (isForced)
+        {
+            brush = new SolidColorBrush(Color.FromRgb(255, 140, 60));
+        }
+        else if (isSelected)
+        {
+            brush = Palette.Selected;
+        }
+        else if (isActiveMuxPath)
+        {
+            // P4-3: active mux input — paint with a bright cyan so the active
+            // data flow stands out from the other input wires. Sits below the
+            // selected/forced precedence so user interactions still dominate.
+            brush = new SolidColorBrush(Color.FromRgb(140, 220, 255));
+        }
+        else
+        {
+            brush = ResolveLogisimBrush(signalName, bitWidth, signalValues);
+        }
+        double thickness = ResolveEdgeThickness(bitWidth > 1, isSelected || isForced || isActiveMuxPath);
         Pen pen = new(brush, thickness, lineCap: PenLineCap.Square);
         return new ElkEdgeStyle(pen, shouldDim);
     }
@@ -570,7 +998,12 @@ public sealed partial class SchematicPreviewControl
         }
     }
 
-    private static void DrawJunctions(DrawingContext context, IReadOnlyList<ElkPoint>? junctions, ElkTransform transform, IBrush brush)
+    private static void DrawJunctions(
+        DrawingContext context,
+        IReadOnlyList<ElkPoint>? junctions,
+        ElkTransform transform,
+        Point coordinateOffset,
+        IBrush brush)
     {
         if (junctions is null || junctions.Count == 0)
         {
@@ -579,7 +1012,7 @@ public sealed partial class SchematicPreviewControl
 
         foreach (ElkPoint jp in junctions)
         {
-            Point center = transform.Apply(jp);
+            Point center = transform.Apply(jp, coordinateOffset);
             context.DrawEllipse(brush, null, center, 2.8, 2.8);
         }
     }
@@ -659,12 +1092,91 @@ public sealed partial class SchematicPreviewControl
         return CompactLayout ? 1.2 : 1.4;
     }
 
-    private static IReadOnlyList<Point> BuildEdgePolyline(IReadOnlyList<ElkEdgeSection> sections, ElkTransform transform)
+    private static ElkEdgeCoordinateContext BuildEdgeCoordinateContext(ElkGraph graph)
+    {
+        Dictionary<string, string[]> endpointPaths = new(StringComparer.Ordinal);
+        Dictionary<string, Point> nodeOrigins = new(StringComparer.Ordinal);
+        Visit(graph.Children, [], absoluteX: 0, absoluteY: 0);
+        return new ElkEdgeCoordinateContext(endpointPaths, nodeOrigins);
+
+        void Visit(IReadOnlyList<ElkNode> nodes, string[] parentPath, double absoluteX, double absoluteY)
+        {
+            foreach (ElkNode node in nodes)
+            {
+                double nodeAbsoluteX = absoluteX + node.X;
+                double nodeAbsoluteY = absoluteY + node.Y;
+                string[] nodePath = [.. parentPath, node.Id];
+                endpointPaths[node.Id] = nodePath;
+                nodeOrigins[PathKey(nodePath)] = new Point(nodeAbsoluteX, nodeAbsoluteY);
+
+                if (node.Ports is { Count: > 0 })
+                {
+                    foreach (ElkPort port in node.Ports)
+                    {
+                        endpointPaths[port.Id] = nodePath;
+                    }
+                }
+
+                if (node.Children is { Count: > 0 })
+                {
+                    Visit(node.Children, nodePath, nodeAbsoluteX, nodeAbsoluteY);
+                }
+            }
+        }
+    }
+
+    private static Point ResolveEdgeCoordinateOffset(ElkEdge edge, ElkEdgeCoordinateContext context)
+    {
+        string[]? commonPath = null;
+        foreach (string endpoint in edge.Sources.Concat(edge.Targets))
+        {
+            if (!context.EndpointPaths.TryGetValue(endpoint, out string[]? endpointPath))
+            {
+                continue;
+            }
+
+            commonPath = commonPath is null
+                ? endpointPath
+                : CommonPrefix(commonPath, endpointPath);
+            if (commonPath.Length == 0)
+            {
+                return default;
+            }
+        }
+
+        if (commonPath is null || commonPath.Length == 0)
+        {
+            return default;
+        }
+
+        return context.NodeOrigins.TryGetValue(PathKey(commonPath), out Point origin)
+            ? origin
+            : default;
+    }
+
+    private static string[] CommonPrefix(string[] left, string[] right)
+    {
+        int count = Math.Min(left.Length, right.Length);
+        int i = 0;
+        while (i < count && string.Equals(left[i], right[i], StringComparison.Ordinal))
+        {
+            i++;
+        }
+
+        return left[..i];
+    }
+
+    private static string PathKey(IReadOnlyList<string> path) => string.Join('\u001f', path);
+
+    private static IReadOnlyList<Point> BuildEdgePolyline(
+        IReadOnlyList<ElkEdgeSection> sections,
+        ElkTransform transform,
+        Point coordinateOffset)
     {
         List<Point> points = [];
         foreach (ElkEdgeSection section in sections)
         {
-            Point start = transform.Apply(section.StartPoint);
+            Point start = transform.Apply(section.StartPoint, coordinateOffset);
             if (points.Count == 0 || !AreClose(points[^1], start))
             {
                 points.Add(start);
@@ -674,11 +1186,11 @@ public sealed partial class SchematicPreviewControl
             {
                 foreach (ElkPoint bp in section.BendPoints)
                 {
-                    points.Add(transform.Apply(bp));
+                    points.Add(transform.Apply(bp, coordinateOffset));
                 }
             }
 
-            points.Add(transform.Apply(section.EndPoint));
+            points.Add(transform.Apply(section.EndPoint, coordinateOffset));
         }
 
         return points;
@@ -697,5 +1209,14 @@ public sealed partial class SchematicPreviewControl
 
         public Point Apply(ElkPoint p) =>
             new(OriginX + (p.X - GraphX) * Scale, OriginY + (p.Y - GraphY) * Scale);
+
+        public Point Apply(ElkPoint p, Point coordinateOffset) =>
+            new(
+                OriginX + (p.X + coordinateOffset.X - GraphX) * Scale,
+                OriginY + (p.Y + coordinateOffset.Y - GraphY) * Scale);
     }
+
+    private sealed record ElkEdgeCoordinateContext(
+        IReadOnlyDictionary<string, string[]> EndpointPaths,
+        IReadOnlyDictionary<string, Point> NodeOrigins);
 }

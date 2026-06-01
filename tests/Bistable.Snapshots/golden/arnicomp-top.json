@@ -1,0 +1,3474 @@
+{
+  "id": "root",
+  "layoutOptions": {
+    "elk.algorithm": "layered",
+    "elk.direction": "RIGHT",
+    "elk.edgeRouting": "ORTHOGONAL",
+    "elk.hierarchyHandling": "INCLUDE_CHILDREN",
+    "elk.layered.crossingMinimization.semiInteractive": "true",
+    "elk.layered.feedbackEdges": "true",
+    "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+    "elk.layered.spacing.edgeEdgeBetweenLayers": "10",
+    "elk.layered.spacing.edgeNodeBetweenLayers": "18",
+    "elk.layered.spacing.nodeNodeBetweenLayers": "72",
+    "elk.layered.thoroughness": "3",
+    "elk.spacing.nodeNode": "36"
+  },
+  "children": [
+    {
+      "id": "boundary_in",
+      "labels": [
+        "inputs"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "boundary_in.clk",
+          "labels": [
+            "clk [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "boundary_in.rst_n",
+          "labels": [
+            "rst_n [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "boundary_in.instruction",
+          "labels": [
+            "instruction [8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "boundary_in.mem_rdata",
+          "labels": [
+            "mem_rdata [8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "boundary_out",
+      "labels": [
+        "outputs"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "boundary_out.pc_out",
+          "labels": [
+            "pc_out [16b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "boundary_out.mem_addr",
+          "labels": [
+            "mem_addr [16b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "boundary_out.mem_wdata",
+          "labels": [
+            "mem_wdata [8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "boundary_out.mem_wen",
+          "labels": [
+            "mem_wen [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "boundary_out.mem_ren",
+          "labels": [
+            "mem_ren [1b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_bus_selector_i",
+      "labels": [
+        "bus_selector_i",
+        "arnicomp_top.bus_selector_i",
+        "expandable"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_bus_selector_i.in.sel",
+          "labels": [
+            "sel[3b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_bus_selector_i.in.out_en",
+          "labels": [
+            "out_en"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_bus_selector_i.in.a",
+          "labels": [
+            "a[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_bus_selector_i.in.d",
+          "labels": [
+            "d[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_bus_selector_i.in.b",
+          "labels": [
+            "b[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_bus_selector_i.in.acc",
+          "labels": [
+            "acc[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "5",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_bus_selector_i.in.lrl",
+          "labels": [
+            "lrl[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "6",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_bus_selector_i.in.lrh",
+          "labels": [
+            "lrh[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "7",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_bus_selector_i.in.m",
+          "labels": [
+            "m[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "8",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_bus_selector_i.out.out",
+          "labels": [
+            "out[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_reg_a_i",
+      "labels": [
+        "reg_a_i",
+        "arnicomp_top.reg_a_i"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_reg_a_i.in.clk",
+          "labels": [
+            "clk"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_a_i.in.rst_n",
+          "labels": [
+            "rst_n"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_a_i.in.we",
+          "labels": [
+            "we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_a_i.in.smsbra",
+          "labels": [
+            "smsbra"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_a_i.in.d",
+          "labels": [
+            "d[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_a_i.out.out",
+          "labels": [
+            "out[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_reg_b",
+      "labels": [
+        "reg_b",
+        "arnicomp_top.reg_b",
+        "expandable"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_reg_b.in.clk",
+          "labels": [
+            "clk"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_b.in.rst_n",
+          "labels": [
+            "rst_n"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_b.in.we",
+          "labels": [
+            "we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_b.in.oe",
+          "labels": [
+            "oe"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_b.in.d",
+          "labels": [
+            "d[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_b.out.out",
+          "labels": [
+            "out[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_reg_d",
+      "labels": [
+        "reg_d",
+        "arnicomp_top.reg_d",
+        "expandable"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_reg_d.in.clk",
+          "labels": [
+            "clk"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_d.in.rst_n",
+          "labels": [
+            "rst_n"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_d.in.we",
+          "labels": [
+            "we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_d.in.oe",
+          "labels": [
+            "oe"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_d.in.d",
+          "labels": [
+            "d[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_d.out.out",
+          "labels": [
+            "out[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_acc",
+      "labels": [
+        "acc",
+        "arnicomp_top.acc",
+        "expandable"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_acc.in.clk",
+          "labels": [
+            "clk"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_acc.in.rst_n",
+          "labels": [
+            "rst_n"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_acc.in.we",
+          "labels": [
+            "we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_acc.in.oe",
+          "labels": [
+            "oe"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_acc.in.d",
+          "labels": [
+            "d[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_acc.out.out",
+          "labels": [
+            "out[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_marl_i",
+      "labels": [
+        "marl_i",
+        "arnicomp_top.marl_i",
+        "expandable"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_marl_i.in.clk",
+          "labels": [
+            "clk"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_marl_i.in.rst_n",
+          "labels": [
+            "rst_n"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_marl_i.in.marl_we",
+          "labels": [
+            "marl_we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_marl_i.in.marh_we",
+          "labels": [
+            "marh_we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_marl_i.in.inc",
+          "labels": [
+            "inc"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_marl_i.in.inc_dec_sel",
+          "labels": [
+            "inc_dec_sel"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "5",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_marl_i.in.inc_by_two",
+          "labels": [
+            "inc_by_two"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "6",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_marl_i.in.d",
+          "labels": [
+            "d[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "7",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_marl_i.out.marl_out",
+          "labels": [
+            "marl_out[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_marl_i.out.marh_out",
+          "labels": [
+            "marh_out[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_prl",
+      "labels": [
+        "prl",
+        "arnicomp_top.prl",
+        "expandable"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_prl.in.clk",
+          "labels": [
+            "clk"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prl.in.rst_n",
+          "labels": [
+            "rst_n"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prl.in.we",
+          "labels": [
+            "we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prl.in.oe",
+          "labels": [
+            "oe"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prl.in.d",
+          "labels": [
+            "d[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prl.out.out",
+          "labels": [
+            "out[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_prh",
+      "labels": [
+        "prh",
+        "arnicomp_top.prh",
+        "expandable"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_prh.in.clk",
+          "labels": [
+            "clk"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prh.in.rst_n",
+          "labels": [
+            "rst_n"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prh.in.we",
+          "labels": [
+            "we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prh.in.oe",
+          "labels": [
+            "oe"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prh.in.d",
+          "labels": [
+            "d[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prh.out.out",
+          "labels": [
+            "out[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_lr",
+      "labels": [
+        "lr",
+        "arnicomp_top.lr",
+        "expandable"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_lr.in.clk",
+          "labels": [
+            "clk"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_lr.in.rst_n",
+          "labels": [
+            "rst_n"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_lr.in.we",
+          "labels": [
+            "we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_lr.in.oe",
+          "labels": [
+            "oe"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_lr.in.d",
+          "labels": [
+            "d[16b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_lr.out.out",
+          "labels": [
+            "out[16b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_sp_i",
+      "labels": [
+        "sp_i",
+        "arnicomp_top.sp_i"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_sp_i.in.clk",
+          "labels": [
+            "clk"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_sp_i.in.rst_n",
+          "labels": [
+            "rst_n"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_sp_i.in.update_en",
+          "labels": [
+            "update_en"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_sp_i.in.inc_dec_sel",
+          "labels": [
+            "inc_dec_sel"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_sp_i.out.out",
+          "labels": [
+            "out[16b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_flag_reg_i",
+      "labels": [
+        "flag_reg_i",
+        "arnicomp_top.flag_reg_i"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_flag_reg_i.in.clk",
+          "labels": [
+            "clk"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_flag_reg_i.in.rst_n",
+          "labels": [
+            "rst_n"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_flag_reg_i.in.we",
+          "labels": [
+            "we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_flag_reg_i.in.z_f_in",
+          "labels": [
+            "z_f_in"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_flag_reg_i.in.n_f_in",
+          "labels": [
+            "n_f_in"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_flag_reg_i.in.c_f_in",
+          "labels": [
+            "c_f_in"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "5",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_flag_reg_i.in.v_f_in",
+          "labels": [
+            "v_f_in"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "6",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_flag_reg_i.out.z_f_out",
+          "labels": [
+            "z_f_out"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_flag_reg_i.out.n_f_out",
+          "labels": [
+            "n_f_out"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_flag_reg_i.out.c_f_out",
+          "labels": [
+            "c_f_out"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_flag_reg_i.out.v_f_out",
+          "labels": [
+            "v_f_out"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_pc",
+      "labels": [
+        "pc",
+        "arnicomp_top.pc",
+        "expandable"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_pc.in.clk",
+          "labels": [
+            "clk"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_pc.in.rst_n",
+          "labels": [
+            "rst_n"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_pc.in.count_en",
+          "labels": [
+            "count_en"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_pc.in.load_en",
+          "labels": [
+            "load_en"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_pc.in.load_data",
+          "labels": [
+            "load_data[16b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_pc.out.paddr",
+          "labels": [
+            "paddr[16b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_instruction_decoder",
+      "labels": [
+        "instruction_decoder",
+        "arnicomp_top.instruction_decoder",
+        "expandable"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_instruction_decoder.in.instr_in",
+          "labels": [
+            "instr_in[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out",
+          "labels": [
+            "ctrl_pkg_out"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.out.jmp_sel",
+          "labels": [
+            "jmp_sel[3b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.out.reg_a_we",
+          "labels": [
+            "reg_a_we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.out.reg_b_we",
+          "labels": [
+            "reg_b_we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.out.reg_d_we",
+          "labels": [
+            "reg_d_we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.out.marl_we",
+          "labels": [
+            "marl_we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "5",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.out.marh_we",
+          "labels": [
+            "marh_we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "6",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.out.prl_we",
+          "labels": [
+            "prl_we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "7",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.out.prh_we",
+          "labels": [
+            "prh_we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "8",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.out.mem_we",
+          "labels": [
+            "mem_we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "9",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.out.acc_we",
+          "labels": [
+            "acc_we"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "10",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_alu_i",
+      "labels": [
+        "alu_i",
+        "arnicomp_top.alu_i",
+        "expandable"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_alu_i.in.a",
+          "labels": [
+            "a[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_alu_i.in.b",
+          "labels": [
+            "b[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_alu_i.in.ops",
+          "labels": [
+            "ops[2b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_alu_i.in.negative",
+          "labels": [
+            "negative"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_alu_i.in.c_in",
+          "labels": [
+            "c_in"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_alu_i.out.result",
+          "labels": [
+            "result[8b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_alu_i.out.zero_flag",
+          "labels": [
+            "zero_flag"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_alu_i.out.negative_flag",
+          "labels": [
+            "negative_flag"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_alu_i.out.carry_flag",
+          "labels": [
+            "carry_flag"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_alu_i.out.overflow_flag",
+          "labels": [
+            "overflow_flag"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "child_arnicomp_top_jump_decoder",
+      "labels": [
+        "jump_decoder",
+        "arnicomp_top.jump_decoder"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "child_arnicomp_top_jump_decoder.in.jmp_en",
+          "labels": [
+            "jmp_en"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_jump_decoder.in.jgt",
+          "labels": [
+            "jgt"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_jump_decoder.in.zero_flag",
+          "labels": [
+            "zero_flag"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_jump_decoder.in.negative_flag",
+          "labels": [
+            "negative_flag"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_jump_decoder.in.overflow_flag",
+          "labels": [
+            "overflow_flag"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_jump_decoder.in.carry_flag",
+          "labels": [
+            "carry_flag"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "5",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_jump_decoder.in.jmp_cond",
+          "labels": [
+            "jmp_cond[3b]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "6",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_jump_decoder.out.jmp_taken",
+          "labels": [
+            "jmp_taken"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "split_lr_out",
+      "labels": [],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "split_lr_out.in",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "split_lr_out.out.0",
+          "labels": [
+            "[15:8]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "split_lr_out.out.1",
+          "labels": [
+            "[7:0]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ff_flush_next_instr",
+      "labels": [
+        "FF flush_next_instr"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "ff_flush_next_instr.d",
+          "labels": [
+            "D\u00B7X"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "ff_flush_next_instr.clk",
+          "labels": [
+            "\u003E"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "ff_flush_next_instr.q",
+          "labels": [
+            "Q"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ff_inst_q",
+      "labels": [
+        "FF inst_q"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "ff_inst_q.d",
+          "labels": [
+            "D"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "ff_inst_q.clk",
+          "labels": [
+            "\u003E"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "ff_inst_q.rst",
+          "labels": [
+            "R"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "ff_inst_q.q",
+          "labels": [
+            "Q"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "fanout_control_pins",
+      "labels": [
+        "control_pins (control_pkg::ctrl_t)"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "fanout_control_pins.in",
+          "labels": [
+            "control_pins"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.0",
+          "labels": [
+            "jgt"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.1",
+          "labels": [
+            "inc_mar"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.2",
+          "labels": [
+            "ops[21:20]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.3",
+          "labels": [
+            "sn"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.4",
+          "labels": [
+            "ce"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "4",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.5",
+          "labels": [
+            "jmp"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "5",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.6",
+          "labels": [
+            "set_lr"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "6",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.7",
+          "labels": [
+            "sf"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "7",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.8",
+          "labels": [
+            "inc_dec_sel"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "8",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.9",
+          "labels": [
+            "sp_sel"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "9",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.10",
+          "labels": [
+            "ssel[4:2]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "10",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
+          "id": "fanout_control_pins.leg.11",
+          "labels": [
+            "oe"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "11",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "buf_pc_out",
+      "labels": [
+        "BUF pc_out"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "buf_pc_out.in",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "buf_pc_out.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "mux_mem_addr",
+      "labels": [
+        "MUX mem_addr"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "mux_mem_addr.in.0",
+          "labels": [
+            "1\u00B7X"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_mem_addr.in.1",
+          "labels": [
+            "0\u00B7X"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_mem_addr.sel.0",
+          "labels": [
+            "control_pins[5]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
+          }
+        },
+        {
+          "id": "mux_mem_addr.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "mux_mem_wdata",
+      "labels": [
+        "MUX mem_wdata"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "mux_mem_wdata.in.0",
+          "labels": [
+            "1\u00B7X"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_mem_wdata.in.1",
+          "labels": [
+            "0"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_mem_wdata.sel.0",
+          "labels": [
+            "control_pins[5]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
+          }
+        },
+        {
+          "id": "mux_mem_wdata.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "gate_mem_ren",
+      "labels": [
+        "And mem_ren"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "gate_mem_ren.in.0",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "gate_mem_ren.in.1",
+          "labels": [
+            "B\u00B7X"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "gate_mem_ren.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "mux_bus",
+      "labels": [
+        "MUX bus"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "mux_bus.in.0",
+          "labels": [
+            "control_pins[0]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_bus.in.1",
+          "labels": [
+            "control_pins[8]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_bus.in.2",
+          "labels": [
+            "control_pins[7]\u00B7X"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_bus.in.3",
+          "labels": [
+            "else"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "3",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_bus.sel.0",
+          "labels": [
+            "control_pins[0]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
+          }
+        },
+        {
+          "id": "mux_bus.sel.1",
+          "labels": [
+            "control_pins[8]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "SOUTH"
+          }
+        },
+        {
+          "id": "mux_bus.sel.2",
+          "labels": [
+            "control_pins[7]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "SOUTH"
+          }
+        },
+        {
+          "id": "mux_bus.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "mux_exec_instr",
+      "labels": [
+        "MUX exec_instr"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "mux_exec_instr.in.0",
+          "labels": [
+            "1\u00B70"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_exec_instr.in.1",
+          "labels": [
+            "0"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_exec_instr.sel.0",
+          "labels": [
+            "flush_next_instr"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
+          }
+        },
+        {
+          "id": "mux_exec_instr.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "mux_alu_carry_in",
+      "labels": [
+        "MUX alu_carry_in"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "mux_alu_carry_in.in.0",
+          "labels": [
+            "1"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_alu_carry_in.in.1",
+          "labels": [
+            "0"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux_alu_carry_in.sel.0",
+          "labels": [
+            "control_pins[16]"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
+          }
+        },
+        {
+          "id": "mux_alu_carry_in.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "buf_mem_wen",
+      "labels": [
+        "BUF mem_wen"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "buf_mem_wen.in",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "buf_mem_wen.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_a_i.in.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e1",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e2",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e3",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e4",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "child_arnicomp_top_marl_i.in.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e5",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e6",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e7",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e8",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "child_arnicomp_top_sp_i.in.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e9",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i.in.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e10",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "child_arnicomp_top_pc.in.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e11",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "ff_flush_next_instr.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e12",
+      "sources": [
+        "boundary_in.clk"
+      ],
+      "targets": [
+        "ff_inst_q.clk"
+      ],
+      "labels": [
+        "clk",
+        "1"
+      ]
+    },
+    {
+      "id": "e13",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_a_i.in.rst_n"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e14",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.rst_n"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e15",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.rst_n"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e16",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.rst_n"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e17",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "child_arnicomp_top_marl_i.in.rst_n"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e18",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.rst_n"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e19",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.rst_n"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e20",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.rst_n"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e21",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "child_arnicomp_top_sp_i.in.rst_n"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e22",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i.in.rst_n"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e23",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "child_arnicomp_top_pc.in.rst_n"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e24",
+      "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "ff_inst_q.rst"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e25",
+      "sources": [
+        "boundary_in.instruction"
+      ],
+      "targets": [
+        "ff_inst_q.d"
+      ],
+      "labels": [
+        "instruction",
+        "1"
+      ]
+    },
+    {
+      "id": "e26",
+      "sources": [
+        "boundary_in.mem_rdata"
+      ],
+      "targets": [
+        "child_arnicomp_top_bus_selector_i.in.m"
+      ],
+      "labels": [
+        "mem_rdata",
+        "8"
+      ]
+    },
+    {
+      "id": "e27",
+      "sources": [
+        "child_arnicomp_top_bus_selector_i.out.out"
+      ],
+      "targets": [
+        "mux_bus.in.3"
+      ],
+      "labels": [
+        "bus_sel_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e28",
+      "sources": [
+        "child_arnicomp_top_reg_a_i.out.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_bus_selector_i.in.a"
+      ],
+      "labels": [
+        "reg_a_out",
+        "8"
+      ]
+    },
+    {
+      "id": "e29",
+      "sources": [
+        "child_arnicomp_top_reg_b.out.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_bus_selector_i.in.b"
+      ],
+      "labels": [
+        "reg_b_out",
+        "8"
+      ]
+    },
+    {
+      "id": "e30",
+      "sources": [
+        "child_arnicomp_top_reg_d.out.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_bus_selector_i.in.d"
+      ],
+      "labels": [
+        "reg_d_out",
+        "8"
+      ]
+    },
+    {
+      "id": "e31",
+      "sources": [
+        "child_arnicomp_top_reg_d.out.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_alu_i.in.a"
+      ],
+      "labels": [
+        "reg_d_out",
+        "8"
+      ]
+    },
+    {
+      "id": "e32",
+      "sources": [
+        "child_arnicomp_top_acc.out.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_bus_selector_i.in.acc"
+      ],
+      "labels": [
+        "acc_out",
+        "8"
+      ]
+    },
+    {
+      "id": "e33",
+      "sources": [
+        "child_arnicomp_top_lr.out.out"
+      ],
+      "targets": [
+        "split_lr_out.in"
+      ],
+      "labels": [
+        "lr_out",
+        "16"
+      ]
+    },
+    {
+      "id": "e34",
+      "sources": [
+        "child_arnicomp_top_flag_reg_i.out.z_f_out"
+      ],
+      "targets": [
+        "child_arnicomp_top_jump_decoder.in.zero_flag"
+      ],
+      "labels": [
+        "z_reg_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e35",
+      "sources": [
+        "child_arnicomp_top_flag_reg_i.out.n_f_out"
+      ],
+      "targets": [
+        "child_arnicomp_top_jump_decoder.in.negative_flag"
+      ],
+      "labels": [
+        "n_reg_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e36",
+      "sources": [
+        "child_arnicomp_top_flag_reg_i.out.c_f_out"
+      ],
+      "targets": [
+        "child_arnicomp_top_jump_decoder.in.carry_flag"
+      ],
+      "labels": [
+        "c_reg_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e37",
+      "sources": [
+        "child_arnicomp_top_flag_reg_i.out.c_f_out"
+      ],
+      "targets": [
+        "mux_alu_carry_in.in.0"
+      ],
+      "labels": [
+        "c_reg_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e38",
+      "sources": [
+        "child_arnicomp_top_flag_reg_i.out.v_f_out"
+      ],
+      "targets": [
+        "child_arnicomp_top_jump_decoder.in.overflow_flag"
+      ],
+      "labels": [
+        "v_reg_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e39",
+      "sources": [
+        "child_arnicomp_top_pc.out.paddr"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.d"
+      ],
+      "labels": [
+        "pc_addr",
+        "16"
+      ]
+    },
+    {
+      "id": "e40",
+      "sources": [
+        "child_arnicomp_top_pc.out.paddr"
+      ],
+      "targets": [
+        "buf_pc_out.in"
+      ],
+      "labels": [
+        "pc_addr",
+        "1"
+      ]
+    },
+    {
+      "id": "e41",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "mux_mem_addr.sel.0"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e42",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "mux_mem_wdata.sel.0"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e43",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "mux_bus.sel.0"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e44",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "mux_bus.sel.1"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e45",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "mux_bus.sel.2"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e46",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "mux_alu_carry_in.in.1"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e47",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "mux_alu_carry_in.sel.0"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e48",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "gate_mem_ren.in.0"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e49",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "fanout_control_pins.in"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e50",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.jmp_sel"
+      ],
+      "targets": [
+        "child_arnicomp_top_jump_decoder.in.jmp_cond"
+      ],
+      "labels": [
+        "jmp_select",
+        "3"
+      ]
+    },
+    {
+      "id": "e51",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.reg_a_we"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_a_i.in.we"
+      ],
+      "labels": [
+        "reg_a_we",
+        "1"
+      ]
+    },
+    {
+      "id": "e52",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.reg_b_we"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.we"
+      ],
+      "labels": [
+        "reg_b_we",
+        "1"
+      ]
+    },
+    {
+      "id": "e53",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.reg_d_we"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.we"
+      ],
+      "labels": [
+        "reg_d_we",
+        "1"
+      ]
+    },
+    {
+      "id": "e54",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.marl_we"
+      ],
+      "targets": [
+        "child_arnicomp_top_marl_i.in.marl_we"
+      ],
+      "labels": [
+        "marl_we",
+        "1"
+      ]
+    },
+    {
+      "id": "e55",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.marh_we"
+      ],
+      "targets": [
+        "child_arnicomp_top_marl_i.in.marh_we"
+      ],
+      "labels": [
+        "marh_we",
+        "1"
+      ]
+    },
+    {
+      "id": "e56",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.prl_we"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.we"
+      ],
+      "labels": [
+        "prl_we",
+        "1"
+      ]
+    },
+    {
+      "id": "e57",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.prh_we"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.we"
+      ],
+      "labels": [
+        "prh_we",
+        "1"
+      ]
+    },
+    {
+      "id": "e58",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.mem_we"
+      ],
+      "targets": [
+        "buf_mem_wen.in"
+      ],
+      "labels": [
+        "mem_we",
+        "1"
+      ]
+    },
+    {
+      "id": "e59",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.acc_we"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.we"
+      ],
+      "labels": [
+        "acc_we",
+        "1"
+      ]
+    },
+    {
+      "id": "e60",
+      "sources": [
+        "child_arnicomp_top_alu_i.out.result"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.d"
+      ],
+      "labels": [
+        "alu_out",
+        "8"
+      ]
+    },
+    {
+      "id": "e61",
+      "sources": [
+        "child_arnicomp_top_alu_i.out.zero_flag"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i.in.z_f_in"
+      ],
+      "labels": [
+        "zero_flag",
+        "1"
+      ]
+    },
+    {
+      "id": "e62",
+      "sources": [
+        "child_arnicomp_top_alu_i.out.negative_flag"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i.in.n_f_in"
+      ],
+      "labels": [
+        "negative_flag",
+        "1"
+      ]
+    },
+    {
+      "id": "e63",
+      "sources": [
+        "child_arnicomp_top_alu_i.out.carry_flag"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i.in.c_f_in"
+      ],
+      "labels": [
+        "carry_flag",
+        "1"
+      ]
+    },
+    {
+      "id": "e64",
+      "sources": [
+        "child_arnicomp_top_alu_i.out.overflow_flag"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i.in.v_f_in"
+      ],
+      "labels": [
+        "overflow_flag",
+        "1"
+      ]
+    },
+    {
+      "id": "e65",
+      "sources": [
+        "child_arnicomp_top_jump_decoder.out.jmp_taken"
+      ],
+      "targets": [
+        "child_arnicomp_top_pc.in.load_en"
+      ],
+      "labels": [
+        "jump_taken",
+        "1"
+      ]
+    },
+    {
+      "id": "e66",
+      "sources": [
+        "split_lr_out.out.1"
+      ],
+      "targets": [
+        "child_arnicomp_top_bus_selector_i.in.lrl"
+      ],
+      "labels": [
+        "lrl_out",
+        "8"
+      ]
+    },
+    {
+      "id": "e67",
+      "sources": [
+        "split_lr_out.out.0"
+      ],
+      "targets": [
+        "child_arnicomp_top_bus_selector_i.in.lrh"
+      ],
+      "labels": [
+        "lrh_out",
+        "8"
+      ]
+    },
+    {
+      "id": "e68",
+      "sources": [
+        "ff_flush_next_instr.q"
+      ],
+      "targets": [
+        "mux_exec_instr.sel.0"
+      ],
+      "labels": [
+        "flush_next_instr",
+        "1"
+      ]
+    },
+    {
+      "id": "e69",
+      "sources": [
+        "ff_inst_q.q"
+      ],
+      "targets": [
+        "child_arnicomp_top_marl_i.in.inc_by_two"
+      ],
+      "labels": [
+        "inst_q",
+        "1"
+      ]
+    },
+    {
+      "id": "e70",
+      "sources": [
+        "ff_inst_q.q"
+      ],
+      "targets": [
+        "mux_bus.in.0"
+      ],
+      "labels": [
+        "inst_q",
+        "1"
+      ]
+    },
+    {
+      "id": "e71",
+      "sources": [
+        "ff_inst_q.q"
+      ],
+      "targets": [
+        "mux_bus.in.1"
+      ],
+      "labels": [
+        "inst_q",
+        "1"
+      ]
+    },
+    {
+      "id": "e72",
+      "sources": [
+        "ff_inst_q.q"
+      ],
+      "targets": [
+        "mux_exec_instr.in.1"
+      ],
+      "labels": [
+        "inst_q",
+        "1"
+      ]
+    },
+    {
+      "id": "e73",
+      "sources": [
+        "mux_mem_addr.out"
+      ],
+      "targets": [
+        "boundary_out.mem_addr"
+      ],
+      "labels": [
+        "mem_addr",
+        "1"
+      ]
+    },
+    {
+      "id": "e74",
+      "sources": [
+        "mux_mem_wdata.out"
+      ],
+      "targets": [
+        "boundary_out.mem_wdata"
+      ],
+      "labels": [
+        "mem_wdata",
+        "1"
+      ]
+    },
+    {
+      "id": "e75",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_a_i.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e76",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e77",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e78",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_marl_i.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e79",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e80",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.d"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e81",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_alu_i.in.b"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e82",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "mux_mem_wdata.in.1"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e83",
+      "sources": [
+        "mux_exec_instr.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_instruction_decoder.in.instr_in"
+      ],
+      "labels": [
+        "exec_instr",
+        "1"
+      ]
+    },
+    {
+      "id": "e84",
+      "sources": [
+        "mux_alu_carry_in.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_alu_i.in.c_in"
+      ],
+      "labels": [
+        "alu_carry_in",
+        "1"
+      ]
+    },
+    {
+      "id": "e85",
+      "sources": [
+        "buf_pc_out.out"
+      ],
+      "targets": [
+        "boundary_out.pc_out"
+      ],
+      "labels": [
+        "pc_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e86",
+      "sources": [
+        "buf_mem_wen.out"
+      ],
+      "targets": [
+        "boundary_out.mem_wen"
+      ],
+      "labels": [
+        "mem_wen",
+        "1"
+      ]
+    },
+    {
+      "id": "e87",
+      "sources": [
+        "gate_mem_ren.out"
+      ],
+      "targets": [
+        "boundary_out.mem_ren"
+      ],
+      "labels": [
+        "mem_ren",
+        "1"
+      ]
+    },
+    {
+      "id": "e88",
+      "sources": [
+        "fanout_control_pins.leg.0"
+      ],
+      "targets": [
+        "child_arnicomp_top_jump_decoder.in.jgt"
+      ],
+      "labels": [
+        "control_pins.jgt",
+        "1"
+      ]
+    },
+    {
+      "id": "e89",
+      "sources": [
+        "fanout_control_pins.leg.1"
+      ],
+      "targets": [
+        "child_arnicomp_top_marl_i.in.inc"
+      ],
+      "labels": [
+        "control_pins.inc_mar",
+        "1"
+      ]
+    },
+    {
+      "id": "e90",
+      "sources": [
+        "fanout_control_pins.leg.2"
+      ],
+      "targets": [
+        "child_arnicomp_top_alu_i.in.ops"
+      ],
+      "labels": [
+        "control_pins.ops",
+        "2"
+      ]
+    },
+    {
+      "id": "e91",
+      "sources": [
+        "fanout_control_pins.leg.3"
+      ],
+      "targets": [
+        "child_arnicomp_top_alu_i.in.negative"
+      ],
+      "labels": [
+        "control_pins.sn",
+        "1"
+      ]
+    },
+    {
+      "id": "e92",
+      "sources": [
+        "fanout_control_pins.leg.4"
+      ],
+      "targets": [
+        "child_arnicomp_top_pc.in.count_en"
+      ],
+      "labels": [
+        "control_pins.ce",
+        "1"
+      ]
+    },
+    {
+      "id": "e93",
+      "sources": [
+        "fanout_control_pins.leg.5"
+      ],
+      "targets": [
+        "child_arnicomp_top_jump_decoder.in.jmp_en"
+      ],
+      "labels": [
+        "control_pins.jmp",
+        "1"
+      ]
+    },
+    {
+      "id": "e94",
+      "sources": [
+        "fanout_control_pins.leg.6"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.we"
+      ],
+      "labels": [
+        "control_pins.set_lr",
+        "1"
+      ]
+    },
+    {
+      "id": "e95",
+      "sources": [
+        "fanout_control_pins.leg.7"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i.in.we"
+      ],
+      "labels": [
+        "control_pins.sf",
+        "1"
+      ]
+    },
+    {
+      "id": "e96",
+      "sources": [
+        "fanout_control_pins.leg.8"
+      ],
+      "targets": [
+        "child_arnicomp_top_marl_i.in.inc_dec_sel"
+      ],
+      "labels": [
+        "control_pins.inc_dec_sel",
+        "1"
+      ]
+    },
+    {
+      "id": "e97",
+      "sources": [
+        "fanout_control_pins.leg.8"
+      ],
+      "targets": [
+        "child_arnicomp_top_sp_i.in.inc_dec_sel"
+      ],
+      "labels": [
+        "control_pins.inc_dec_sel",
+        "1"
+      ]
+    },
+    {
+      "id": "e98",
+      "sources": [
+        "fanout_control_pins.leg.9"
+      ],
+      "targets": [
+        "child_arnicomp_top_sp_i.in.update_en"
+      ],
+      "labels": [
+        "control_pins.sp_sel",
+        "1"
+      ]
+    },
+    {
+      "id": "e99",
+      "sources": [
+        "fanout_control_pins.leg.10"
+      ],
+      "targets": [
+        "child_arnicomp_top_bus_selector_i.in.sel"
+      ],
+      "labels": [
+        "control_pins.ssel",
+        "3"
+      ]
+    },
+    {
+      "id": "e100",
+      "sources": [
+        "fanout_control_pins.leg.11"
+      ],
+      "targets": [
+        "child_arnicomp_top_bus_selector_i.in.out_en"
+      ],
+      "labels": [
+        "control_pins.oe",
+        "1"
+      ]
+    }
+  ]
+}

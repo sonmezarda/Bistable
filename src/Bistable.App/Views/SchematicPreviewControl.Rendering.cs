@@ -120,47 +120,102 @@ public sealed partial class SchematicPreviewControl
             IBrush text = isSelected ? Palette.Selected : Palette.Text;
             double badgeWidth = GetValueBadgeWidth(signal.Value, 62, 98);
 
+            string truncatedLabel = signal.Name;
+            BoundaryPinLayout layout = ComputeBoundaryPinLayout(
+                bounds, moduleRect, y, badgeWidth, leftSide,
+                rawLabel: signal.Name,
+                measureLabel: (lbl, max) =>
+                {
+                    truncatedLabel = Ellipsize(lbl, 12, max);
+                    return MeasureWidth(truncatedLabel, 12);
+                });
+
+            _signalHitTargets.Add(new SignalHitTarget(signal, layout.Hit));
+            context.DrawLine(new Pen(stroke, 2), layout.WireStart, layout.WireEnd);
+
             if (leftSide)
             {
-                double pinStartX = moduleRect.X - 44;
-                double pinEndX = moduleRect.X;
-                double badgeX = Math.Max(16, pinStartX - badgeWidth - 6);
-                Rect badge = new(badgeX, y - 12, badgeWidth, 24);
-                double labelRight = badge.X - 10;
-                string label = Ellipsize(signal.Name, 12, Math.Max(62, labelRight - 16));
-                double labelWidth = MeasureWidth(label, 12);
-                double nameX = Math.Max(16, labelRight - labelWidth);
-                Rect hit = new(nameX - 8, y - 16, moduleRect.X - nameX + 8, 32);
-
-                _signalHitTargets.Add(new SignalHitTarget(signal, hit));
-                context.DrawLine(new Pen(stroke, 2), new Point(pinStartX, y), new Point(pinEndX, y));
-                DrawText(context, label, nameX, y - 8, text, 12);
+                DrawText(context, truncatedLabel, layout.LabelX, y - 8, text, 12);
                 DrawValueBadge(
                     context,
                     signal.Value,
-                    badge,
+                    layout.Badge,
                     signal.IsBoolean && signal.Value == "1" ? Palette.Selected : Palette.InputValue,
                     Palette.ValueFill);
             }
             else
             {
-                double pinStartX = moduleRect.Right;
-                double pinEndX = moduleRect.Right + 44;
-                double badgeX = Math.Min(bounds.Right - badgeWidth - 16, pinEndX + 64);
-                Rect badge = new(badgeX, y - 12, badgeWidth, 24);
-                double labelX = pinEndX + 10;
-                string label = Ellipsize(signal.Name, 12, Math.Max(90, badge.X - labelX - 10));
-                Rect hit = new(moduleRect.Right - 8, y - 16, badge.Right - moduleRect.Right + 8, 32);
-
-                _signalHitTargets.Add(new SignalHitTarget(signal, hit));
-                context.DrawLine(new Pen(stroke, 2), new Point(pinStartX, y), new Point(pinEndX, y));
-                DrawText(context, label, labelX, y - 8, text, 12);
-                DrawValueBadge(context, signal.Value, badge, isSelected ? Palette.Selected : Palette.OutputValue, Palette.ValueFill);
+                DrawValueBadge(context, signal.Value, layout.Badge, isSelected ? Palette.Selected : Palette.OutputValue, Palette.ValueFill);
+                DrawText(context, truncatedLabel, layout.LabelX, y - 8, text, 12);
             }
 
             context.FillRectangle(stroke, new Rect(leftSide ? moduleRect.X - 3 : moduleRect.Right - 3, y - 3, 6, 6));
         }
     }
+
+    /// <summary>
+    /// Pure geometry for top-level boundary pin layout. Outputs the badge rect,
+    /// label x-position, wire endpoints, and hit-test rect for one pin. Mirroring
+    /// is exact: input and output layouts produce identical badge-to-wire gaps
+    /// (P2.5-1 fix). Extracted as a public static for testability.
+    /// </summary>
+    public static BoundaryPinLayout ComputeBoundaryPinLayout(
+        Rect bounds,
+        Rect moduleRect,
+        double y,
+        double badgeWidth,
+        bool leftSide,
+        string rawLabel,
+        Func<string, double, double> measureLabel)
+    {
+        const double WireLength = 44;
+        const double BadgeGap = 6;       // badge ↔ wire end (or wire start) gap
+        const double LabelGap = 10;      // label ↔ badge gap
+
+        if (leftSide)
+        {
+            double pinStartX = moduleRect.X - WireLength;
+            double pinEndX = moduleRect.X;
+            double badgeX = Math.Max(16, pinStartX - badgeWidth - BadgeGap);
+            Rect badge = new(badgeX, y - 12, badgeWidth, 24);
+            double labelRightLimit = badge.X - LabelGap;
+            double labelMaxWidth = Math.Max(62, labelRightLimit - 16);
+            double labelWidth = measureLabel(rawLabel, labelMaxWidth);
+            double labelX = Math.Max(16, labelRightLimit - labelWidth);
+            Rect hit = new(labelX - 8, y - 16, moduleRect.X - labelX + 8, 32);
+            return new BoundaryPinLayout(
+                Badge: badge,
+                LabelX: labelX,
+                WireStart: new Point(pinStartX, y),
+                WireEnd: new Point(pinEndX, y),
+                Hit: hit);
+        }
+        else
+        {
+            double pinStartX = moduleRect.Right;
+            double pinEndX = moduleRect.Right + WireLength;
+            double badgeX = pinEndX + BadgeGap;
+            Rect badge = new(badgeX, y - 12, badgeWidth, 24);
+            double labelX = badge.Right + LabelGap;
+            double labelMaxWidth = Math.Max(60, bounds.Right - labelX - 16);
+            double labelWidth = measureLabel(rawLabel, labelMaxWidth);
+            Rect hit = new(moduleRect.Right - 8, y - 16,
+                Math.Max(badge.Right, labelX + labelWidth) - moduleRect.Right + 16, 32);
+            return new BoundaryPinLayout(
+                Badge: badge,
+                LabelX: labelX,
+                WireStart: new Point(pinStartX, y),
+                WireEnd: new Point(pinEndX, y),
+                Hit: hit);
+        }
+    }
+
+    public readonly record struct BoundaryPinLayout(
+        Rect Badge,
+        double LabelX,
+        Point WireStart,
+        Point WireEnd,
+        Rect Hit);
 
     private Rect? DrawScopeCard(DrawingContext context, Rect bounds)
     {
@@ -211,11 +266,13 @@ public sealed partial class SchematicPreviewControl
         IReadOnlyList<HierarchyScopeInstanceViewModel> childScopes,
         IReadOnlyList<HierarchyScopePortViewModel> scopePorts,
         IReadOnlyList<HierarchyScopeLocalSignalViewModel> localSignals,
-        IReadOnlyList<DesignContAssign> contAssigns)
+        IReadOnlyList<DesignContAssign> contAssigns,
+        IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive> scopePrimitives,
+        IReadOnlyDictionary<string, IReadOnlyList<Bistable.Core.Design.Schematic.SchematicPrimitive>>? scopePrimitivesByModule)
     {
         if (RoutingEngine == SchematicRoutingEngine.Elk)
         {
-            DrawElkScopePanel(context, bounds, moduleRect, scopeSignals, childScopes, scopePorts, localSignals, contAssigns);
+            DrawElkScopePanel(context, bounds, moduleRect, scopeSignals, childScopes, scopePorts, localSignals, contAssigns, scopePrimitives, scopePrimitivesByModule);
             return;
         }
 

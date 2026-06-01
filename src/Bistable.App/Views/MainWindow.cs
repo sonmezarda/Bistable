@@ -49,6 +49,7 @@ public sealed class MainWindow : Window
     private TabControl? _centerWorkspaceTabs;
     private SchematicStudioWindow? _schematicStudioWindow;
     private WaveformStudioWindow? _waveformStudioWindow;
+    private readonly Dictionary<string, MemoryViewerWindow> _memoryViewerWindows = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<DockPanelKind, ToolPanelWindow> _floatingToolWindows = [];
 
     private static readonly IBrush BackgroundBrush = SolidColorBrush.Parse("#0e1116");
@@ -84,7 +85,39 @@ public sealed class MainWindow : Window
         root.Children.Add(BuildStatusBar());
         root.Children.Add(BuildDockWorkspace());
 
-        return root;
+        // Overlay grid so the toast notification can sit on top of everything
+        // without participating in DockPanel layout.
+        Grid overlayRoot = new();
+        overlayRoot.Children.Add(root);
+        overlayRoot.Children.Add(BuildToastOverlay());
+        return overlayRoot;
+    }
+
+    private static Control BuildToastOverlay()
+    {
+        Border toast = new()
+        {
+            Background = new SolidColorBrush(Color.FromArgb(220, 30, 30, 40)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(120, 130, 150)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(14, 8, 14, 8),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 28, 36),
+            [!Control.IsVisibleProperty] = new Binding("IsToastVisible")
+        };
+
+        TextBlock message = new()
+        {
+            Foreground = TextBrush,
+            FontSize = 12,
+            MaxWidth = 480,
+            TextWrapping = TextWrapping.Wrap,
+            [!TextBlock.TextProperty] = new Binding("ToastMessage")
+        };
+        toast.Child = message;
+        return toast;
     }
 
     private Control BuildDockWorkspace()
@@ -715,9 +748,12 @@ public sealed class MainWindow : Window
             {
                 new RowDefinition(showHeader ? GridLength.Auto : new GridLength(0)),
                 new RowDefinition(GridLength.Auto),
-                new RowDefinition(new GridLength(0.56, GridUnitType.Star)) { MinHeight = 220 },
+                // Min-heights kept low so the splitter doesn't snap back when
+                // the user drags toward the edge. Both rows now contain their
+                // own ScrollViewers, so cramped sizes stay usable.
+                new RowDefinition(new GridLength(0.56, GridUnitType.Star)) { MinHeight = 60 },
                 new RowDefinition(new GridLength(5)),
-                new RowDefinition(new GridLength(0.44, GridUnitType.Star)) { MinHeight = 180 }
+                new RowDefinition(new GridLength(0.44, GridUnitType.Star)) { MinHeight = 60 }
             },
             Margin = new Thickness(12)
         };
@@ -759,7 +795,15 @@ public sealed class MainWindow : Window
         previewGrid.Children.Add(probeSplitter);
 
         Border liveProbeBorder = PanelBorder();
-        liveProbeBorder.Child = BuildSchematicProbePanel();
+        // Wrap so the bottom sections (Memory Cells / Forced Signals) remain
+        // reachable when the hierarchy panel grows and squeezes this column.
+        ScrollViewer liveProbeScroll = new()
+        {
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            Content = BuildSchematicProbePanel()
+        };
+        liveProbeBorder.Child = liveProbeScroll;
         Grid.SetColumn(liveProbeBorder, 2);
         previewGrid.Children.Add(liveProbeBorder);
 
@@ -904,20 +948,94 @@ public sealed class MainWindow : Window
             [Grid.RowProperty] = 6
         });
 
-        treePanel.Children.Add(new ListBox
+        // Bottom of the hierarchy panel — TWO stacked lists separated by a
+        // splitter: traced VCD signals above, all-local signals (including
+        // memories that VCD doesn't include) below. Clicking a local signal
+        // updates the schematic selection and opens its Live Probe panel.
+        Grid lowerLists = new()
+        {
+            RowDefinitions =
+            {
+                new RowDefinition(new GridLength(0.5, GridUnitType.Star)),
+                new RowDefinition(new GridLength(5)),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(new GridLength(0.5, GridUnitType.Star)),
+            },
+            Margin = new Thickness(0, 8, 0, 0),
+            [Grid.RowProperty] = 7
+        };
+
+        ListBox traceList = new()
         {
             Background = Brushes.Transparent,
             BorderBrush = Brushes.Transparent,
             Foreground = TextBrush,
-            Margin = new Thickness(0, 8, 0, 0),
             ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()),
             ItemTemplate = SignalListTemplate(),
             [!ItemsControl.ItemsSourceProperty] = new Binding("HierarchyScopeSignals"),
             [!SelectingItemsControl.SelectedItemProperty] = new Binding("SelectedSignal", BindingMode.TwoWay),
-            [Grid.RowProperty] = 7
-        });
+        };
+        ScrollViewer traceScroll = new()
+        {
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            Content = traceList,
+            [Grid.RowProperty] = 0
+        };
+        lowerLists.Children.Add(traceScroll);
 
-        treeBorder.Child = treePanel;
+        GridSplitter localSplitter = new()
+        {
+            Height = 4,
+            Background = StrokeBrush,
+            ResizeDirection = GridResizeDirection.Rows,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            [Grid.RowProperty] = 1
+        };
+        lowerLists.Children.Add(localSplitter);
+
+        TextBlock localHeader = new()
+        {
+            Text = "Local Signals",
+            Foreground = AccentBrush,
+            FontSize = 11,
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(0, 4, 0, 2),
+            [Grid.RowProperty] = 2
+        };
+        lowerLists.Children.Add(localHeader);
+
+        ListBox localList = new()
+        {
+            Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
+            Foreground = TextBrush,
+            ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()),
+            ItemTemplate = LocalSignalListTemplate(),
+            [!ItemsControl.ItemsSourceProperty] = new Binding("SelectedHierarchyLocalSignals"),
+            [!SelectingItemsControl.SelectedItemProperty] = new Binding("SelectedHierarchyLocalSignal", BindingMode.TwoWay)
+        };
+        ScrollViewer localScroll = new()
+        {
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            Content = localList,
+            [Grid.RowProperty] = 3
+        };
+        lowerLists.Children.Add(localScroll);
+
+        treePanel.Children.Add(lowerLists);
+
+        // Wrap the hierarchy panel in a ScrollViewer so its header/title remain
+        // accessible even when the user drags the splitter down to a tiny size.
+        // Without this the whole panel gets clipped (Bug 1).
+        ScrollViewer treeScroll = new()
+        {
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            Content = treePanel
+        };
+        treeBorder.Child = treeScroll;
         hierarchyGrid.Children.Add(treeBorder);
 
         GridSplitter hierarchySplitter = new()
@@ -953,13 +1071,14 @@ public sealed class MainWindow : Window
         {
             RowDefinitions =
             {
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),  // 0: header
+                new RowDefinition(GridLength.Auto),  // 1: signal display name
+                new RowDefinition(GridLength.Auto),  // 2: metadata
+                new RowDefinition(GridLength.Auto),  // 3: "Drive" label
+                new RowDefinition(GridLength.Auto),  // 4: drive textbox
+                new RowDefinition(GridLength.Auto),  // 5: actions row
+                new RowDefinition(GridLength.Auto),  // 6: forced badge
+                new RowDefinition(GridLength.Auto),  // 7: waveform shortcuts
                 new RowDefinition(GridLength.Star)
             },
             Margin = new Thickness(12)
@@ -1006,7 +1125,24 @@ public sealed class MainWindow : Window
         metadata.Children.Add(MetadataCaption("Width", 1));
         metadata.Children.Add(MetadataValue("SelectedSchematicSignalWidth", 1));
         metadata.Children.Add(MetadataCaption("Value", 2));
-        metadata.Children.Add(MetadataValue("SelectedSchematicSignalValue", 2, GreenBrush));
+        // Custom value cell that flashes its background orange for ~800ms after
+        // a successful Apply/Force write — gives the user immediate confirmation
+        // that the write actually landed (status bar alone is easy to miss).
+        TextBlock valueCell = new()
+        {
+            Foreground = GreenBrush,
+            FontFamily = FontFamily.Parse("monospace"),
+            Padding = new Thickness(4, 1, 4, 1),
+            [!TextBlock.TextProperty] = new Binding("SelectedSchematicSignalValue"),
+            [!TextBlock.BackgroundProperty] = new Binding("IsLastSchematicWriteFresh")
+            {
+                Converter = new Avalonia.Data.Converters.FuncValueConverter<bool, IBrush>(fresh =>
+                    fresh ? new SolidColorBrush(Color.FromArgb(180, 255, 140, 60)) : Brushes.Transparent)
+            },
+            [Grid.ColumnProperty] = 1,
+            [Grid.RowProperty] = 2
+        };
+        metadata.Children.Add(valueCell);
         grid.Children.Add(metadata);
 
         grid.Children.Add(new TextBlock
@@ -1038,6 +1174,13 @@ public sealed class MainWindow : Window
         toggleButton.Bind(Button.CommandParameterProperty, new Binding("SelectedSchematicSignalName"));
         toggleButton.Bind(Control.IsEnabledProperty, new Binding("CanToggleSelectedSchematicInput"));
 
+        Button forceButton = SmallButton("Force", "ForceSelectedSchematicSignalCommand");
+        forceButton.Bind(Control.IsEnabledProperty, new Binding("CanForceSelectedSchematicSignal"));
+
+        Button releaseButton = SmallButton("Release", "ReleaseSelectedSchematicSignalCommand");
+        releaseButton.Background = new SolidColorBrush(Color.FromRgb(100, 40, 40));
+        releaseButton.Bind(Control.IsVisibleProperty, new Binding("IsSelectedSchematicSignalForced"));
+
         StackPanel actions = new()
         {
             Orientation = Orientation.Horizontal,
@@ -1047,7 +1190,22 @@ public sealed class MainWindow : Window
         };
         actions.Children.Add(applyButton);
         actions.Children.Add(toggleButton);
+        actions.Children.Add(forceButton);
+        actions.Children.Add(releaseButton);
         grid.Children.Add(actions);
+
+        // "FORCED" badge — only visible when this signal is currently pinned.
+        TextBlock forcedBadge = new()
+        {
+            Text = "● FORCED",
+            Foreground = new SolidColorBrush(Color.FromRgb(255, 140, 60)),
+            FontSize = 11,
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(0, 6, 0, 0),
+            [Grid.RowProperty] = 6
+        };
+        forcedBadge.Bind(Control.IsVisibleProperty, new Binding("IsSelectedSchematicSignalForced"));
+        grid.Children.Add(forcedBadge);
 
         Button addWaveformButton = SmallButton("Add To Waveform", "AddSelectedWaveformSignalCommand");
 
@@ -1060,16 +1218,198 @@ public sealed class MainWindow : Window
                 addWaveformButton,
                 new TextBlock
                 {
-                    Text = "1-bit inputs toggle directly. Bus inputs open an editor.",
+                    Text = "1-bit inputs toggle directly. Bus inputs open an editor. Internal probes use Apply/Force (Phase 3).",
                     Foreground = MutedBrush,
                     TextWrapping = TextWrapping.Wrap,
                     FontSize = 11
                 }
             },
-            [Grid.RowProperty] = 6
+            [Grid.RowProperty] = 7
         });
 
+        // Bottom sections — stacked vertically inside the Star row so they
+        // grow with the panel: Memory Viewer (visible only for memory probes)
+        // followed by the always-visible Forced Signals list.
+        StackPanel bottom = new()
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 16,
+            [Grid.RowProperty] = 8
+        };
+        bottom.Children.Add(BuildMemoryViewerSection());
+        bottom.Children.Add(BuildForcedSignalsSection());
+        grid.Children.Add(bottom);
+
         return grid;
+    }
+
+    /// <summary>
+    /// Memory cells table — visible only when the selected probe is a memory
+    /// (per <c>IsSelectedSchematicSignalMemory</c>). Two-column rows: address
+    /// (decimal-ish hex) and cell value (hex). Live-updated via
+    /// <see cref="MainWindowViewModel.SelectedMemoryCells"/>.
+    /// </summary>
+    private static Control BuildMemoryViewerSection()
+    {
+        DockPanel root = new()
+        {
+            LastChildFill = true,
+            [!Control.IsVisibleProperty] = new Binding("IsSelectedSchematicSignalMemory")
+        };
+
+        StackPanel header = new()
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8
+        };
+        header.Children.Add(new TextBlock
+        {
+            Text = "Memory Cells",
+            Foreground = AccentBrush,
+            FontSize = 13,
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        header.Children.Add(new TextBlock
+        {
+            Foreground = MutedBrush,
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            [!TextBlock.TextProperty] = new Binding("SelectedMemoryDepthLabel")
+        });
+        // Inline "open in dedicated window" button so a large memory doesn't
+        // get stuck in the cramped Live Probe sidebar. The standalone window
+        // has the Excel-style grid + jump + columns-per-row controls.
+        Button openWindow = new()
+        {
+            Content = "Open in Window",
+            Padding = new Thickness(8, 2, 8, 2),
+            FontSize = 11,
+            [!Button.CommandProperty] = new Binding("OpenMemoryViewerCommand")
+        };
+        header.Children.Add(openWindow);
+        DockPanel.SetDock(header, Avalonia.Controls.Dock.Top);
+        root.Children.Add(header);
+
+        // The cells list itself — short rows, hex value in green, address muted.
+        ItemsControl list = new()
+        {
+            Margin = new Thickness(0, 6, 0, 0),
+            MaxHeight = 220,
+            [!ItemsControl.ItemsSourceProperty] = new Binding("SelectedMemoryCells"),
+            ItemTemplate = new FuncDataTemplate<MemoryCellViewModel>((cell, _) =>
+            {
+                if (cell is null) return new TextBlock();
+                Grid row = new()
+                {
+                    ColumnDefinitions = { new ColumnDefinition(new GridLength(68)), new ColumnDefinition(GridLength.Star) },
+                    Margin = new Thickness(0, 1, 0, 1)
+                };
+                row.Children.Add(new TextBlock
+                {
+                    Text = cell.AddressLabel,
+                    Foreground = MutedBrush,
+                    FontFamily = FontFamily.Parse("monospace"),
+                    FontSize = 11
+                });
+                TextBlock val = new()
+                {
+                    Text = cell.HexValue,
+                    Foreground = GreenBrush,
+                    FontFamily = FontFamily.Parse("monospace"),
+                    FontSize = 11
+                };
+                Grid.SetColumn(val, 1);
+                row.Children.Add(val);
+                return row;
+            })
+        };
+        ScrollViewer scroll = new()
+        {
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            Content = list
+        };
+        root.Children.Add(scroll);
+
+        return root;
+    }
+
+    private static Control BuildForcedSignalsSection()
+    {
+        DockPanel root = new()
+        {
+            LastChildFill = true,
+            Margin = new Thickness(0, 16, 0, 0),
+            [Grid.RowProperty] = 8
+        };
+
+        Grid header = new()
+        {
+            ColumnDefinitions = { new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto) }
+        };
+        header.Children.Add(new TextBlock
+        {
+            Text = "Forced Signals",
+            Foreground = AccentBrush,
+            FontSize = 13,
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        Button releaseAll = SmallButton("Release All", "ReleaseAllForcedCommand");
+        releaseAll.Background = new SolidColorBrush(Color.FromRgb(100, 40, 40));
+        Grid.SetColumn(releaseAll, 1);
+        header.Children.Add(releaseAll);
+        DockPanel.SetDock(header, Avalonia.Controls.Dock.Top);
+        root.Children.Add(header);
+
+        // Empty-state hint: only shown while ForcedPaths.Count == 0. The
+        // converter lives inline since it's the only place we need it.
+        TextBlock emptyHint = new()
+        {
+            Text = "(no forced signals)",
+            Foreground = MutedBrush,
+            FontSize = 11,
+            Margin = new Thickness(0, 6, 0, 0),
+            [!Control.IsVisibleProperty] = new Binding("ForcedPaths.Count")
+            {
+                Converter = new Avalonia.Data.Converters.FuncValueConverter<int, bool>(count => count == 0)
+            }
+        };
+        DockPanel.SetDock(emptyHint, Avalonia.Controls.Dock.Top);
+        root.Children.Add(emptyHint);
+
+        ItemsControl list = new()
+        {
+            Margin = new Thickness(0, 6, 0, 0),
+            [!ItemsControl.ItemsSourceProperty] = new Binding("ForcedPaths"),
+            ItemTemplate = new FuncDataTemplate<string>((path, _) =>
+            {
+                if (path is null) return new TextBlock();
+                Grid row = new()
+                {
+                    ColumnDefinitions = { new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto) },
+                    Margin = new Thickness(0, 2, 0, 2)
+                };
+                row.Children.Add(new TextBlock
+                {
+                    Text = path,
+                    Foreground = new SolidColorBrush(Color.FromRgb(255, 140, 60)),
+                    FontFamily = FontFamily.Parse("monospace"),
+                    FontSize = 11,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+                Button releaseOne = SmallButton("Release", "ReleasePathCommand");
+                releaseOne.CommandParameter = path;
+                releaseOne.Background = new SolidColorBrush(Color.FromRgb(80, 35, 35));
+                Grid.SetColumn(releaseOne, 1);
+                row.Children.Add(releaseOne);
+                return row;
+            })
+        };
+        root.Children.Add(list);
+
+        return root;
     }
 
     private Control BuildWaveformToolbar()
@@ -1280,6 +1620,53 @@ public sealed class MainWindow : Window
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 4)
             });
+
+    /// <summary>
+    /// Local-signal row: name + width, with a small "MEM" badge for memories
+    /// so the user can distinguish them at a glance. Memories are highlighted
+    /// in orange (matches the memory-tile/force color elsewhere).
+    /// </summary>
+    private static IDataTemplate LocalSignalListTemplate() => new FuncDataTemplate<HierarchyScopeLocalSignalViewModel>((local, _) =>
+    {
+        if (local is null) return new TextBlock();
+        StackPanel row = new()
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Margin = new Thickness(0, 3)
+        };
+        if (local.IsMemory)
+        {
+            row.Children.Add(new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(120, 70, 30)),
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(4, 0, 4, 0),
+                Child = new TextBlock
+                {
+                    Text = "MEM",
+                    Foreground = new SolidColorBrush(Color.FromRgb(255, 200, 130)),
+                    FontSize = 9,
+                    FontWeight = FontWeight.SemiBold
+                }
+            });
+        }
+        row.Children.Add(new TextBlock
+        {
+            Text = local.Name,
+            Foreground = local.IsMemory ? new SolidColorBrush(Color.FromRgb(255, 180, 110)) : TextBrush,
+            FontFamily = FontFamily.Parse("monospace"),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        row.Children.Add(new TextBlock
+        {
+            Text = $"[{local.WidthLabel}]",
+            Foreground = MutedBrush,
+            FontFamily = FontFamily.Parse("monospace"),
+            FontSize = 11
+        });
+        return row;
+    });
 
     private static IDataTemplate WaveformLaneTemplate() => new FuncDataTemplate<WaveformLaneViewModel>((lane, _) =>
     {
@@ -1531,6 +1918,9 @@ public sealed class MainWindow : Window
             [!SchematicPreviewControl.ToggleInputCommandProperty] = new Binding("ToggleInputSignalCommand"),
             [!SchematicPreviewControl.AddSelectedWaveformCommandProperty] = new Binding("AddSelectedWaveformSignalCommand"),
             [!SchematicPreviewControl.SelectScopeCommandProperty] = new Binding("SelectHierarchyScopeCommand"),
+            [!SchematicPreviewControl.EnterSubSimCommandProperty] = new Binding("EnterSubSimAtPathCommand"),
+            [!SchematicPreviewControl.ForcedSignalPathsProperty] = new Binding("ForcedPaths"),
+            [!SchematicPreviewControl.LiveProbesProperty] = new Binding("LiveProbes"),
             [!SchematicPreviewControl.ToggleScopeExpansionCommandProperty] = new Binding("ToggleSchematicExpansionCommand"),
             [!SchematicPreviewControl.IsActiveScopeExpandedProperty] = new Binding("IsSelectedHierarchyScopeExpanded"),
             [!SchematicPreviewControl.ExpandedScopePathsProperty] = new Binding("SchematicExpandedPaths"),
@@ -1543,9 +1933,12 @@ public sealed class MainWindow : Window
             [!SchematicPreviewControl.ScopeChildrenProperty] = new Binding("SelectedHierarchyChildInstances"),
             [!SchematicPreviewControl.ScopePortsProperty] = new Binding("SelectedHierarchyPorts"),
             [!SchematicPreviewControl.ScopeLocalSignalsProperty] = new Binding("SelectedHierarchyLocalSignals"),
-            [!SchematicPreviewControl.ScopeContAssignsProperty] = new Binding("SelectedHierarchyContAssigns")
+            [!SchematicPreviewControl.ScopeContAssignsProperty] = new Binding("SelectedHierarchyContAssigns"),
+            [!SchematicPreviewControl.ScopePrimitivesProperty] = new Binding("SelectedHierarchyPrimitives"),
+            [!SchematicPreviewControl.ScopePrimitivesByModuleProperty] = new Binding("PrimitivesByModule")
         };
         preview.SignalEditorRequested += OnSchematicSignalEditorRequested;
+        preview.SchematicContextRequested += OnSchematicContextRequested;
         return preview;
     }
 
@@ -1684,6 +2077,134 @@ public sealed class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Open (or focus) a standalone Memory Viewer window for the VM's currently
+    /// selected memory probe. Deduped by hierarchy path so multiple Open clicks
+    /// don't spawn duplicate windows; closing the window unregisters it.
+    /// </summary>
+    private void OnMemoryViewerRequested(object? sender, EventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+        if (!viewModel.IsSelectedSchematicSignalMemory) return;
+        if (viewModel.SelectedSchematicSignalName is not { } path) return;
+
+        int depth = viewModel.MemoryViewerCellCount;
+        int width = viewModel.SelectedSchematicLocalSignalWidthForMemory;
+
+        if (_memoryViewerWindows.TryGetValue(path, out MemoryViewerWindow? existing) && existing.IsVisible)
+        {
+            existing.Activate();
+            return;
+        }
+
+        MemoryViewerWindowViewModel vm = new(viewModel.LiveProbes, path, depth, width);
+        MemoryViewerWindow window = new(vm);
+        _memoryViewerWindows[path] = window;
+        window.Closed += (_, _) => _memoryViewerWindows.Remove(path);
+        window.Show(this);
+    }
+
+    /// <summary>
+    /// Builds and shows the right-click context menu over the schematic. Item
+    /// set depends on what the click landed on: scope body → drill-in + sub-sim;
+    /// wire/signal reference → add-to-waveform + force/release; top-level pin →
+    /// add-to-waveform + drive.
+    /// </summary>
+    private void OnSchematicContextRequested(object? sender, SchematicPreviewControl.SchematicContextRequestedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel || sender is not Control anchor)
+        {
+            return;
+        }
+
+        List<MenuItem> items = [];
+        AppendScopeMenuItems(items, viewModel, e.ScopeHierarchyPath);
+        AppendSignalRefMenuItems(items, viewModel, e.SignalReferenceName);
+        AppendTopLevelSignalMenuItems(items, viewModel, e.TopLevelSignal);
+
+        if (items.Count == 0)
+        {
+            items.Add(MenuItemFor("(no actions here — right-click on a module or wire)", () => { }));
+        }
+
+        MenuFlyout flyout = new() { ItemsSource = items };
+        flyout.ShowAt(anchor, showAtPointer: true);
+    }
+
+    private static void AppendScopeMenuItems(List<MenuItem> items, MainWindowViewModel viewModel, string? scopePath)
+    {
+        if (scopePath is null) return;
+        items.Add(MenuItemFor("Select in hierarchy", () =>
+            viewModel.SelectHierarchyScopeCommand.Execute(scopePath)));
+        items.Add(MenuItemFor("Enter sub-simulation", () =>
+            viewModel.EnterSubSimAtPathCommand.Execute(scopePath)));
+        items.Add(MenuItemFor("Expand / collapse in place", () =>
+            viewModel.ToggleSchematicExpansionCommand.Execute(scopePath)));
+
+        // Memory shortcuts: enumerate the clicked scope's memories so the
+        // user can jump straight to "Open Memory Viewer: <name>" — saves the
+        // hierarchy → local-signals → Open in Window dance.
+        IReadOnlyList<MemoryLocation> mems = viewModel.EnumerateMemoriesAt(scopePath);
+        if (mems.Count > 0)
+        {
+            items.Add(new MenuItem { Header = "-" });
+            foreach (MemoryLocation mem in mems)
+            {
+                string label = $"Open Memory Viewer: {mem.LocalName}  ({mem.Depth}×{mem.CellWidth}b)";
+                items.Add(MenuItemFor(label, () =>
+                    viewModel.OpenMemoryViewerForPath(mem.ResolvedPath)));
+            }
+        }
+    }
+
+    private static void AppendSignalRefMenuItems(List<MenuItem> items, MainWindowViewModel viewModel, string? refName)
+    {
+        if (refName is null) return;
+        if (items.Count > 0) items.Add(new MenuItem { Header = "-" });
+        items.Add(MenuItemFor($"Select signal: {refName}", () =>
+            viewModel.SelectedSchematicSignalName = refName));
+        items.Add(MenuItemFor("Add to waveform", () =>
+        {
+            viewModel.SelectedSchematicSignalName = refName;
+            viewModel.AddSelectedWaveformSignalCommand.Execute(null);
+        }));
+        items.Add(MenuItemFor("Focus in Live Probe (use Apply / Force in panel)", () =>
+            viewModel.SelectedSchematicSignalName = refName));
+
+        // If the wire's signal happens to be a memory, surface the dedicated
+        // memory-viewer affordance here too.
+        if (viewModel.LiveProbes.GetDescriptor(refName)?.IsMemory == true)
+        {
+            items.Add(MenuItemFor($"Open Memory Viewer: {refName}", () =>
+                viewModel.OpenMemoryViewerForPath(refName)));
+        }
+    }
+
+    private static void AppendTopLevelSignalMenuItems(List<MenuItem> items, MainWindowViewModel viewModel, SignalViewModel? sig)
+    {
+        if (sig is null) return;
+        if (items.Count > 0) items.Add(new MenuItem { Header = "-" });
+        items.Add(MenuItemFor($"Select port: {sig.Name}", () =>
+            viewModel.SelectedSchematicSignalName = sig.Name));
+        if (sig.IsInput && sig.IsBoolean)
+        {
+            items.Add(MenuItemFor("Toggle", () =>
+                viewModel.ToggleInputSignalCommand.Execute(sig.Name)));
+        }
+        items.Add(MenuItemFor("Add to waveform", () =>
+        {
+            viewModel.SelectedSchematicSignalName = sig.Name;
+            viewModel.AddSelectedWaveformSignalCommand.Execute(null);
+        }));
+    }
+
+    private static MenuItem MenuItemFor(string header, Action onClick)
+    {
+        MenuItem item = new() { Header = header };
+        item.Click += (_, _) => onClick();
+        return item;
+    }
+
     private async void OnSchematicSignalEditorRequested(object? sender, SchematicPreviewControl.SignalEditorRequestedEventArgs e)
     {
         if (DataContext is not MainWindowViewModel viewModel)
@@ -1787,11 +2308,13 @@ public sealed class MainWindow : Window
             && args.OldValue is MainWindowViewModel previousViewModel)
         {
             previousViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            previousViewModel.MemoryViewerRequested -= OnMemoryViewerRequested;
         }
 
         if (window.DataContext is MainWindowViewModel viewModel)
         {
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            viewModel.MemoryViewerRequested += OnMemoryViewerRequested;
             SyncDockLayout(viewModel);
             if (_schematicStudioWindow is not null)
             {

@@ -496,6 +496,9 @@ public sealed class SchematicStudioWindow : Window
             [!SchematicPreviewControl.ToggleInputCommandProperty] = new Binding("ToggleInputSignalCommand"),
             [!SchematicPreviewControl.AddSelectedWaveformCommandProperty] = new Binding("AddSelectedWaveformSignalCommand"),
             [!SchematicPreviewControl.SelectScopeCommandProperty] = new Binding("SelectHierarchyScopeCommand"),
+            [!SchematicPreviewControl.EnterSubSimCommandProperty] = new Binding("EnterSubSimAtPathCommand"),
+            [!SchematicPreviewControl.ForcedSignalPathsProperty] = new Binding("ForcedPaths"),
+            [!SchematicPreviewControl.LiveProbesProperty] = new Binding("LiveProbes"),
             [!SchematicPreviewControl.ToggleScopeExpansionCommandProperty] = new Binding("ToggleSchematicExpansionCommand"),
             [!SchematicPreviewControl.IsActiveScopeExpandedProperty] = new Binding("IsSelectedHierarchyScopeExpanded"),
             [!SchematicPreviewControl.ExpandedScopePathsProperty] = new Binding("SchematicExpandedPaths"),
@@ -508,7 +511,9 @@ public sealed class SchematicStudioWindow : Window
             [!SchematicPreviewControl.ScopeChildrenProperty] = new Binding("SelectedHierarchyChildInstances"),
             [!SchematicPreviewControl.ScopePortsProperty] = new Binding("SelectedHierarchyPorts"),
             [!SchematicPreviewControl.ScopeLocalSignalsProperty] = new Binding("SelectedHierarchyLocalSignals"),
-            [!SchematicPreviewControl.ScopeContAssignsProperty] = new Binding("SelectedHierarchyContAssigns")
+            [!SchematicPreviewControl.ScopeContAssignsProperty] = new Binding("SelectedHierarchyContAssigns"),
+            [!SchematicPreviewControl.ScopePrimitivesProperty] = new Binding("SelectedHierarchyPrimitives"),
+            [!SchematicPreviewControl.ScopePrimitivesByModuleProperty] = new Binding("PrimitivesByModule")
         };
         preview.SignalEditorRequested += OnSchematicSignalEditorRequested;
         return preview;

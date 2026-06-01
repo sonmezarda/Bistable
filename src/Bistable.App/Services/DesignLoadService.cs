@@ -1,5 +1,6 @@
 using Bistable.Core.Projects;
 using Bistable.Core.Design;
+using Bistable.Core.Design.Ast;
 using Bistable.Verilator;
 
 namespace Bistable.App.Services;
@@ -8,6 +9,7 @@ public sealed class DesignLoadService
 {
     private readonly ProjectConfigurationValidator _validator = new();
     private readonly VerilatorTool _verilator = new();
+    private readonly VerilatorXmlAstReader _astReader = new();
 
 
     public async Task<DesignLoadResult> LoadAsync(string projectFilePath, CancellationToken cancellationToken)
@@ -38,7 +40,8 @@ public sealed class DesignLoadService
         await _verilator.GenerateXmlAsync(project, projectDirectory, xmlPath, cancellationToken);
         string version = await _verilator.GetVersionAsync(cancellationToken);
 
-        ElaboratedDesign design = VerilatorXmlParser.ParseDesign(xmlPath);
-        return new DesignLoadResult(project, design, design.TopModule, version, projectDirectory);
+        DesignAst ast = _astReader.Read(xmlPath);
+        ElaboratedDesign design = LegacyDesignFlattener.Flatten(ast, project.TopModule);
+        return new DesignLoadResult(project, design, design.TopModule, version, projectDirectory, ast);
     }
 }

@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & test (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Node.js 20 (for elkjs subprocess)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Verilator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y verilator
+          verilator --version
+
+      - name: Install elkjs deps
+        working-directory: tools/elk-router
+        run: npm install --no-audit --no-fund
+
+      - name: Restore .NET deps
+        run: dotnet restore
+
+      - name: Build (Release)
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run unit + integration tests
+        run: |
+          dotnet test tests/Bistable.Tests \
+            --configuration Release --no-build --logger "trx;LogFileName=tests.trx" \
+            --collect:"XPlat Code Coverage"
+
+      - name: Run regression tests
+        run: |
+          dotnet test tests/Bistable.Regression \
+            --configuration Release --no-build --logger "trx;LogFileName=regression.trx"
+
+      - name: Run snapshot tests
+        run: |
+          dotnet test tests/Bistable.Snapshots \
+            --configuration Release --no-build --logger "trx;LogFileName=snapshots.trx"
+
+      - name: Run headless UI tests
+        run: |
+          dotnet test tests/Bistable.UiTests \
+            --configuration Release --no-build --logger "trx;LogFileName=uitests.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            **/TestResults/**/*.trx
+            **/TestResults/**/coverage.cobertura.xml
+            tests/Bistable.Snapshots/golden/*.actual.json
+          if-no-files-found: ignore
+          retention-days: 14

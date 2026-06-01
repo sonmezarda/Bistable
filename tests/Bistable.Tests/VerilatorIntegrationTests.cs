@@ -89,8 +89,8 @@ public sealed class VerilatorIntegrationTests
 
             Assert.All(results, result => Assert.True(File.Exists(result.ExecutablePath)));
             await using SimulationWorkerClient client = new(results[0].ExecutablePath);
-            SimulationSnapshot snapshot = await client.SendAsync(new SimulationCommand(SimulationCommandType.Eval), CancellationToken.None);
-            Assert.NotNull(snapshot);
+            SimulationFrame frame = await client.StepAsync(new SimulationCommand(SimulationCommandType.Eval), CancellationToken.None);
+            Assert.NotNull(frame);
         }
         finally
         {
@@ -122,16 +122,16 @@ public sealed class VerilatorIntegrationTests
                 CancellationToken.None);
 
             await using SimulationWorkerClient client = new(result.ExecutablePath);
-            await client.SendAsync(new SimulationCommand(SimulationCommandType.SetInput, "a", "0x12"), CancellationToken.None);
-            await client.SendAsync(new SimulationCommand(SimulationCommandType.SetInput, "b", "0x22"), CancellationToken.None);
-            await client.SendAsync(new SimulationCommand(SimulationCommandType.SetInput, "op", "0"), CancellationToken.None);
+            await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "a", "0x12"), CancellationToken.None);
+            await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "b", "0x22"), CancellationToken.None);
+            await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "op", "0"), CancellationToken.None);
 
-            SimulationSnapshot snapshot = await client.SendAsync(
+            SimulationFrame frame = await client.StepAsync(
                 new SimulationCommand(SimulationCommandType.Eval),
                 CancellationToken.None);
 
-            SignalSample y = Assert.Single(snapshot.Signals, static sample => sample.Signal == "y");
-            SignalSample zero = Assert.Single(snapshot.Signals, static sample => sample.Signal == "zero");
+            SignalSample y = Assert.Single(frame.Signals, static sample => sample.Signal == "y");
+            SignalSample zero = Assert.Single(frame.Signals, static sample => sample.Signal == "zero");
             Assert.Equal("52", y.Value);
             Assert.Equal("0", zero.Value);
         }
@@ -165,13 +165,13 @@ public sealed class VerilatorIntegrationTests
                 CancellationToken.None);
 
             await using SimulationWorkerClient client = new(result.ExecutablePath);
-            await client.SendAsync(new SimulationCommand(SimulationCommandType.Reset), CancellationToken.None);
-            await client.SendAsync(new SimulationCommand(SimulationCommandType.SetInput, "enable", "1"), CancellationToken.None);
+            await client.StepAsync(new SimulationCommand(SimulationCommandType.Reset), CancellationToken.None);
+            await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "enable", "1"), CancellationToken.None);
 
-            SimulationSnapshot first = await client.SendAsync(
+            SimulationFrame first = await client.StepAsync(
                 new SimulationCommand(SimulationCommandType.Tick, Signal: "clk"),
                 CancellationToken.None);
-            SimulationSnapshot second = await client.SendAsync(
+            SimulationFrame second = await client.StepAsync(
                 new SimulationCommand(SimulationCommandType.Tick, Signal: "clk"),
                 CancellationToken.None);
 
@@ -273,9 +273,9 @@ public sealed class VerilatorIntegrationTests
                 CancellationToken.None);
 
             await using SimulationWorkerClient client = new(result.ExecutablePath);
-            await client.SendAsync(new SimulationCommand(SimulationCommandType.SetInput, "a", "0x03"), CancellationToken.None);
-            await client.SendAsync(new SimulationCommand(SimulationCommandType.SetInput, "b", "0x04"), CancellationToken.None);
-            await client.SendAsync(new SimulationCommand(SimulationCommandType.Eval), CancellationToken.None);
+            await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "a", "0x03"), CancellationToken.None);
+            await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "b", "0x04"), CancellationToken.None);
+            await client.StepAsync(new SimulationCommand(SimulationCommandType.Eval), CancellationToken.None);
 
             Assert.NotNull(result.TraceFilePath);
             Assert.True(File.Exists(result.TraceFilePath));
