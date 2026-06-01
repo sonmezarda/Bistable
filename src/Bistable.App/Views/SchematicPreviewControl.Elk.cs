@@ -48,19 +48,11 @@ public sealed partial class SchematicPreviewControl
         ElkTransform transform = ComputeFitTransform(layoutResult.Graph, canvas);
         IReadOnlyDictionary<string, string> signalValues = BuildSignalValueLookup(contAssigns);
         ElkEdgeCoordinateContext coordinateContext = BuildEdgeCoordinateContext(layoutResult.Graph);
-        SchematicLabelPlacementContext labelPlacement = BuildElkLabelPlacementContext(
-            layoutResult.Graph,
-            transform,
-            coordinateContext);
+        SchematicLabelPlacementContext labelPlacement = new();
 
         DrawElkNodeBackgrounds(context, layoutResult.Graph, transform);
         DrawElkEdges(context, layoutResult.Graph, transform, signalValues, coordinateContext);
         DrawElkNodeForegrounds(context, layoutResult.Graph, transform, labelPlacement);
-        DrawElkLabelOverlays(
-            context,
-            layoutResult.Graph,
-            transform,
-            BuildElkLabelPlacementContext(layoutResult.Graph, transform, coordinateContext));
         DrawScopeProbeSummary(context, panel, scopeSignals);
     }
 
@@ -118,15 +110,6 @@ public sealed partial class SchematicPreviewControl
         SchematicLabelPlacementContext labelPlacement)
     {
         DrawElkNodeForegroundsRecursive(context, graph.Children, transform, labelPlacement, baseX: 0, baseY: 0);
-    }
-
-    private void DrawElkLabelOverlays(
-        DrawingContext context,
-        ElkGraph graph,
-        ElkTransform transform,
-        SchematicLabelPlacementContext labelPlacement)
-    {
-        DrawElkLabelOverlaysRecursive(context, graph.Children, transform, labelPlacement, baseX: 0, baseY: 0);
     }
 
     // ELK's compound layout positions sub-children relative to their parent node, so the
@@ -265,56 +248,6 @@ public sealed partial class SchematicPreviewControl
         && !ElkNodeIds.IsGate(node.Id)
         && !ElkNodeIds.IsArith(node.Id)
         && !ElkNodeIds.IsStructFanOut(node.Id);
-
-    private void DrawElkLabelOverlaysRecursive(
-        DrawingContext context,
-        IList<ElkNode> nodes,
-        ElkTransform transform,
-        SchematicLabelPlacementContext labelPlacement,
-        double baseX,
-        double baseY)
-    {
-        foreach (ElkNode node in nodes)
-        {
-            double absX = baseX + node.X;
-            double absY = baseY + node.Y;
-            Rect rect = transform.Apply(absX, absY, node.Width, node.Height);
-
-            if (node.Id is ElkNodeIds.BoundaryIn)
-            {
-                DrawElkBoundaryPinLabels(context, node, rect, transform.Scale, isInput: true, labelPlacement);
-            }
-            else if (node.Id is ElkNodeIds.BoundaryOut)
-            {
-                DrawElkBoundaryPinLabels(context, node, rect, transform.Scale, isInput: false, labelPlacement);
-            }
-            else if (ElkNodeIds.IsSplitter(node.Id))
-            {
-                DrawElkSplitterLabels(context, node, rect, transform.Scale, labelPlacement);
-            }
-            else if (ElkNodeIds.IsFlipFlop(node.Id)
-                     || ElkNodeIds.IsMux(node.Id)
-                     || ElkNodeIds.IsLatch(node.Id)
-                     || ElkNodeIds.IsBuffer(node.Id)
-                     || ElkNodeIds.IsTriState(node.Id)
-                     || ElkNodeIds.IsInverter(node.Id)
-                     || ElkNodeIds.IsGate(node.Id)
-                     || ElkNodeIds.IsArith(node.Id)
-                     || ElkNodeIds.IsStructFanOut(node.Id))
-            {
-                DrawSymbolPortsAndLabels(context, node, rect, transform.Scale, new Pen(Palette.ModuleStroke, 1.5), labelPlacement);
-            }
-            else if (IsElkCardNode(node))
-            {
-                DrawElkNodeCardLabelOverlay(context, node, rect, transform.Scale, labelPlacement);
-            }
-
-            if (node.Children is { Count: > 0 } childNodes)
-            {
-                DrawElkLabelOverlaysRecursive(context, childNodes, transform, labelPlacement, absX, absY);
-            }
-        }
-    }
 
     private void DrawElkChildExpansionButton(DrawingContext context, ElkNode node, Rect rect)
     {
@@ -482,6 +415,7 @@ public sealed partial class SchematicPreviewControl
         double scale,
         SchematicLabelPlacementContext labelPlacement)
     {
+        _ = labelPlacement;
         double midY = rect.Y + rect.Height / 2;
         double indentX = Math.Min(rect.Width * 0.32, 10 * scale);
 
@@ -517,58 +451,10 @@ public sealed partial class SchematicPreviewControl
                 string label = port.Labels[0].Text;
                 double fontSize = Math.Clamp(8 * scale, 7, 10);
                 double labelW = MeasureLabelWidth(label, fontSize);
-                Size labelSize = new(labelW, fontSize * 1.2);
-                double baseX = px - 4 * scale - labelW;
-                double baseY = py - fontSize * 0.6;
-                Rect placed = labelPlacement.PlaceLabel(labelSize,
-                [
-                    new Point(baseX, baseY),
-                    new Point(baseX, py - fontSize - 8 * scale),
-                    new Point(baseX, py + 7 * scale),
-                    new Point(baseX - 8 * scale, py - fontSize - 8 * scale),
-                    new Point(baseX - 8 * scale, py + 7 * scale)
-                ]);
-                DrawText(context, label, placed.X, placed.Y, Palette.PinStroke, fontSize);
+                double labelX = Math.Max(rect.X + indentX + 4 * scale, px - 6 * scale - labelW);
+                double labelY = py - fontSize - 2 * scale;
+                DrawText(context, label, labelX, labelY, Palette.PinStroke, fontSize);
             }
-        }
-    }
-
-    private void DrawElkSplitterLabels(
-        DrawingContext context,
-        ElkNode node,
-        Rect rect,
-        double scale,
-        SchematicLabelPlacementContext labelPlacement)
-    {
-        if (node.Ports is null)
-        {
-            return;
-        }
-
-        foreach (ElkPort port in node.Ports)
-        {
-            if (port.Labels is not { Count: > 0 } || port.X < node.Width - 1)
-            {
-                continue;
-            }
-
-            double px = rect.X + port.X * scale;
-            double py = rect.Y + port.Y * scale;
-            string label = port.Labels[0].Text;
-            double fontSize = Math.Clamp(8 * scale, 7, 10);
-            double labelW = MeasureLabelWidth(label, fontSize);
-            Size labelSize = new(labelW, fontSize * 1.2);
-            double baseX = px - 4 * scale - labelW;
-            double baseY = py - fontSize * 0.6;
-            Rect placed = labelPlacement.PlaceLabel(labelSize,
-            [
-                new Point(baseX, baseY),
-                new Point(baseX, py - fontSize - 8 * scale),
-                new Point(baseX, py + 7 * scale),
-                new Point(baseX - 8 * scale, py - fontSize - 8 * scale),
-                new Point(baseX - 8 * scale, py + 7 * scale)
-            ]);
-            DrawText(context, label, placed.X, placed.Y, Palette.PinStroke, fontSize);
         }
     }
 
@@ -618,39 +504,6 @@ public sealed partial class SchematicPreviewControl
         }
     }
 
-    private void DrawElkBoundaryPinLabels(
-        DrawingContext context,
-        ElkNode node,
-        Rect nodeRect,
-        double scale,
-        bool isInput,
-        SchematicLabelPlacementContext labelPlacement)
-    {
-        if (node.Ports is null)
-        {
-            return;
-        }
-
-        foreach (ElkPort port in node.Ports)
-        {
-            if (port.Labels is not { Count: > 0 })
-            {
-                continue;
-            }
-
-            Point tip = new(nodeRect.X + port.X * scale, nodeRect.Y + port.Y * scale);
-            string label = port.Labels[0].Text;
-            string? portName = ExtractPortNameFromId(port.Id);
-            SignalViewModel? signal = portName is null ? null : FindSignalByName(portName, isInput);
-            if (signal?.Value is { } v && v != "-")
-            {
-                label = $"{label} = {v}";
-            }
-
-            DrawBoundaryPinLabel(context, tip, label, isInput, labelPlacement);
-        }
-    }
-
     private void RegisterBoundaryPinSignalHit(ElkPort port, Point tip, bool isInput, SignalViewModel signal)
     {
         _ = port;
@@ -693,6 +546,7 @@ public sealed partial class SchematicPreviewControl
         bool isInOut = false,
         SchematicLabelPlacementContext? labelPlacement = null)
     {
+        _ = labelPlacement;
         double glyphWidth = CompactLayout ? 22 : 26;
         double glyphHeight = CompactLayout ? 14 : 16;
         IBrush stroke;
@@ -744,51 +598,8 @@ public sealed partial class SchematicPreviewControl
         double labelX = isInput
             ? tip.X - glyphWidth - labelGap - labelWidth
             : tip.X + glyphWidth + labelGap;
-        double labelY = tip.Y - 6;
-        if (labelPlacement is null)
-        {
-            DrawText(context, label, labelX, labelY, stroke, 10);
-            return;
-        }
-
-        Rect placed = labelPlacement.PlaceLabel(new Size(labelWidth, 12),
-        [
-            new Point(labelX, labelY),
-            new Point(labelX, tip.Y - 19),
-            new Point(labelX, tip.Y + 7),
-            new Point(labelX + (isInput ? -10 : 10), tip.Y - 19),
-            new Point(labelX + (isInput ? -10 : 10), tip.Y + 7)
-        ]);
-        DrawText(context, label, placed.X, placed.Y, stroke, 10);
-    }
-
-    private void DrawBoundaryPinLabel(
-        DrawingContext context,
-        Point tip,
-        string label,
-        bool isInput,
-        SchematicLabelPlacementContext labelPlacement)
-    {
-        if (string.IsNullOrEmpty(label))
-        {
-            return;
-        }
-
-        double glyphWidth = CompactLayout ? 22 : 26;
-        double labelGap = 8;
-        double labelWidth = MeasureLabelWidth(label, 10);
-        double labelX = isInput
-            ? tip.X - glyphWidth - labelGap - labelWidth
-            : tip.X + glyphWidth + labelGap;
-        Rect placed = labelPlacement.PlaceLabel(new Size(labelWidth, 12),
-        [
-            new Point(labelX, tip.Y - 6),
-            new Point(labelX, tip.Y - 19),
-            new Point(labelX, tip.Y + 7),
-            new Point(labelX + (isInput ? -10 : 10), tip.Y - 19),
-            new Point(labelX + (isInput ? -10 : 10), tip.Y + 7)
-        ]);
-        DrawText(context, label, placed.X, placed.Y, isInput ? Palette.PinStroke : Palette.OutputValue, 10);
+        double labelY = tip.Y - 14;
+        DrawText(context, label, labelX, labelY, stroke, 10);
     }
 
     private static Point[] BuildInputPentagon(Point tip, double w, double h)
@@ -914,32 +725,6 @@ public sealed partial class SchematicPreviewControl
         }
     }
 
-    private void DrawElkNodeCardLabelOverlay(
-        DrawingContext context,
-        ElkNode node,
-        Rect rect,
-        double scale,
-        SchematicLabelPlacementContext labelPlacement)
-    {
-        if (node.Labels is { Count: > 0 })
-        {
-            string rawTitle = node.Labels[0].Text;
-            double titleMaxWidth = Math.Max(40, rect.Width - 16);
-            string title = Ellipsize(rawTitle, 11, titleMaxWidth);
-            DrawText(context, title, rect.X + 8, rect.Y + 8, Palette.Text, 11);
-        }
-
-        if (node.Ports is null)
-        {
-            return;
-        }
-
-        foreach (ElkPort port in node.Ports)
-        {
-            DrawElkPortLabel(context, rect, port, scale, node.Width, labelPlacement);
-        }
-    }
-
     // Port positions returned by ELK are relative to the parent node and are NOT pre-scaled,
     // so they must be multiplied by the active transform scale to align with the (already
     // scaled) module rect. Edge polylines arrive in root coordinates and are scaled separately
@@ -981,6 +766,7 @@ public sealed partial class SchematicPreviewControl
         double nodeWidthUnscaled,
         SchematicLabelPlacementContext labelPlacement)
     {
+        _ = labelPlacement;
         if (port.Labels is not { Count: > 0 })
         {
             return;
@@ -1000,16 +786,7 @@ public sealed partial class SchematicPreviewControl
         double fontSize = 9;
         double labelWidth = MeasureLabelWidth(label, fontSize);
         double labelX = onEast ? px - labelGap - labelWidth : px + labelGap;
-        double sideOffset = onEast ? -10 * scale : 10 * scale;
-        Rect placed = labelPlacement.PlaceLabel(new Size(labelWidth, fontSize * 1.25),
-        [
-            new Point(labelX, py - 6),
-            new Point(labelX, py - 18 * scale),
-            new Point(labelX, py + 8 * scale),
-            new Point(labelX + sideOffset, py - 18 * scale),
-            new Point(labelX + sideOffset, py + 8 * scale)
-        ]);
-        DrawText(context, label, placed.X, placed.Y, Palette.PinStroke, fontSize);
+        DrawText(context, label, labelX, py - fontSize - 3, Palette.PinStroke, fontSize);
     }
 
     private void DrawElkEdges(
@@ -1381,27 +1158,6 @@ public sealed partial class SchematicPreviewControl
         }
 
         return CompactLayout ? 1.2 : 1.4;
-    }
-
-    private static SchematicLabelPlacementContext BuildElkLabelPlacementContext(
-        ElkGraph graph,
-        ElkTransform transform,
-        ElkEdgeCoordinateContext coordinateContext)
-    {
-        SchematicLabelPlacementContext labelPlacement = new();
-        foreach (ElkEdge edge in graph.Edges)
-        {
-            if (edge.Sections is null || edge.Sections.Count == 0)
-            {
-                continue;
-            }
-
-            Point coordinateOffset = ResolveEdgeCoordinateOffset(edge, coordinateContext);
-            IReadOnlyList<Point> polyline = BuildEdgePolyline(edge.Sections, transform, coordinateOffset);
-            labelPlacement.AddWirePolyline(polyline, padding: 4);
-        }
-
-        return labelPlacement;
     }
 
     private static ElkEdgeCoordinateContext BuildEdgeCoordinateContext(ElkGraph graph)

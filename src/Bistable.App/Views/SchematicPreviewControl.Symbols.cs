@@ -518,6 +518,7 @@ public sealed partial class SchematicPreviewControl
         SchematicLabelPlacementContext labelPlacement)
     {
         _ = stroke;
+        _ = labelPlacement;
         if (node.Ports is null) return;
 
         double labelFont = Math.Clamp(8 * scale, 7, 10);
@@ -543,17 +544,8 @@ public sealed partial class SchematicPreviewControl
                 : onEast
                     ? px - labelInset - textW
                     : px + labelInset;
-            double labelY = onSouth ? py + labelFont * 0.25 : py - labelFont * 0.6;
-            double sideOffset = onEast ? -8 * scale : 8 * scale;
-            Rect placed = labelPlacement.PlaceLabel(new Size(textW, labelFont * 1.2),
-            [
-                new Point(labelX, labelY),
-                new Point(labelX, py - labelFont - 7 * scale),
-                new Point(labelX, py + 6 * scale),
-                new Point(labelX + sideOffset, py - labelFont - 7 * scale),
-                new Point(labelX + sideOffset, py + 6 * scale)
-            ]);
-            DrawText(context, label, placed.X, placed.Y, Palette.PinStroke, labelFont);
+            double labelY = onSouth ? py + labelFont * 0.25 : py - labelFont - 2 * scale;
+            DrawText(context, label, labelX, labelY, Palette.PinStroke, labelFont);
         }
     }
 

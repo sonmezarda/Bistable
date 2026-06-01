@@ -23,6 +23,11 @@ internal sealed class ElkGraphBuilder
     private const double ModuleSidePadding = 24;
     private const double BoundaryNodeWidth = 88;
     private const double OperatorNodeSize = 40;
+    private const double ConcatBundlePortRowHeight = 30;
+    private const double ConcatBundleVerticalPadding = 20;
+    private const double ConcatBundleMinJoinerWidth = 56;
+    private const double ConcatBundleMinFanOutWidth = 92;
+    private const double ConcatBundleHorizontalPadding = 30;
 
     private const string ElkPortSideKey = "elk.port.side";
     private const string ElkPortIndexKey = "elk.port.index";
@@ -1406,6 +1411,7 @@ internal sealed class ElkGraphBuilder
     {
         parent.Children ??= [];
         int concatBundleCount = 0;
+        int concatBundlePortRows = 0;
         foreach (HierarchyScopeInstanceViewModel grandchild in child.ChildInstances)
         {
             parent.Children.Add(BuildChildNode(grandchild, portRefs, expandedPaths, primitivesByModule));
@@ -1417,6 +1423,9 @@ internal sealed class ElkGraphBuilder
             // concat input pin and a fan-out for every concat output pin so the
             // schematic matches Vivado-style bus split/merge visuals.
             concatBundleCount += AddConcatBundleNodes(parent.Children, child.HierarchyPath, grandchild, portRefs);
+            concatBundlePortRows += grandchild.PortConnections
+                .Where(static pin => pin.IsConcat)
+                .Sum(static pin => Math.Max(1, pin.ConcatParts?.Count ?? 0));
         }
 
         // P2.5-5: render the compound's inner primitives (FF / Mux / Latch / Memory /
@@ -1449,8 +1458,8 @@ internal sealed class ElkGraphBuilder
         // per primitive AND scale height with the wider of grandchild-count or
         // primitive-count so deep registers like flag_reg_i lay out cleanly.
         int grandchildCount = child.ChildInstances.Count;
-        double requiredWidth  = 360 + grandchildCount * 96 + innerCount * 56 + concatBundleCount * 64;
-        double requiredHeight = 220 + Math.Max(0, Math.Max(grandchildCount * 80, innerCount * 28) - 80);
+        double requiredWidth  = 420 + grandchildCount * 112 + innerCount * 64 + concatBundleCount * 120;
+        double requiredHeight = 240 + Math.Max(0, Math.Max(grandchildCount * 88, innerCount * 32) - 80) + concatBundlePortRows * 10;
         parent.Width  = Math.Max(parent.Width,  requiredWidth);
         parent.Height = Math.Max(parent.Height, requiredHeight);
     }
@@ -1526,16 +1535,14 @@ internal sealed class ElkGraphBuilder
         HierarchyScopeInstancePortConnectionViewModel pin,
         Dictionary<string, ElkPortRef> portRefs)
     {
-        const double portRowHeight = 24;
-        const double nodeWidth = 36;
         string nodeId = $"join_{ElkNodeIds.SanitizeId(nodeScopePath)}__concat_in__{ElkNodeIds.SanitizeId(grandchild.HierarchyPath)}__{pin.PortName}";
         int n = pin.ConcatParts!.Count;
-        double height = Math.Max(OperatorNodeSize, n * portRowHeight + 8);
+        double height = ComputeConcatBundleHeight(n);
 
         ElkNode node = new()
         {
             Id = nodeId,
-            Width = nodeWidth,
+            Width = ConcatBundleMinJoinerWidth,
             Height = height,
             LayoutOptions = FixedOrderPortConstraints(),
             Labels = [new ElkLabel { Text = "{}" }],
@@ -1570,16 +1577,15 @@ internal sealed class ElkGraphBuilder
         HierarchyScopeInstancePortConnectionViewModel pin,
         Dictionary<string, ElkPortRef> portRefs)
     {
-        const double portRowHeight = 24;
-        const double nodeWidth = 36;
         string nodeId = $"split_{ElkNodeIds.SanitizeId(nodeScopePath)}__concat_out__{ElkNodeIds.SanitizeId(grandchild.HierarchyPath)}__{pin.PortName}";
         int n = pin.ConcatParts!.Count;
-        double height = Math.Max(OperatorNodeSize, n * portRowHeight + 8);
+        double height = ComputeConcatBundleHeight(n);
+        double width = ComputeConcatFanOutWidth(pin.ConcatParts);
 
         ElkNode node = new()
         {
             Id = nodeId,
-            Width = nodeWidth,
+            Width = width,
             Height = height,
             LayoutOptions = FixedOrderPortConstraints(),
             Labels = [new ElkLabel { Text = "{}" }],
@@ -1605,6 +1611,17 @@ internal sealed class ElkGraphBuilder
         }
 
         target.Add(node);
+    }
+
+    private static double ComputeConcatBundleHeight(int partCount) =>
+        Math.Max(OperatorNodeSize + 12, partCount * ConcatBundlePortRowHeight + ConcatBundleVerticalPadding);
+
+    private static double ComputeConcatFanOutWidth(IReadOnlyList<string> labels)
+    {
+        int longest = labels.Count == 0 ? 0 : labels.Max(static label => label.Length);
+        return Math.Max(
+            ConcatBundleMinFanOutWidth,
+            longest * PortLabelCharWidth + ConcatBundleHorizontalPadding);
     }
 
     private static void AddEdges(ElkGraph graph, ElkScopeData scope, Dictionary<string, ElkPortRef> portRefs)

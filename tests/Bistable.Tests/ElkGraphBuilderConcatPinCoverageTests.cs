@@ -376,6 +376,13 @@ public sealed class ElkGraphBuilderConcatPinCoverageTests
         Assert.Contains(result.Graph.Children, n => n.Id.Contains("concat_in") && n.Id.Contains("flag_register"));
         Assert.Contains(result.Graph.Children, n => n.Id.Contains("concat_out") && n.Id.Contains("flag_register"));
 
+        ElkNode joiner = Assert.Single(result.Graph.Children, n => n.Id.Contains("concat_in") && n.Id.Contains("flag_register"));
+        ElkNode fanOut = Assert.Single(result.Graph.Children, n => n.Id.Contains("concat_out") && n.Id.Contains("flag_register"));
+        Assert.True(joiner.Width >= 56);
+        Assert.True(joiner.Height >= 140);
+        Assert.True(fanOut.Width >= 92);
+        Assert.True(fanOut.Height >= 140);
+
         foreach (string sig in new[] { "z_f_in", "n_f_in", "c_f_in", "v_f_in" })
         {
             Assert.Contains(result.Graph.Edges,
