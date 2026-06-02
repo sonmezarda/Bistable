@@ -102,7 +102,8 @@
     {
       "id": "ff_reg_q",
       "labels": [
-        "FF reg_q"
+        "FF reg_q",
+        "reg_q"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -144,7 +145,9 @@
     {
       "id": "mux_out",
       "labels": [
-        "MUX out"
+        "MUX out",
+        "out",
+        "oe"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"

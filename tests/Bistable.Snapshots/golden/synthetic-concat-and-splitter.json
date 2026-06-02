@@ -86,13 +86,16 @@
         "top.u_consumer"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_top_u_consumer.in.hi",
           "labels": [
-            "hi[8b]"
+            "hi[8b]",
+            "hi"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -102,7 +105,8 @@
         {
           "id": "child_top_u_consumer.in.lo",
           "labels": [
-            "lo[8b]"
+            "lo[8b]",
+            "lo"
           ],
           "layoutOptions": {
             "elk.port.index": "1",

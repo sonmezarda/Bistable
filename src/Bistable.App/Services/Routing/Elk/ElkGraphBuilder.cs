@@ -17,7 +17,12 @@ internal sealed class ElkGraphBuilder
     // and produced visible overlap (jump_decoder ↔ jmp_cond[3b] in arnicomp).
     private const double ModuleHeaderHeight = 48;
     private const double ModuleFooterHeight = 16;
-    private const double PortRowHeight = 22;
+    // P4.5-13: bumped from 22 → 30. Port labels sit 12px above the pin
+    // (`py - fontSize - 3` at 9pt) when a wire is incident. At 22px row
+    // height, a label would land 10px above the *previous* row's wire — too
+    // tight to read once edges are drawn. 30px leaves ~18px clearance above
+    // the wire so the label and the wire above never overlap.
+    private const double PortRowHeight = 30;
     private const double PortLabelCharWidth = 6.4;
     private const double ModuleMinWidth = 180;
     private const double ModuleSidePadding = 24;
@@ -1307,6 +1312,10 @@ internal sealed class ElkGraphBuilder
         // root cause of the "flag_reg_i text spilling into v_f_in" overlap.
         // Combined with ModuleHeaderHeight=48 the title gets a 32px-clear zone.
         layoutOptions["elk.padding"] = "[top=32,left=0,right=0,bottom=8]";
+        // P4.5-13: minimum vertical gap between same-side ports — must match
+        // PortRowHeight or labels-above-pins start eating the previous row's
+        // wire. Without this ELK packs ports as tightly as the children allow.
+        layoutOptions["elk.spacing.portPort"] = "30";
         ElkNode node = new()
         {
             Id = nodeId,
@@ -1450,7 +1459,24 @@ internal sealed class ElkGraphBuilder
         parent.LayoutOptions[ElkPortConstraintsKey] = PortConstraintsFixedOrder;
         parent.LayoutOptions["elk.algorithm"] = "layered";
         parent.LayoutOptions["elk.direction"] = "RIGHT";
-        parent.LayoutOptions["elk.padding"] = "[top=48,left=24,right=24,bottom=20]";
+        // P4.5-13: parent compound's own port labels render to the RIGHT of the
+        // west pin and LEFT of the east pin — inside the compound's content area.
+        // Without enough horizontal padding, child nodes (collapsed sub-modules,
+        // splitter/joiner glyphs) land directly on top of those labels. Reserve
+        // labelGap (9) + widest-label + safety pad on each side so the layered
+        // algorithm has clear horizontal lanes between the parent's port labels
+        // and the first/last child column.
+        double labelGap = 9;
+        double labelSafety = 16;
+        double widestWestLabel = child.PortConnections.Where(p => p.IsInput)
+            .Select(p => MeasureLabelWidth(FormatPortLabel(p.PortName, p.Width)))
+            .DefaultIfEmpty(0).Max();
+        double widestEastLabel = child.PortConnections.Where(p => p.IsOutput)
+            .Select(p => MeasureLabelWidth(FormatPortLabel(p.PortName, p.Width)))
+            .DefaultIfEmpty(0).Max();
+        int leftPad  = (int)Math.Ceiling(24 + (widestWestLabel > 0 ? widestWestLabel + labelGap + labelSafety : 0));
+        int rightPad = (int)Math.Ceiling(24 + (widestEastLabel > 0 ? widestEastLabel + labelGap + labelSafety : 0));
+        parent.LayoutOptions["elk.padding"] = $"[top=48,left={leftPad},right={rightPad},bottom=20]";
         // Compound nodes need a generous min size so their children layout cleanly.
         // P2.5-5 / P4.5-7: grow with inner content so symbols don't pile on top of
         // each other. The earlier formula undersized for designs heavy in joiners
@@ -1458,7 +1484,7 @@ internal sealed class ElkGraphBuilder
         // per primitive AND scale height with the wider of grandchild-count or
         // primitive-count so deep registers like flag_reg_i lay out cleanly.
         int grandchildCount = child.ChildInstances.Count;
-        double requiredWidth  = 420 + grandchildCount * 112 + innerCount * 64 + concatBundleCount * 120;
+        double requiredWidth  = 420 + grandchildCount * 112 + innerCount * 64 + concatBundleCount * 120 + leftPad + rightPad;
         double requiredHeight = 240 + Math.Max(0, Math.Max(grandchildCount * 88, innerCount * 32) - 80) + concatBundlePortRows * 10;
         parent.Width  = Math.Max(parent.Width,  requiredWidth);
         parent.Height = Math.Max(parent.Height, requiredHeight);
@@ -1618,10 +1644,16 @@ internal sealed class ElkGraphBuilder
 
     private static double ComputeConcatFanOutWidth(IReadOnlyList<string> labels)
     {
+        // P4.5-13: east-side leg labels render INSIDE the node, left of the
+        // port (`labelX = px - labelGap - labelWidth`). Width must cover:
+        //   labelGap (9) + widest label + west takeoff zone (~24) + safety
+        // pad — otherwise label text spills past the west port and over
+        // adjacent wires.
         int longest = labels.Count == 0 ? 0 : labels.Max(static label => label.Length);
+        double labelArea = longest * PortLabelCharWidth + 9 /* labelGap */ + 24 /* west takeoff */;
         return Math.Max(
             ConcatBundleMinFanOutWidth,
-            longest * PortLabelCharWidth + ConcatBundleHorizontalPadding);
+            labelArea + ConcatBundleHorizontalPadding);
     }
 
     private static void AddEdges(ElkGraph graph, ElkScopeData scope, Dictionary<string, ElkPortRef> portRefs)

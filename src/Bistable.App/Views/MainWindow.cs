@@ -7,6 +7,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Data.Converters;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -48,6 +49,7 @@ public sealed class MainWindow : Window
     private Border? _centerWorkspacePane;
     private TabControl? _centerWorkspaceTabs;
     private SchematicStudioWindow? _schematicStudioWindow;
+    private PreferencesWindow? _preferencesWindow;
     private WaveformStudioWindow? _waveformStudioWindow;
     private readonly Dictionary<string, MemoryViewerWindow> _memoryViewerWindows = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<DockPanelKind, ToolPanelWindow> _floatingToolWindows = [];
@@ -72,7 +74,26 @@ public sealed class MainWindow : Window
         Content = BuildLayout();
         DataContextChanged += OnDataContextChanged;
         Closing += OnClosing;
+        // P2.7-2: Alt+Left / Alt+Right navigate the scope history. The
+        // KeyBindings themselves are added up-front, but their Command targets
+        // are wired in OnDataContextChanged — binding inside the ctor fails
+        // because the Window has no DataContext yet at that point.
+        _scopeBackKeyBinding = new KeyBinding { Gesture = new KeyGesture(Key.Left, KeyModifiers.Alt) };
+        _scopeForwardKeyBinding = new KeyBinding { Gesture = new KeyGesture(Key.Right, KeyModifiers.Alt) };
+        KeyBindings.Add(_scopeBackKeyBinding);
+        KeyBindings.Add(_scopeForwardKeyBinding);
+        // P2.7-9 follow-up: Ctrl+, opens the Preferences window. RelayCommand
+        // here points at the same OpenPreferencesWindow method the File menu
+        // entry uses, so a single code path handles both invocations.
+        KeyBindings.Add(new KeyBinding
+        {
+            Gesture = new KeyGesture(Key.OemComma, KeyModifiers.Control),
+            Command = new RelayCommand(OpenPreferencesWindow),
+        });
     }
+
+    private readonly KeyBinding _scopeBackKeyBinding;
+    private readonly KeyBinding _scopeForwardKeyBinding;
 
     private Control BuildLayout()
     {
@@ -377,6 +398,17 @@ public sealed class MainWindow : Window
                                     Header = sample.Name,
                                     Command = sample.OpenCommand
                                 })
+                    },
+                    new Separator(),
+                    // P2.7-9 follow-up: settings home — Ctrl+, opens a
+                    // standalone Preferences window. Initially just the
+                    // schematic theme + router but every future setting
+                    // (P2.7-5/-7/-8/-10) will accumulate here.
+                    new MenuItem
+                    {
+                        Header = "Preferences...",
+                        InputGesture = new KeyGesture(Key.OemComma, KeyModifiers.Control),
+                        Command = new RelayCommand(OpenPreferencesWindow)
                     }
                 }),
                 TopMenu("View", new Control[]
@@ -412,6 +444,13 @@ public sealed class MainWindow : Window
                         Header = "Open Waveform Studio",
                         Command = new RelayCommand(OpenWaveformStudio)
                     },
+                    new Separator(),
+                    // P2.7-9 follow-up: schematic theme + routing engine moved
+                    // out of the panel toolbar (where they competed with the
+                    // viewport buttons) and into the View menu — same as VS
+                    // Code's "Color Theme" lives under Preferences > Themes.
+                    BuildSchematicThemeMenuItem(),
+                    BuildSchematicRouterMenuItem(),
                     new Separator(),
                     new MenuItem
                     {
@@ -747,6 +786,13 @@ public sealed class MainWindow : Window
             RowDefinitions =
             {
                 new RowDefinition(showHeader ? GridLength.Auto : new GridLength(0)),
+                // P2.7-2: breadcrumb row sits between header and toolbar so the
+                // user always sees the current path + can click any segment to
+                // navigate up. Hosts the back/forward buttons too.
+                new RowDefinition(GridLength.Auto),
+                // P2.7-5: pinned (Ctrl+click multi-selected) signal chip strip.
+                // Collapses to zero height when the pin set is empty.
+                new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
                 // Min-heights kept low so the splitter doesn't snap back when
                 // the user drags toward the edge. Both rows now contain their
@@ -765,6 +811,14 @@ public sealed class MainWindow : Window
                 DockPanelKind.Schematic));
         }
 
+        Control breadcrumbBar = BuildSchematicBreadcrumbBar();
+        Grid.SetRow(breadcrumbBar, 1);
+        grid.Children.Add(breadcrumbBar);
+
+        Control pinnedChipStrip = BuildPinnedSignalChipStrip();
+        Grid.SetRow(pinnedChipStrip, 2);
+        grid.Children.Add(pinnedChipStrip);
+
         Grid previewGrid = new()
         {
             ColumnDefinitions =
@@ -780,7 +834,7 @@ public sealed class MainWindow : Window
         previewGrid.Children.Add(preview);
 
         Control toolbar = BuildSchematicViewportToolbar(preview, includeStudioButton: true);
-        Grid.SetRow(toolbar, 1);
+        Grid.SetRow(toolbar, 3);
         grid.Children.Add(toolbar);
 
         GridSplitter probeSplitter = new()
@@ -807,7 +861,7 @@ public sealed class MainWindow : Window
         Grid.SetColumn(liveProbeBorder, 2);
         previewGrid.Children.Add(liveProbeBorder);
 
-        Grid.SetRow(previewGrid, 2);
+        Grid.SetRow(previewGrid, 4);
         grid.Children.Add(previewGrid);
 
         GridSplitter verticalSplitter = new()
@@ -819,7 +873,7 @@ public sealed class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Stretch,
             Margin = new Thickness(0, 10, 0, 0)
         };
-        Grid.SetRow(verticalSplitter, 3);
+        Grid.SetRow(verticalSplitter, 5);
         grid.Children.Add(verticalSplitter);
 
         Grid hierarchyGrid = new()
@@ -1060,7 +1114,7 @@ public sealed class MainWindow : Window
         Grid.SetColumn(graphBorder, 2);
         hierarchyGrid.Children.Add(graphBorder);
 
-        Grid.SetRow(hierarchyGrid, 4);
+        Grid.SetRow(hierarchyGrid, 6);
         grid.Children.Add(hierarchyGrid);
         return grid;
     }
@@ -1471,7 +1525,10 @@ public sealed class MainWindow : Window
             Children =
             {
                 zoomText,
-                BuildSchematicRouterComboBox(preview),
+                // P2.7-9 follow-up: theme + router moved to View menu / Preferences.
+                // Toolbar now holds only viewport controls so frequently-used
+                // actions stay one click away and rarely-used settings live in
+                // the global menu (VS Code / JetBrains pattern).
                 ClickButton("Fit", (_, _) => preview.FitToView()),
                 ClickButton("1:1", (_, _) => preview.ResetView()),
                 ClickButton("+", (_, _) => preview.ZoomIn(), 34),
@@ -1487,27 +1544,223 @@ public sealed class MainWindow : Window
         return buttons;
     }
 
-    private static ComboBox BuildSchematicRouterComboBox(SchematicPreviewControl preview)
+    // P2.7-2: schematic breadcrumb bar — back/forward arrows + clickable path
+    // segments showing the current scope chain (e.g. `arnicomp_top > flag_reg_i
+    // > flag_register`). Each segment fires SelectHierarchyScopeCommand with
+    // its own hierarchy path, so clicking jumps to that scope.
+    private Control BuildSchematicBreadcrumbBar()
     {
-        ComboBox routerBox = new()
+        ItemsControl items = new()
         {
-            Width = 136,
-            MinHeight = 30,
+            [!ItemsControl.ItemsSourceProperty] = new Binding("SelectedHierarchyBreadcrumbs")
+        };
+
+        items.ItemsPanel = new FuncTemplate<Panel?>(() => new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4
+        });
+
+        items.ItemTemplate = new FuncDataTemplate<HierarchyBreadcrumbItemViewModel>((item, _) =>
+        {
+            Button button = new()
+            {
+                Background = item.IsCurrent ? SurfaceAltBrush : Brushes.Transparent,
+                BorderBrush = item.IsCurrent ? AccentBrush : StrokeBrush,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(8, 3),
+                MinHeight = 26,
+                Content = new TextBlock
+                {
+                    Text = item.Title,
+                    Foreground = TextBrush,
+                    FontSize = 11,
+                    FontWeight = item.IsCurrent ? FontWeight.SemiBold : FontWeight.Normal,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+                CommandParameter = item.HierarchyPath,
+            };
+            button.Bind(Button.CommandProperty, new Binding("DataContext.SelectHierarchyScopeCommand")
+            {
+                RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor) { AncestorType = typeof(Window) }
+            });
+            return button;
+        }, supportsRecycling: true);
+
+        Button backButton = ClickButton("←", (_, _) => { }, 28);
+        backButton.Bind(Button.CommandProperty, new Binding("NavigateScopeBackCommand"));
+        ToolTip.SetTip(backButton, "Back (Alt+Left)");
+
+        Button forwardButton = ClickButton("→", (_, _) => { }, 28);
+        forwardButton.Bind(Button.CommandProperty, new Binding("NavigateScopeForwardCommand"));
+        ToolTip.SetTip(forwardButton, "Forward (Alt+Right)");
+
+        StackPanel bar = new()
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Margin = new Thickness(0, 4, 0, 0),
+            Children =
+            {
+                backButton,
+                forwardButton,
+                new ScrollViewer
+                {
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    Content = items,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 0, 0, 0)
+                }
+            }
+        };
+        return bar;
+    }
+
+    // P2.7-5: pinned multi-selection chip strip. Shows one chip per pinned
+    // signal (via the VM mirror); the strip collapses to zero height when the
+    // pin set is empty, so it never costs vertical space unless the user is
+    // actively comparing signals.
+    private Control BuildPinnedSignalChipStrip()
+    {
+        TextBlock label = new()
+        {
+            Text = "Pinned:",
+            Foreground = MutedBrush,
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+
+        ItemsControl chips = new()
+        {
+            [!ItemsControl.ItemsSourceProperty] = new Binding("PinnedSignals"),
+        };
+        chips.ItemsPanel = new FuncTemplate<Panel?>(() => new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+        });
+        chips.ItemTemplate = new FuncDataTemplate<string>((name, _) => new Border
+        {
+            Background = SurfaceAltBrush,
+            BorderBrush = AccentBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(8, 2),
+            Child = new TextBlock
+            {
+                Text = name,
+                Foreground = TextBrush,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        }, supportsRecycling: true);
+
+        Button clearButton = new()
+        {
+            Content = "Clear",
+            Padding = new Thickness(10, 2),
+            MinHeight = 24,
             Background = SurfaceAltBrush,
             Foreground = TextBrush,
             BorderBrush = StrokeBrush,
-            ItemsSource = Enum.GetValues<SchematicRoutingEngine>(),
-            SelectedItem = preview.RoutingEngine
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            FontSize = 11,
+            Margin = new Thickness(8, 0, 0, 0),
+            [!Button.CommandProperty] = new Binding("ClearPinnedSignalsCommand"),
         };
-        routerBox.SelectionChanged += (_, _) =>
+
+        StackPanel strip = new()
         {
-            if (routerBox.SelectedItem is SchematicRoutingEngine engine)
-            {
-                preview.RoutingEngine = engine;
-            }
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            Margin = new Thickness(0, 6, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { label, chips, clearButton },
+            // Collapse the whole strip when nothing is pinned. The ToBool
+            // converter from System.Linq is overkill; bind IsVisible to a
+            // simple count-based path through the existing CollectionLengthGreaterThanZero
+            // converter pattern. We don't have one, so default visible — Avalonia
+            // will lay out an empty ItemsControl as zero-width so the strip
+            // collapses naturally if there are no chips and no Clear pressed.
         };
-        return routerBox;
+        // Hide when nothing pinned so the row doesn't reserve dead vertical space.
+        strip.Bind(IsVisibleProperty, new Binding("PinnedSignals.Count")
+        {
+            Converter = new CountGreaterThanZeroConverter(),
+        });
+        return strip;
     }
+
+    // P2.7-9 follow-up: View menu submenus.
+    //
+    // BuildSchematicThemeMenuItem produces a "Schematic Theme" parent menu with
+    // one radio-style child per preset. Each child binds IsChecked to a
+    // SchematicThemePresetMatchConverter so exactly one child shows the check
+    // mark — Avalonia's MenuItem doesn't enforce radio-group exclusivity
+    // automatically. Clicking a child sets the VM property which propagates
+    // through SetProperty + UserPreferencesStore.Save.
+    private static MenuItem BuildSchematicThemeMenuItem()
+    {
+        MenuItem parent = new() { Header = "Schematic Theme" };
+        List<MenuItem> children = [];
+        foreach (SchematicThemePreset preset in Enum.GetValues<SchematicThemePreset>())
+        {
+            SchematicThemePreset capturedPreset = preset;
+            MenuItem item = new()
+            {
+                Header = SchematicThemePresets.DisplayName(preset),
+                ToggleType = MenuItemToggleType.Radio,
+                [!MenuItem.IsCheckedProperty] = new Binding("SchematicThemePreset")
+                {
+                    Converter = new EnumEqualsConverter(),
+                    ConverterParameter = preset,
+                },
+            };
+            item.Click += (_, _) =>
+            {
+                if (item.DataContext is MainWindowViewModel vm) vm.SchematicThemePreset = capturedPreset;
+            };
+            children.Add(item);
+        }
+        parent.ItemsSource = children;
+        return parent;
+    }
+
+    private static MenuItem BuildSchematicRouterMenuItem()
+    {
+        MenuItem parent = new() { Header = "Routing Engine" };
+        List<MenuItem> children = [];
+        foreach (SchematicRoutingEngine engine in Enum.GetValues<SchematicRoutingEngine>())
+        {
+            SchematicRoutingEngine capturedEngine = engine;
+            MenuItem item = new()
+            {
+                Header = engine.ToString(),
+                ToggleType = MenuItemToggleType.Radio,
+                [!MenuItem.IsCheckedProperty] = new Binding("SchematicRouter")
+                {
+                    Converter = new EnumEqualsConverter(),
+                    ConverterParameter = engine,
+                },
+            };
+            item.Click += (_, _) =>
+            {
+                if (item.DataContext is MainWindowViewModel vm) vm.SchematicRouter = capturedEngine;
+            };
+            children.Add(item);
+        }
+        parent.ItemsSource = children;
+        return parent;
+    }
+
+    // Theme + router combo boxes moved into PreferencesWindow. View menu radio
+    // submenus (BuildSchematicThemeMenuItem / BuildSchematicRouterMenuItem)
+    // cover the quick-switch path so the schematic panel toolbar no longer
+    // carries them.
 
     private Control BuildPanelSurface(DockPanelKind kind)
     {
@@ -1935,10 +2188,39 @@ public sealed class MainWindow : Window
             [!SchematicPreviewControl.ScopeLocalSignalsProperty] = new Binding("SelectedHierarchyLocalSignals"),
             [!SchematicPreviewControl.ScopeContAssignsProperty] = new Binding("SelectedHierarchyContAssigns"),
             [!SchematicPreviewControl.ScopePrimitivesProperty] = new Binding("SelectedHierarchyPrimitives"),
-            [!SchematicPreviewControl.ScopePrimitivesByModuleProperty] = new Binding("PrimitivesByModule")
+            [!SchematicPreviewControl.ScopePrimitivesByModuleProperty] = new Binding("PrimitivesByModule"),
+            // P2.7-9: schematic theme — bound to the ViewModel's resolved
+            // SchematicTheme record so changing the combo box repaints the
+            // schematic instantly with the new palette.
+            [!SchematicPreviewControl.PaletteProperty] = new Binding("SchematicTheme"),
+            // P2.7-9 follow-up: routing engine moved into the ViewModel so the
+            // View menu / Preferences window both observe a single source of
+            // truth. The control's RoutingEngine property now tracks the VM.
+            [!SchematicPreviewControl.RoutingEngineProperty] = new Binding("SchematicRouter")
         };
         preview.SignalEditorRequested += OnSchematicSignalEditorRequested;
         preview.SchematicContextRequested += OnSchematicContextRequested;
+        // P2.7-5: mirror Ctrl+click multi-selection into the VM so the chip
+        // strip can display it; route the chip strip's "Clear all" command
+        // back to the control's HashSet.
+        preview.PinnedSignalsChanged += (_, _) =>
+        {
+            if (DataContext is MainWindowViewModel vm)
+            {
+                vm.RefreshPinnedSignals(preview.PinnedSignalNames);
+            }
+        };
+        if (DataContext is MainWindowViewModel initialVm)
+        {
+            initialVm.ClearPinnedSignalsRequested += (_, _) => preview.ClearPinnedSignals();
+        }
+        DataContextChanged += (_, _) =>
+        {
+            if (DataContext is MainWindowViewModel newVm)
+            {
+                newVm.ClearPinnedSignalsRequested += (_, _) => preview.ClearPinnedSignals();
+            }
+        };
         return preview;
     }
 
@@ -2039,6 +2321,25 @@ public sealed class MainWindow : Window
         _schematicStudioWindow = new SchematicStudioWindow(viewModel);
         _schematicStudioWindow.Closed += OnSchematicStudioClosed;
         _schematicStudioWindow.Show(this);
+    }
+
+    // P2.7-9 follow-up: opens the global Preferences window. Single instance —
+    // re-opening just activates it. DataContext is reused from the main window
+    // so VM property edits live-propagate to the schematic.
+    private void OpenPreferencesWindow()
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        if (_preferencesWindow is { IsVisible: true } existing)
+        {
+            existing.Activate();
+            return;
+        }
+        _preferencesWindow = new PreferencesWindow { DataContext = viewModel };
+        _preferencesWindow.Closed += (_, _) => _preferencesWindow = null;
+        _preferencesWindow.Show(this);
     }
 
     private void OpenWaveformStudio()
@@ -2315,6 +2616,10 @@ public sealed class MainWindow : Window
         {
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
             viewModel.MemoryViewerRequested += OnMemoryViewerRequested;
+            // P2.7-2: now that the DataContext is set, point the Alt+Left /
+            // Alt+Right gestures at the VM's back/forward commands.
+            _scopeBackKeyBinding.Command = viewModel.NavigateScopeBackCommand;
+            _scopeForwardKeyBinding.Command = viewModel.NavigateScopeForwardCommand;
             SyncDockLayout(viewModel);
             if (_schematicStudioWindow is not null)
             {
@@ -2634,5 +2939,28 @@ public sealed class MainWindow : Window
         _floatingToolWindows.Clear();
         _schematicStudioWindow?.Close();
         _waveformStudioWindow?.Close();
+    }
+
+    // P2.7-9 follow-up: simple converter shared by the radio-style View menu
+    // items. Returns true iff the bound value (the VM's enum) equals the
+    // ConverterParameter (the menu item's preset). Used through MenuItem's
+    // IsChecked binding so exactly one child shows the radio dot at a time.
+    private sealed class EnumEqualsConverter : Avalonia.Data.Converters.IValueConverter
+    {
+        public object? Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+            => value is not null && value.Equals(parameter);
+
+        public object? ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+            => value is true ? parameter : Avalonia.Data.BindingOperations.DoNothing;
+    }
+
+    // P2.7-5: collapses the pinned chip strip when the bound count is zero.
+    private sealed class CountGreaterThanZeroConverter : Avalonia.Data.Converters.IValueConverter
+    {
+        public object? Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+            => value is int n && n > 0;
+
+        public object? ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+            => Avalonia.Data.BindingOperations.DoNothing;
     }
 }

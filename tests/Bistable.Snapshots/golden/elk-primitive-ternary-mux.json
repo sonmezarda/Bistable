@@ -82,7 +82,9 @@
     {
       "id": "mux_y",
       "labels": [
-        "MUX y"
+        "MUX y",
+        "y",
+        "sel"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"

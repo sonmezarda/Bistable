@@ -137,13 +137,16 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_bus_selector_i.in.sel",
           "labels": [
-            "sel[3b]"
+            "sel[3b]",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -153,7 +156,8 @@
         {
           "id": "child_arnicomp_top_bus_selector_i.in.out_en",
           "labels": [
-            "out_en"
+            "out_en",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -163,7 +167,8 @@
         {
           "id": "child_arnicomp_top_bus_selector_i.in.a",
           "labels": [
-            "a[8b]"
+            "a[8b]",
+            "reg_a_out"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -173,7 +178,8 @@
         {
           "id": "child_arnicomp_top_bus_selector_i.in.d",
           "labels": [
-            "d[8b]"
+            "d[8b]",
+            "reg_d_out"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -183,7 +189,8 @@
         {
           "id": "child_arnicomp_top_bus_selector_i.in.b",
           "labels": [
-            "b[8b]"
+            "b[8b]",
+            "reg_b_out"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -193,7 +200,8 @@
         {
           "id": "child_arnicomp_top_bus_selector_i.in.acc",
           "labels": [
-            "acc[8b]"
+            "acc[8b]",
+            "acc_out"
           ],
           "layoutOptions": {
             "elk.port.index": "5",
@@ -203,7 +211,8 @@
         {
           "id": "child_arnicomp_top_bus_selector_i.in.lrl",
           "labels": [
-            "lrl[8b]"
+            "lrl[8b]",
+            "lrl_out"
           ],
           "layoutOptions": {
             "elk.port.index": "6",
@@ -213,7 +222,8 @@
         {
           "id": "child_arnicomp_top_bus_selector_i.in.lrh",
           "labels": [
-            "lrh[8b]"
+            "lrh[8b]",
+            "lrh_out"
           ],
           "layoutOptions": {
             "elk.port.index": "7",
@@ -223,7 +233,8 @@
         {
           "id": "child_arnicomp_top_bus_selector_i.in.m",
           "labels": [
-            "m[8b]"
+            "m[8b]",
+            "mem_rdata"
           ],
           "layoutOptions": {
             "elk.port.index": "8",
@@ -233,7 +244,8 @@
         {
           "id": "child_arnicomp_top_bus_selector_i.out.out",
           "labels": [
-            "out[8b]"
+            "out[8b]",
+            "bus_sel_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -250,12 +262,15 @@
         "arnicomp_top.reg_a_i"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_reg_a_i.in.clk",
           "labels": [
+            "clk",
             "clk"
           ],
           "layoutOptions": {
@@ -266,6 +281,7 @@
         {
           "id": "child_arnicomp_top_reg_a_i.in.rst_n",
           "labels": [
+            "rst_n",
             "rst_n"
           ],
           "layoutOptions": {
@@ -276,7 +292,8 @@
         {
           "id": "child_arnicomp_top_reg_a_i.in.we",
           "labels": [
-            "we"
+            "we",
+            "reg_a_we"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -286,7 +303,8 @@
         {
           "id": "child_arnicomp_top_reg_a_i.in.smsbra",
           "labels": [
-            "smsbra"
+            "smsbra",
+            "1\u0027h0"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -296,7 +314,8 @@
         {
           "id": "child_arnicomp_top_reg_a_i.in.d",
           "labels": [
-            "d[8b]"
+            "d[8b]",
+            "bus"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -306,7 +325,8 @@
         {
           "id": "child_arnicomp_top_reg_a_i.out.out",
           "labels": [
-            "out[8b]"
+            "out[8b]",
+            "reg_a_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -324,12 +344,15 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_reg_b.in.clk",
           "labels": [
+            "clk",
             "clk"
           ],
           "layoutOptions": {
@@ -340,6 +363,7 @@
         {
           "id": "child_arnicomp_top_reg_b.in.rst_n",
           "labels": [
+            "rst_n",
             "rst_n"
           ],
           "layoutOptions": {
@@ -350,7 +374,8 @@
         {
           "id": "child_arnicomp_top_reg_b.in.we",
           "labels": [
-            "we"
+            "we",
+            "reg_b_we"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -360,7 +385,8 @@
         {
           "id": "child_arnicomp_top_reg_b.in.oe",
           "labels": [
-            "oe"
+            "oe",
+            "1\u0027h1"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -370,7 +396,8 @@
         {
           "id": "child_arnicomp_top_reg_b.in.d",
           "labels": [
-            "d[8b]"
+            "d[8b]",
+            "bus"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -380,7 +407,8 @@
         {
           "id": "child_arnicomp_top_reg_b.out.out",
           "labels": [
-            "out[8b]"
+            "out[8b]",
+            "reg_b_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -398,12 +426,15 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_reg_d.in.clk",
           "labels": [
+            "clk",
             "clk"
           ],
           "layoutOptions": {
@@ -414,6 +445,7 @@
         {
           "id": "child_arnicomp_top_reg_d.in.rst_n",
           "labels": [
+            "rst_n",
             "rst_n"
           ],
           "layoutOptions": {
@@ -424,7 +456,8 @@
         {
           "id": "child_arnicomp_top_reg_d.in.we",
           "labels": [
-            "we"
+            "we",
+            "reg_d_we"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -434,7 +467,8 @@
         {
           "id": "child_arnicomp_top_reg_d.in.oe",
           "labels": [
-            "oe"
+            "oe",
+            "1\u0027h1"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -444,7 +478,8 @@
         {
           "id": "child_arnicomp_top_reg_d.in.d",
           "labels": [
-            "d[8b]"
+            "d[8b]",
+            "bus"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -454,7 +489,8 @@
         {
           "id": "child_arnicomp_top_reg_d.out.out",
           "labels": [
-            "out[8b]"
+            "out[8b]",
+            "reg_d_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -472,12 +508,15 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_acc.in.clk",
           "labels": [
+            "clk",
             "clk"
           ],
           "layoutOptions": {
@@ -488,6 +527,7 @@
         {
           "id": "child_arnicomp_top_acc.in.rst_n",
           "labels": [
+            "rst_n",
             "rst_n"
           ],
           "layoutOptions": {
@@ -498,7 +538,8 @@
         {
           "id": "child_arnicomp_top_acc.in.we",
           "labels": [
-            "we"
+            "we",
+            "acc_we"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -508,7 +549,8 @@
         {
           "id": "child_arnicomp_top_acc.in.oe",
           "labels": [
-            "oe"
+            "oe",
+            "1\u0027h1"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -518,7 +560,8 @@
         {
           "id": "child_arnicomp_top_acc.in.d",
           "labels": [
-            "d[8b]"
+            "d[8b]",
+            "alu_out"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -528,7 +571,8 @@
         {
           "id": "child_arnicomp_top_acc.out.out",
           "labels": [
-            "out[8b]"
+            "out[8b]",
+            "acc_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -546,12 +590,15 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_marl_i.in.clk",
           "labels": [
+            "clk",
             "clk"
           ],
           "layoutOptions": {
@@ -562,6 +609,7 @@
         {
           "id": "child_arnicomp_top_marl_i.in.rst_n",
           "labels": [
+            "rst_n",
             "rst_n"
           ],
           "layoutOptions": {
@@ -572,6 +620,7 @@
         {
           "id": "child_arnicomp_top_marl_i.in.marl_we",
           "labels": [
+            "marl_we",
             "marl_we"
           ],
           "layoutOptions": {
@@ -582,6 +631,7 @@
         {
           "id": "child_arnicomp_top_marl_i.in.marh_we",
           "labels": [
+            "marh_we",
             "marh_we"
           ],
           "layoutOptions": {
@@ -592,7 +642,8 @@
         {
           "id": "child_arnicomp_top_marl_i.in.inc",
           "labels": [
-            "inc"
+            "inc",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -602,7 +653,8 @@
         {
           "id": "child_arnicomp_top_marl_i.in.inc_dec_sel",
           "labels": [
-            "inc_dec_sel"
+            "inc_dec_sel",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "5",
@@ -612,7 +664,8 @@
         {
           "id": "child_arnicomp_top_marl_i.in.inc_by_two",
           "labels": [
-            "inc_by_two"
+            "inc_by_two",
+            "inst_q"
           ],
           "layoutOptions": {
             "elk.port.index": "6",
@@ -622,7 +675,8 @@
         {
           "id": "child_arnicomp_top_marl_i.in.d",
           "labels": [
-            "d[8b]"
+            "d[8b]",
+            "bus"
           ],
           "layoutOptions": {
             "elk.port.index": "7",
@@ -632,7 +686,8 @@
         {
           "id": "child_arnicomp_top_marl_i.out.marl_out",
           "labels": [
-            "marl_out[8b]"
+            "marl_out[8b]",
+            "marl_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -642,7 +697,8 @@
         {
           "id": "child_arnicomp_top_marl_i.out.marh_out",
           "labels": [
-            "marh_out[8b]"
+            "marh_out[8b]",
+            "marh_out"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -660,12 +716,15 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_prl.in.clk",
           "labels": [
+            "clk",
             "clk"
           ],
           "layoutOptions": {
@@ -676,6 +735,7 @@
         {
           "id": "child_arnicomp_top_prl.in.rst_n",
           "labels": [
+            "rst_n",
             "rst_n"
           ],
           "layoutOptions": {
@@ -686,7 +746,8 @@
         {
           "id": "child_arnicomp_top_prl.in.we",
           "labels": [
-            "we"
+            "we",
+            "prl_we"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -696,7 +757,8 @@
         {
           "id": "child_arnicomp_top_prl.in.oe",
           "labels": [
-            "oe"
+            "oe",
+            "1\u0027h1"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -706,7 +768,8 @@
         {
           "id": "child_arnicomp_top_prl.in.d",
           "labels": [
-            "d[8b]"
+            "d[8b]",
+            "bus"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -716,7 +779,8 @@
         {
           "id": "child_arnicomp_top_prl.out.out",
           "labels": [
-            "out[8b]"
+            "out[8b]",
+            "prl_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -734,12 +798,15 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_prh.in.clk",
           "labels": [
+            "clk",
             "clk"
           ],
           "layoutOptions": {
@@ -750,6 +817,7 @@
         {
           "id": "child_arnicomp_top_prh.in.rst_n",
           "labels": [
+            "rst_n",
             "rst_n"
           ],
           "layoutOptions": {
@@ -760,7 +828,8 @@
         {
           "id": "child_arnicomp_top_prh.in.we",
           "labels": [
-            "we"
+            "we",
+            "prh_we"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -770,7 +839,8 @@
         {
           "id": "child_arnicomp_top_prh.in.oe",
           "labels": [
-            "oe"
+            "oe",
+            "1\u0027h1"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -780,7 +850,8 @@
         {
           "id": "child_arnicomp_top_prh.in.d",
           "labels": [
-            "d[8b]"
+            "d[8b]",
+            "bus"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -790,7 +861,8 @@
         {
           "id": "child_arnicomp_top_prh.out.out",
           "labels": [
-            "out[8b]"
+            "out[8b]",
+            "prh_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -808,12 +880,15 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_lr.in.clk",
           "labels": [
+            "clk",
             "clk"
           ],
           "layoutOptions": {
@@ -824,6 +899,7 @@
         {
           "id": "child_arnicomp_top_lr.in.rst_n",
           "labels": [
+            "rst_n",
             "rst_n"
           ],
           "layoutOptions": {
@@ -834,7 +910,8 @@
         {
           "id": "child_arnicomp_top_lr.in.we",
           "labels": [
-            "we"
+            "we",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -844,7 +921,8 @@
         {
           "id": "child_arnicomp_top_lr.in.oe",
           "labels": [
-            "oe"
+            "oe",
+            "1\u0027h1"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -854,7 +932,8 @@
         {
           "id": "child_arnicomp_top_lr.in.d",
           "labels": [
-            "d[16b]"
+            "d[16b]",
+            "pc_addr"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -864,7 +943,8 @@
         {
           "id": "child_arnicomp_top_lr.out.out",
           "labels": [
-            "out[16b]"
+            "out[16b]",
+            "lr_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -881,12 +961,15 @@
         "arnicomp_top.sp_i"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_sp_i.in.clk",
           "labels": [
+            "clk",
             "clk"
           ],
           "layoutOptions": {
@@ -897,6 +980,7 @@
         {
           "id": "child_arnicomp_top_sp_i.in.rst_n",
           "labels": [
+            "rst_n",
             "rst_n"
           ],
           "layoutOptions": {
@@ -907,7 +991,8 @@
         {
           "id": "child_arnicomp_top_sp_i.in.update_en",
           "labels": [
-            "update_en"
+            "update_en",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -917,7 +1002,8 @@
         {
           "id": "child_arnicomp_top_sp_i.in.inc_dec_sel",
           "labels": [
-            "inc_dec_sel"
+            "inc_dec_sel",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -927,7 +1013,8 @@
         {
           "id": "child_arnicomp_top_sp_i.out.out",
           "labels": [
-            "out[16b]"
+            "out[16b]",
+            "sp_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -944,12 +1031,15 @@
         "arnicomp_top.flag_reg_i"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_flag_reg_i.in.clk",
           "labels": [
+            "clk",
             "clk"
           ],
           "layoutOptions": {
@@ -960,6 +1050,7 @@
         {
           "id": "child_arnicomp_top_flag_reg_i.in.rst_n",
           "labels": [
+            "rst_n",
             "rst_n"
           ],
           "layoutOptions": {
@@ -970,7 +1061,8 @@
         {
           "id": "child_arnicomp_top_flag_reg_i.in.we",
           "labels": [
-            "we"
+            "we",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -980,7 +1072,8 @@
         {
           "id": "child_arnicomp_top_flag_reg_i.in.z_f_in",
           "labels": [
-            "z_f_in"
+            "z_f_in",
+            "zero_flag"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -990,7 +1083,8 @@
         {
           "id": "child_arnicomp_top_flag_reg_i.in.n_f_in",
           "labels": [
-            "n_f_in"
+            "n_f_in",
+            "negative_flag"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -1000,7 +1094,8 @@
         {
           "id": "child_arnicomp_top_flag_reg_i.in.c_f_in",
           "labels": [
-            "c_f_in"
+            "c_f_in",
+            "carry_flag"
           ],
           "layoutOptions": {
             "elk.port.index": "5",
@@ -1010,7 +1105,8 @@
         {
           "id": "child_arnicomp_top_flag_reg_i.in.v_f_in",
           "labels": [
-            "v_f_in"
+            "v_f_in",
+            "overflow_flag"
           ],
           "layoutOptions": {
             "elk.port.index": "6",
@@ -1020,7 +1116,8 @@
         {
           "id": "child_arnicomp_top_flag_reg_i.out.z_f_out",
           "labels": [
-            "z_f_out"
+            "z_f_out",
+            "z_reg_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -1030,7 +1127,8 @@
         {
           "id": "child_arnicomp_top_flag_reg_i.out.n_f_out",
           "labels": [
-            "n_f_out"
+            "n_f_out",
+            "n_reg_out"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -1040,7 +1138,8 @@
         {
           "id": "child_arnicomp_top_flag_reg_i.out.c_f_out",
           "labels": [
-            "c_f_out"
+            "c_f_out",
+            "c_reg_out"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -1050,7 +1149,8 @@
         {
           "id": "child_arnicomp_top_flag_reg_i.out.v_f_out",
           "labels": [
-            "v_f_out"
+            "v_f_out",
+            "v_reg_out"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -1068,12 +1168,15 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_pc.in.clk",
           "labels": [
+            "clk",
             "clk"
           ],
           "layoutOptions": {
@@ -1084,6 +1187,7 @@
         {
           "id": "child_arnicomp_top_pc.in.rst_n",
           "labels": [
+            "rst_n",
             "rst_n"
           ],
           "layoutOptions": {
@@ -1094,7 +1198,8 @@
         {
           "id": "child_arnicomp_top_pc.in.count_en",
           "labels": [
-            "count_en"
+            "count_en",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -1104,7 +1209,8 @@
         {
           "id": "child_arnicomp_top_pc.in.load_en",
           "labels": [
-            "load_en"
+            "load_en",
+            "jump_taken"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -1114,7 +1220,8 @@
         {
           "id": "child_arnicomp_top_pc.in.load_data",
           "labels": [
-            "load_data[16b]"
+            "load_data[16b]",
+            "?"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -1124,8 +1231,45 @@
         {
           "id": "child_arnicomp_top_pc.out.paddr",
           "labels": [
-            "paddr[16b]"
+            "paddr[16b]",
+            "pc_addr"
           ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "join_top__concat_in__arnicomp_top_pc__load_data",
+      "labels": [
+        "{}"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "join_top__concat_in__arnicomp_top_pc__load_data.in.0",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "join_top__concat_in__arnicomp_top_pc__load_data.in.1",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "join_top__concat_in__arnicomp_top_pc__load_data.out",
+          "labels": [],
           "layoutOptions": {
             "elk.port.index": "0",
             "elk.port.side": "EAST"
@@ -1142,13 +1286,16 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_instruction_decoder.in.instr_in",
           "labels": [
-            "instr_in[8b]"
+            "instr_in[8b]",
+            "exec_instr"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -1158,7 +1305,8 @@
         {
           "id": "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out",
           "labels": [
-            "ctrl_pkg_out"
+            "ctrl_pkg_out",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -1168,7 +1316,8 @@
         {
           "id": "child_arnicomp_top_instruction_decoder.out.jmp_sel",
           "labels": [
-            "jmp_sel[3b]"
+            "jmp_sel[3b]",
+            "jmp_select"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -1178,6 +1327,7 @@
         {
           "id": "child_arnicomp_top_instruction_decoder.out.reg_a_we",
           "labels": [
+            "reg_a_we",
             "reg_a_we"
           ],
           "layoutOptions": {
@@ -1188,6 +1338,7 @@
         {
           "id": "child_arnicomp_top_instruction_decoder.out.reg_b_we",
           "labels": [
+            "reg_b_we",
             "reg_b_we"
           ],
           "layoutOptions": {
@@ -1198,6 +1349,7 @@
         {
           "id": "child_arnicomp_top_instruction_decoder.out.reg_d_we",
           "labels": [
+            "reg_d_we",
             "reg_d_we"
           ],
           "layoutOptions": {
@@ -1208,6 +1360,7 @@
         {
           "id": "child_arnicomp_top_instruction_decoder.out.marl_we",
           "labels": [
+            "marl_we",
             "marl_we"
           ],
           "layoutOptions": {
@@ -1218,6 +1371,7 @@
         {
           "id": "child_arnicomp_top_instruction_decoder.out.marh_we",
           "labels": [
+            "marh_we",
             "marh_we"
           ],
           "layoutOptions": {
@@ -1228,6 +1382,7 @@
         {
           "id": "child_arnicomp_top_instruction_decoder.out.prl_we",
           "labels": [
+            "prl_we",
             "prl_we"
           ],
           "layoutOptions": {
@@ -1238,6 +1393,7 @@
         {
           "id": "child_arnicomp_top_instruction_decoder.out.prh_we",
           "labels": [
+            "prh_we",
             "prh_we"
           ],
           "layoutOptions": {
@@ -1248,6 +1404,7 @@
         {
           "id": "child_arnicomp_top_instruction_decoder.out.mem_we",
           "labels": [
+            "mem_we",
             "mem_we"
           ],
           "layoutOptions": {
@@ -1258,6 +1415,7 @@
         {
           "id": "child_arnicomp_top_instruction_decoder.out.acc_we",
           "labels": [
+            "acc_we",
             "acc_we"
           ],
           "layoutOptions": {
@@ -1276,13 +1434,16 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_alu_i.in.a",
           "labels": [
-            "a[8b]"
+            "a[8b]",
+            "reg_d_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -1292,7 +1453,8 @@
         {
           "id": "child_arnicomp_top_alu_i.in.b",
           "labels": [
-            "b[8b]"
+            "b[8b]",
+            "bus"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -1302,7 +1464,8 @@
         {
           "id": "child_arnicomp_top_alu_i.in.ops",
           "labels": [
-            "ops[2b]"
+            "ops[2b]",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -1312,7 +1475,8 @@
         {
           "id": "child_arnicomp_top_alu_i.in.negative",
           "labels": [
-            "negative"
+            "negative",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -1322,7 +1486,8 @@
         {
           "id": "child_arnicomp_top_alu_i.in.c_in",
           "labels": [
-            "c_in"
+            "c_in",
+            "alu_carry_in"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -1332,7 +1497,8 @@
         {
           "id": "child_arnicomp_top_alu_i.out.result",
           "labels": [
-            "result[8b]"
+            "result[8b]",
+            "alu_out"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -1342,6 +1508,7 @@
         {
           "id": "child_arnicomp_top_alu_i.out.zero_flag",
           "labels": [
+            "zero_flag",
             "zero_flag"
           ],
           "layoutOptions": {
@@ -1352,6 +1519,7 @@
         {
           "id": "child_arnicomp_top_alu_i.out.negative_flag",
           "labels": [
+            "negative_flag",
             "negative_flag"
           ],
           "layoutOptions": {
@@ -1362,6 +1530,7 @@
         {
           "id": "child_arnicomp_top_alu_i.out.carry_flag",
           "labels": [
+            "carry_flag",
             "carry_flag"
           ],
           "layoutOptions": {
@@ -1372,6 +1541,7 @@
         {
           "id": "child_arnicomp_top_alu_i.out.overflow_flag",
           "labels": [
+            "overflow_flag",
             "overflow_flag"
           ],
           "layoutOptions": {
@@ -1389,13 +1559,16 @@
         "arnicomp_top.jump_decoder"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_arnicomp_top_jump_decoder.in.jmp_en",
           "labels": [
-            "jmp_en"
+            "jmp_en",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -1405,7 +1578,8 @@
         {
           "id": "child_arnicomp_top_jump_decoder.in.jgt",
           "labels": [
-            "jgt"
+            "jgt",
+            "control_pins"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -1415,7 +1589,8 @@
         {
           "id": "child_arnicomp_top_jump_decoder.in.zero_flag",
           "labels": [
-            "zero_flag"
+            "zero_flag",
+            "z_reg_out"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -1425,7 +1600,8 @@
         {
           "id": "child_arnicomp_top_jump_decoder.in.negative_flag",
           "labels": [
-            "negative_flag"
+            "negative_flag",
+            "n_reg_out"
           ],
           "layoutOptions": {
             "elk.port.index": "3",
@@ -1435,7 +1611,8 @@
         {
           "id": "child_arnicomp_top_jump_decoder.in.overflow_flag",
           "labels": [
-            "overflow_flag"
+            "overflow_flag",
+            "v_reg_out"
           ],
           "layoutOptions": {
             "elk.port.index": "4",
@@ -1445,7 +1622,8 @@
         {
           "id": "child_arnicomp_top_jump_decoder.in.carry_flag",
           "labels": [
-            "carry_flag"
+            "carry_flag",
+            "c_reg_out"
           ],
           "layoutOptions": {
             "elk.port.index": "5",
@@ -1455,7 +1633,8 @@
         {
           "id": "child_arnicomp_top_jump_decoder.in.jmp_cond",
           "labels": [
-            "jmp_cond[3b]"
+            "jmp_cond[3b]",
+            "jmp_select"
           ],
           "layoutOptions": {
             "elk.port.index": "6",
@@ -1465,7 +1644,8 @@
         {
           "id": "child_arnicomp_top_jump_decoder.out.jmp_taken",
           "labels": [
-            "jmp_taken"
+            "jmp_taken",
+            "jump_taken"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -1516,7 +1696,8 @@
     {
       "id": "ff_flush_next_instr",
       "labels": [
-        "FF flush_next_instr"
+        "FF flush_next_instr",
+        "flush_next_instr"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -1558,7 +1739,8 @@
     {
       "id": "ff_inst_q",
       "labels": [
-        "FF inst_q"
+        "FF inst_q",
+        "inst_q"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -1752,7 +1934,8 @@
     {
       "id": "buf_pc_out",
       "labels": [
-        "BUF pc_out"
+        "BUF pc_out",
+        "pc_out"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -1784,7 +1967,9 @@
     {
       "id": "mux_mem_addr",
       "labels": [
-        "MUX mem_addr"
+        "MUX mem_addr",
+        "mem_addr",
+        "control_pins"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -1836,7 +2021,9 @@
     {
       "id": "mux_mem_wdata",
       "labels": [
-        "MUX mem_wdata"
+        "MUX mem_wdata",
+        "mem_wdata",
+        "control_pins"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -1888,7 +2075,8 @@
     {
       "id": "gate_mem_ren",
       "labels": [
-        "And mem_ren"
+        "And mem_ren",
+        "mem_ren"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -1930,7 +2118,9 @@
     {
       "id": "mux_bus",
       "labels": [
-        "MUX bus"
+        "MUX bus",
+        "bus",
+        "control_pins"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -2022,7 +2212,9 @@
     {
       "id": "mux_exec_instr",
       "labels": [
-        "MUX exec_instr"
+        "MUX exec_instr",
+        "exec_instr",
+        "flush_next_instr"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -2074,7 +2266,9 @@
     {
       "id": "mux_alu_carry_in",
       "labels": [
-        "MUX alu_carry_in"
+        "MUX alu_carry_in",
+        "alu_carry_in",
+        "control_pins"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -2126,7 +2320,8 @@
     {
       "id": "buf_mem_wen",
       "labels": [
-        "BUF mem_wen"
+        "BUF mem_wen",
+        "mem_wen"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -2589,6 +2784,32 @@
     {
       "id": "e33",
       "sources": [
+        "child_arnicomp_top_prl.out.out"
+      ],
+      "targets": [
+        "join_top__concat_in__arnicomp_top_pc__load_data.in.1"
+      ],
+      "labels": [
+        "prl_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e34",
+      "sources": [
+        "child_arnicomp_top_prh.out.out"
+      ],
+      "targets": [
+        "join_top__concat_in__arnicomp_top_pc__load_data.in.0"
+      ],
+      "labels": [
+        "prh_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e35",
+      "sources": [
         "child_arnicomp_top_lr.out.out"
       ],
       "targets": [
@@ -2600,7 +2821,7 @@
       ]
     },
     {
-      "id": "e34",
+      "id": "e36",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.z_f_out"
       ],
@@ -2613,7 +2834,7 @@
       ]
     },
     {
-      "id": "e35",
+      "id": "e37",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.n_f_out"
       ],
@@ -2626,7 +2847,7 @@
       ]
     },
     {
-      "id": "e36",
+      "id": "e38",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.c_f_out"
       ],
@@ -2639,7 +2860,7 @@
       ]
     },
     {
-      "id": "e37",
+      "id": "e39",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.c_f_out"
       ],
@@ -2652,7 +2873,7 @@
       ]
     },
     {
-      "id": "e38",
+      "id": "e40",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.v_f_out"
       ],
@@ -2665,7 +2886,7 @@
       ]
     },
     {
-      "id": "e39",
+      "id": "e41",
       "sources": [
         "child_arnicomp_top_pc.out.paddr"
       ],
@@ -2678,7 +2899,7 @@
       ]
     },
     {
-      "id": "e40",
+      "id": "e42",
       "sources": [
         "child_arnicomp_top_pc.out.paddr"
       ],
@@ -2691,7 +2912,7 @@
       ]
     },
     {
-      "id": "e41",
+      "id": "e43",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -2704,7 +2925,7 @@
       ]
     },
     {
-      "id": "e42",
+      "id": "e44",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -2717,7 +2938,7 @@
       ]
     },
     {
-      "id": "e43",
+      "id": "e45",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -2730,7 +2951,7 @@
       ]
     },
     {
-      "id": "e44",
+      "id": "e46",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -2743,7 +2964,7 @@
       ]
     },
     {
-      "id": "e45",
+      "id": "e47",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -2756,7 +2977,7 @@
       ]
     },
     {
-      "id": "e46",
+      "id": "e48",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -2769,7 +2990,7 @@
       ]
     },
     {
-      "id": "e47",
+      "id": "e49",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -2782,7 +3003,7 @@
       ]
     },
     {
-      "id": "e48",
+      "id": "e50",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -2795,7 +3016,7 @@
       ]
     },
     {
-      "id": "e49",
+      "id": "e51",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -2808,7 +3029,7 @@
       ]
     },
     {
-      "id": "e50",
+      "id": "e52",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.jmp_sel"
       ],
@@ -2821,7 +3042,7 @@
       ]
     },
     {
-      "id": "e51",
+      "id": "e53",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_a_we"
       ],
@@ -2834,7 +3055,7 @@
       ]
     },
     {
-      "id": "e52",
+      "id": "e54",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_b_we"
       ],
@@ -2847,7 +3068,7 @@
       ]
     },
     {
-      "id": "e53",
+      "id": "e55",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_d_we"
       ],
@@ -2860,7 +3081,7 @@
       ]
     },
     {
-      "id": "e54",
+      "id": "e56",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.marl_we"
       ],
@@ -2873,7 +3094,7 @@
       ]
     },
     {
-      "id": "e55",
+      "id": "e57",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.marh_we"
       ],
@@ -2886,7 +3107,7 @@
       ]
     },
     {
-      "id": "e56",
+      "id": "e58",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.prl_we"
       ],
@@ -2899,7 +3120,7 @@
       ]
     },
     {
-      "id": "e57",
+      "id": "e59",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.prh_we"
       ],
@@ -2912,7 +3133,7 @@
       ]
     },
     {
-      "id": "e58",
+      "id": "e60",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.mem_we"
       ],
@@ -2925,7 +3146,7 @@
       ]
     },
     {
-      "id": "e59",
+      "id": "e61",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.acc_we"
       ],
@@ -2938,7 +3159,7 @@
       ]
     },
     {
-      "id": "e60",
+      "id": "e62",
       "sources": [
         "child_arnicomp_top_alu_i.out.result"
       ],
@@ -2951,7 +3172,7 @@
       ]
     },
     {
-      "id": "e61",
+      "id": "e63",
       "sources": [
         "child_arnicomp_top_alu_i.out.zero_flag"
       ],
@@ -2964,7 +3185,7 @@
       ]
     },
     {
-      "id": "e62",
+      "id": "e64",
       "sources": [
         "child_arnicomp_top_alu_i.out.negative_flag"
       ],
@@ -2977,7 +3198,7 @@
       ]
     },
     {
-      "id": "e63",
+      "id": "e65",
       "sources": [
         "child_arnicomp_top_alu_i.out.carry_flag"
       ],
@@ -2990,7 +3211,7 @@
       ]
     },
     {
-      "id": "e64",
+      "id": "e66",
       "sources": [
         "child_arnicomp_top_alu_i.out.overflow_flag"
       ],
@@ -3003,7 +3224,7 @@
       ]
     },
     {
-      "id": "e65",
+      "id": "e67",
       "sources": [
         "child_arnicomp_top_jump_decoder.out.jmp_taken"
       ],
@@ -3016,7 +3237,20 @@
       ]
     },
     {
-      "id": "e66",
+      "id": "e68",
+      "sources": [
+        "join_top__concat_in__arnicomp_top_pc__load_data.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_pc.in.load_data"
+      ],
+      "labels": [
+        "__bundleout__arnicomp_top.pc__load_data",
+        "16"
+      ]
+    },
+    {
+      "id": "e69",
       "sources": [
         "split_lr_out.out.1"
       ],
@@ -3029,7 +3263,7 @@
       ]
     },
     {
-      "id": "e67",
+      "id": "e70",
       "sources": [
         "split_lr_out.out.0"
       ],
@@ -3042,7 +3276,7 @@
       ]
     },
     {
-      "id": "e68",
+      "id": "e71",
       "sources": [
         "ff_flush_next_instr.q"
       ],
@@ -3055,7 +3289,7 @@
       ]
     },
     {
-      "id": "e69",
+      "id": "e72",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3068,7 +3302,7 @@
       ]
     },
     {
-      "id": "e70",
+      "id": "e73",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3081,7 +3315,7 @@
       ]
     },
     {
-      "id": "e71",
+      "id": "e74",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3094,7 +3328,7 @@
       ]
     },
     {
-      "id": "e72",
+      "id": "e75",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3107,7 +3341,7 @@
       ]
     },
     {
-      "id": "e73",
+      "id": "e76",
       "sources": [
         "mux_mem_addr.out"
       ],
@@ -3120,7 +3354,7 @@
       ]
     },
     {
-      "id": "e74",
+      "id": "e77",
       "sources": [
         "mux_mem_wdata.out"
       ],
@@ -3133,7 +3367,7 @@
       ]
     },
     {
-      "id": "e75",
+      "id": "e78",
       "sources": [
         "mux_bus.out"
       ],
@@ -3146,7 +3380,7 @@
       ]
     },
     {
-      "id": "e76",
+      "id": "e79",
       "sources": [
         "mux_bus.out"
       ],
@@ -3159,7 +3393,7 @@
       ]
     },
     {
-      "id": "e77",
+      "id": "e80",
       "sources": [
         "mux_bus.out"
       ],
@@ -3172,7 +3406,7 @@
       ]
     },
     {
-      "id": "e78",
+      "id": "e81",
       "sources": [
         "mux_bus.out"
       ],
@@ -3185,7 +3419,7 @@
       ]
     },
     {
-      "id": "e79",
+      "id": "e82",
       "sources": [
         "mux_bus.out"
       ],
@@ -3198,7 +3432,7 @@
       ]
     },
     {
-      "id": "e80",
+      "id": "e83",
       "sources": [
         "mux_bus.out"
       ],
@@ -3211,7 +3445,7 @@
       ]
     },
     {
-      "id": "e81",
+      "id": "e84",
       "sources": [
         "mux_bus.out"
       ],
@@ -3224,7 +3458,7 @@
       ]
     },
     {
-      "id": "e82",
+      "id": "e85",
       "sources": [
         "mux_bus.out"
       ],
@@ -3237,7 +3471,7 @@
       ]
     },
     {
-      "id": "e83",
+      "id": "e86",
       "sources": [
         "mux_exec_instr.out"
       ],
@@ -3250,7 +3484,7 @@
       ]
     },
     {
-      "id": "e84",
+      "id": "e87",
       "sources": [
         "mux_alu_carry_in.out"
       ],
@@ -3263,7 +3497,7 @@
       ]
     },
     {
-      "id": "e85",
+      "id": "e88",
       "sources": [
         "buf_pc_out.out"
       ],
@@ -3276,7 +3510,7 @@
       ]
     },
     {
-      "id": "e86",
+      "id": "e89",
       "sources": [
         "buf_mem_wen.out"
       ],
@@ -3289,7 +3523,7 @@
       ]
     },
     {
-      "id": "e87",
+      "id": "e90",
       "sources": [
         "gate_mem_ren.out"
       ],
@@ -3302,7 +3536,7 @@
       ]
     },
     {
-      "id": "e88",
+      "id": "e91",
       "sources": [
         "fanout_control_pins.leg.0"
       ],
@@ -3315,7 +3549,7 @@
       ]
     },
     {
-      "id": "e89",
+      "id": "e92",
       "sources": [
         "fanout_control_pins.leg.1"
       ],
@@ -3328,7 +3562,7 @@
       ]
     },
     {
-      "id": "e90",
+      "id": "e93",
       "sources": [
         "fanout_control_pins.leg.2"
       ],
@@ -3341,7 +3575,7 @@
       ]
     },
     {
-      "id": "e91",
+      "id": "e94",
       "sources": [
         "fanout_control_pins.leg.3"
       ],
@@ -3354,7 +3588,7 @@
       ]
     },
     {
-      "id": "e92",
+      "id": "e95",
       "sources": [
         "fanout_control_pins.leg.4"
       ],
@@ -3367,7 +3601,7 @@
       ]
     },
     {
-      "id": "e93",
+      "id": "e96",
       "sources": [
         "fanout_control_pins.leg.5"
       ],
@@ -3380,7 +3614,7 @@
       ]
     },
     {
-      "id": "e94",
+      "id": "e97",
       "sources": [
         "fanout_control_pins.leg.6"
       ],
@@ -3393,7 +3627,7 @@
       ]
     },
     {
-      "id": "e95",
+      "id": "e98",
       "sources": [
         "fanout_control_pins.leg.7"
       ],
@@ -3406,7 +3640,7 @@
       ]
     },
     {
-      "id": "e96",
+      "id": "e99",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -3419,7 +3653,7 @@
       ]
     },
     {
-      "id": "e97",
+      "id": "e100",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -3432,7 +3666,7 @@
       ]
     },
     {
-      "id": "e98",
+      "id": "e101",
       "sources": [
         "fanout_control_pins.leg.9"
       ],
@@ -3445,7 +3679,7 @@
       ]
     },
     {
-      "id": "e99",
+      "id": "e102",
       "sources": [
         "fanout_control_pins.leg.10"
       ],
@@ -3458,7 +3692,7 @@
       ]
     },
     {
-      "id": "e100",
+      "id": "e103",
       "sources": [
         "fanout_control_pins.leg.11"
       ],

@@ -79,7 +79,8 @@
                       "Sign": 0
                     },
                     "Width": 8,
-                    "IsSigned": false
+                    "IsSigned": false,
+                    "IsHighImpedance": false
                   }
                 },
                 "IsNonBlocking": true
@@ -171,7 +172,8 @@
                     "Sign": 0
                   },
                   "Width": 8,
-                  "IsSigned": false
+                  "IsSigned": false,
+                  "IsHighImpedance": false
                 }
               },
               "IsNonBlocking": true

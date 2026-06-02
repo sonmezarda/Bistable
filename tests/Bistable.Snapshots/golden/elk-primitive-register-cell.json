@@ -82,7 +82,8 @@
     {
       "id": "ff_q",
       "labels": [
-        "FF q"
+        "FF q",
+        "q"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -134,7 +135,8 @@
     {
       "id": "buf_d_out",
       "labels": [
-        "BUF d_out"
+        "BUF d_out",
+        "d_out"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"

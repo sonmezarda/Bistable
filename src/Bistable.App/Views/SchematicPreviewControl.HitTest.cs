@@ -59,6 +59,18 @@ public sealed partial class SchematicPreviewControl
 
     private void HandleSignalReferenceHit(SignalReferenceHitTarget hit, PointerPressedEventArgs e)
     {
+        // P2.7-5: Ctrl+click toggles the signal in the sticky multi-selection.
+        // Selection stays in place after Ctrl is released so the user can build
+        // up a comparison set wire-by-wire (e.g. all four ALU operand bits).
+        // Plain click still drives SelectedSignalName (single-selection used by
+        // the inspector + drive/force commands) and reaches the double-click
+        // "add to waveform" path below.
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            TogglePinnedSignal(hit.SignalName);
+            return;
+        }
+
         SelectedSignalName = hit.SignalName;
         if (e.ClickCount >= 2)
         {

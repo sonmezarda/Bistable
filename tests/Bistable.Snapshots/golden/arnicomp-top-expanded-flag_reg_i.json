@@ -590,9 +590,7 @@
         "expandable"
       ],
       "layoutOptions": {
-        "elk.algorithm": "layered",
-        "elk.direction": "RIGHT",
-        "elk.padding": "[top=48,left=120,right=126,bottom=20]",
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
         "elk.portConstraints": "FIXED_ORDER",
         "elk.spacing.portPort": "30"
       },
@@ -708,200 +706,7 @@
           }
         }
       ],
-      "children": [
-        {
-          "id": "child_arnicomp_top_marl_i_mar_cell",
-          "labels": [
-            "mar_cell",
-            "arnicomp_top.marl_i.mar_cell",
-            "expandable"
-          ],
-          "layoutOptions": {
-            "elk.padding": "[top=32,left=0,right=0,bottom=8]",
-            "elk.portConstraints": "FIXED_ORDER",
-            "elk.spacing.portPort": "30"
-          },
-          "ports": [
-            {
-              "id": "child_arnicomp_top_marl_i_mar_cell.in.clk",
-              "labels": [
-                "clk",
-                "clk"
-              ],
-              "layoutOptions": {
-                "elk.port.index": "0",
-                "elk.port.side": "WEST"
-              }
-            },
-            {
-              "id": "child_arnicomp_top_marl_i_mar_cell.in.rst_n",
-              "labels": [
-                "rst_n",
-                "rst_n"
-              ],
-              "layoutOptions": {
-                "elk.port.index": "1",
-                "elk.port.side": "WEST"
-              }
-            },
-            {
-              "id": "child_arnicomp_top_marl_i_mar_cell.in.we",
-              "labels": [
-                "we",
-                "?"
-              ],
-              "layoutOptions": {
-                "elk.port.index": "2",
-                "elk.port.side": "WEST"
-              }
-            },
-            {
-              "id": "child_arnicomp_top_marl_i_mar_cell.in.oe",
-              "labels": [
-                "oe",
-                "1\u0027h1"
-              ],
-              "layoutOptions": {
-                "elk.port.index": "3",
-                "elk.port.side": "WEST"
-              }
-            },
-            {
-              "id": "child_arnicomp_top_marl_i_mar_cell.in.d",
-              "labels": [
-                "d[16b]",
-                "mar_d"
-              ],
-              "layoutOptions": {
-                "elk.port.index": "4",
-                "elk.port.side": "WEST"
-              }
-            },
-            {
-              "id": "child_arnicomp_top_marl_i_mar_cell.out.out",
-              "labels": [
-                "out[16b]",
-                "mar_q"
-              ],
-              "layoutOptions": {
-                "elk.port.index": "0",
-                "elk.port.side": "EAST"
-              }
-            }
-          ],
-          "children": []
-        },
-        {
-          "id": "mux_arnicomp_top_marl_i__mar_step",
-          "labels": [
-            "MUX mar_step",
-            "mar_step",
-            "inc_by_two"
-          ],
-          "layoutOptions": {
-            "elk.portConstraints": "FIXED_ORDER"
-          },
-          "ports": [
-            {
-              "id": "mux_arnicomp_top_marl_i__mar_step.in.0",
-              "labels": [
-                "1\u00B72"
-              ],
-              "layoutOptions": {
-                "elk.port.index": "0",
-                "elk.port.side": "WEST"
-              }
-            },
-            {
-              "id": "mux_arnicomp_top_marl_i__mar_step.in.1",
-              "labels": [
-                "0\u00B71"
-              ],
-              "layoutOptions": {
-                "elk.port.index": "1",
-                "elk.port.side": "WEST"
-              }
-            },
-            {
-              "id": "mux_arnicomp_top_marl_i__mar_step.sel.0",
-              "labels": [
-                "inc_by_two"
-              ],
-              "layoutOptions": {
-                "elk.port.index": "0",
-                "elk.port.side": "SOUTH"
-              }
-            },
-            {
-              "id": "mux_arnicomp_top_marl_i__mar_step.out",
-              "labels": [
-                "Y"
-              ],
-              "layoutOptions": {
-                "elk.port.index": "0",
-                "elk.port.side": "EAST"
-              }
-            }
-          ],
-          "children": []
-        },
-        {
-          "id": "split_arnicomp_top_marl_i__marl_out",
-          "labels": [
-            "[7:0]"
-          ],
-          "layoutOptions": {
-            "elk.portConstraints": "FIXED_ORDER"
-          },
-          "ports": [
-            {
-              "id": "split_arnicomp_top_marl_i__marl_out.in",
-              "labels": [],
-              "layoutOptions": {
-                "elk.port.index": "0",
-                "elk.port.side": "WEST"
-              }
-            },
-            {
-              "id": "split_arnicomp_top_marl_i__marl_out.out",
-              "labels": [],
-              "layoutOptions": {
-                "elk.port.index": "0",
-                "elk.port.side": "EAST"
-              }
-            }
-          ],
-          "children": []
-        },
-        {
-          "id": "split_arnicomp_top_marl_i__marh_out",
-          "labels": [
-            "[15:8]"
-          ],
-          "layoutOptions": {
-            "elk.portConstraints": "FIXED_ORDER"
-          },
-          "ports": [
-            {
-              "id": "split_arnicomp_top_marl_i__marh_out.in",
-              "labels": [],
-              "layoutOptions": {
-                "elk.port.index": "0",
-                "elk.port.side": "WEST"
-              }
-            },
-            {
-              "id": "split_arnicomp_top_marl_i__marh_out.out",
-              "labels": [],
-              "layoutOptions": {
-                "elk.port.index": "0",
-                "elk.port.side": "EAST"
-              }
-            }
-          ],
-          "children": []
-        }
-      ]
+      "children": []
     },
     {
       "id": "child_arnicomp_top_prl",
@@ -1223,10 +1028,13 @@
       "id": "child_arnicomp_top_flag_reg_i",
       "labels": [
         "flag_reg_i",
-        "arnicomp_top.flag_reg_i"
+        "arnicomp_top.flag_reg_i",
+        "expandable"
       ],
       "layoutOptions": {
-        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.algorithm": "layered",
+        "elk.direction": "RIGHT",
+        "elk.padding": "[top=48,left=88,right=94,bottom=20]",
         "elk.portConstraints": "FIXED_ORDER",
         "elk.spacing.portPort": "30"
       },
@@ -1353,7 +1161,202 @@
           }
         }
       ],
-      "children": []
+      "children": [
+        {
+          "id": "child_arnicomp_top_flag_reg_i_flag_register",
+          "labels": [
+            "flag_register",
+            "arnicomp_top.flag_reg_i.flag_register",
+            "expandable"
+          ],
+          "layoutOptions": {
+            "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+            "elk.portConstraints": "FIXED_ORDER",
+            "elk.spacing.portPort": "30"
+          },
+          "ports": [
+            {
+              "id": "child_arnicomp_top_flag_reg_i_flag_register.in.clk",
+              "labels": [
+                "clk",
+                "clk"
+              ],
+              "layoutOptions": {
+                "elk.port.index": "0",
+                "elk.port.side": "WEST"
+              }
+            },
+            {
+              "id": "child_arnicomp_top_flag_reg_i_flag_register.in.rst_n",
+              "labels": [
+                "rst_n",
+                "rst_n"
+              ],
+              "layoutOptions": {
+                "elk.port.index": "1",
+                "elk.port.side": "WEST"
+              }
+            },
+            {
+              "id": "child_arnicomp_top_flag_reg_i_flag_register.in.we",
+              "labels": [
+                "we",
+                "we"
+              ],
+              "layoutOptions": {
+                "elk.port.index": "2",
+                "elk.port.side": "WEST"
+              }
+            },
+            {
+              "id": "child_arnicomp_top_flag_reg_i_flag_register.in.oe",
+              "labels": [
+                "oe",
+                "1\u0027h1"
+              ],
+              "layoutOptions": {
+                "elk.port.index": "3",
+                "elk.port.side": "WEST"
+              }
+            },
+            {
+              "id": "child_arnicomp_top_flag_reg_i_flag_register.in.d",
+              "labels": [
+                "d[4b]",
+                "?"
+              ],
+              "layoutOptions": {
+                "elk.port.index": "4",
+                "elk.port.side": "WEST"
+              }
+            },
+            {
+              "id": "child_arnicomp_top_flag_reg_i_flag_register.out.out",
+              "labels": [
+                "out[4b]",
+                "?"
+              ],
+              "layoutOptions": {
+                "elk.port.index": "0",
+                "elk.port.side": "EAST"
+              }
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d",
+          "labels": [
+            "{}"
+          ],
+          "layoutOptions": {
+            "elk.portConstraints": "FIXED_ORDER"
+          },
+          "ports": [
+            {
+              "id": "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.in.0",
+              "labels": [],
+              "layoutOptions": {
+                "elk.port.index": "0",
+                "elk.port.side": "WEST"
+              }
+            },
+            {
+              "id": "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.in.1",
+              "labels": [],
+              "layoutOptions": {
+                "elk.port.index": "1",
+                "elk.port.side": "WEST"
+              }
+            },
+            {
+              "id": "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.in.2",
+              "labels": [],
+              "layoutOptions": {
+                "elk.port.index": "2",
+                "elk.port.side": "WEST"
+              }
+            },
+            {
+              "id": "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.in.3",
+              "labels": [],
+              "layoutOptions": {
+                "elk.port.index": "3",
+                "elk.port.side": "WEST"
+              }
+            },
+            {
+              "id": "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.out",
+              "labels": [],
+              "layoutOptions": {
+                "elk.port.index": "0",
+                "elk.port.side": "EAST"
+              }
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out",
+          "labels": [
+            "{}"
+          ],
+          "layoutOptions": {
+            "elk.portConstraints": "FIXED_ORDER"
+          },
+          "ports": [
+            {
+              "id": "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.in",
+              "labels": [],
+              "layoutOptions": {
+                "elk.port.index": "0",
+                "elk.port.side": "WEST"
+              }
+            },
+            {
+              "id": "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.0",
+              "labels": [
+                "z_f_out"
+              ],
+              "layoutOptions": {
+                "elk.port.index": "0",
+                "elk.port.side": "EAST"
+              }
+            },
+            {
+              "id": "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.1",
+              "labels": [
+                "n_f_out"
+              ],
+              "layoutOptions": {
+                "elk.port.index": "1",
+                "elk.port.side": "EAST"
+              }
+            },
+            {
+              "id": "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.2",
+              "labels": [
+                "c_f_out"
+              ],
+              "layoutOptions": {
+                "elk.port.index": "2",
+                "elk.port.side": "EAST"
+              }
+            },
+            {
+              "id": "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.3",
+              "labels": [
+                "v_f_out"
+              ],
+              "layoutOptions": {
+                "elk.port.index": "3",
+                "elk.port.side": "EAST"
+              }
+            }
+          ],
+          "children": []
+        }
+      ]
     },
     {
       "id": "child_arnicomp_top_pc",
@@ -3902,10 +3905,10 @@
     {
       "id": "e104",
       "sources": [
-        "child_arnicomp_top_marl_i.in.clk"
+        "child_arnicomp_top_flag_reg_i.in.clk"
       ],
       "targets": [
-        "child_arnicomp_top_marl_i_mar_cell.in.clk"
+        "child_arnicomp_top_flag_reg_i_flag_register.in.clk"
       ],
       "labels": [
         "clk",
@@ -3915,10 +3918,10 @@
     {
       "id": "e105",
       "sources": [
-        "child_arnicomp_top_marl_i.in.rst_n"
+        "child_arnicomp_top_flag_reg_i.in.rst_n"
       ],
       "targets": [
-        "child_arnicomp_top_marl_i_mar_cell.in.rst_n"
+        "child_arnicomp_top_flag_reg_i_flag_register.in.rst_n"
       ],
       "labels": [
         "rst_n",
@@ -3928,65 +3931,143 @@
     {
       "id": "e106",
       "sources": [
-        "child_arnicomp_top_marl_i.in.inc_by_two"
+        "child_arnicomp_top_flag_reg_i.in.we"
       ],
       "targets": [
-        "mux_arnicomp_top_marl_i__mar_step.sel.0"
+        "child_arnicomp_top_flag_reg_i_flag_register.in.we"
       ],
       "labels": [
-        "inc_by_two",
+        "we",
         "1"
       ]
     },
     {
       "id": "e107",
       "sources": [
-        "split_arnicomp_top_marl_i__marl_out.out"
+        "child_arnicomp_top_flag_reg_i.in.z_f_in"
       ],
       "targets": [
-        "child_arnicomp_top_marl_i.out.marl_out"
+        "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.in.0"
       ],
       "labels": [
-        "marl_out",
-        "8"
+        "z_f_in",
+        "1"
       ]
     },
     {
       "id": "e108",
       "sources": [
-        "split_arnicomp_top_marl_i__marh_out.out"
+        "child_arnicomp_top_flag_reg_i.in.n_f_in"
       ],
       "targets": [
-        "child_arnicomp_top_marl_i.out.marh_out"
+        "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.in.1"
       ],
       "labels": [
-        "marh_out",
-        "8"
+        "n_f_in",
+        "1"
       ]
     },
     {
       "id": "e109",
       "sources": [
-        "child_arnicomp_top_marl_i_mar_cell.out.out"
+        "child_arnicomp_top_flag_reg_i.in.c_f_in"
       ],
       "targets": [
-        "split_arnicomp_top_marl_i__marh_out.in"
+        "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.in.2"
       ],
       "labels": [
-        "mar_q",
+        "c_f_in",
         "1"
       ]
     },
     {
       "id": "e110",
       "sources": [
-        "child_arnicomp_top_marl_i_mar_cell.out.out"
+        "child_arnicomp_top_flag_reg_i.in.v_f_in"
       ],
       "targets": [
-        "split_arnicomp_top_marl_i__marh_out.in"
+        "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.in.3"
       ],
       "labels": [
-        "mar_q",
+        "v_f_in",
+        "1"
+      ]
+    },
+    {
+      "id": "e111",
+      "sources": [
+        "child_arnicomp_top_flag_reg_i_flag_register.out.out"
+      ],
+      "targets": [
+        "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.in"
+      ],
+      "labels": [
+        "__bundlein__arnicomp_top.flag_reg_i.flag_register__out",
+        "4"
+      ]
+    },
+    {
+      "id": "e112",
+      "sources": [
+        "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i_flag_register.in.d"
+      ],
+      "labels": [
+        "__bundleout__arnicomp_top.flag_reg_i.flag_register__d",
+        "4"
+      ]
+    },
+    {
+      "id": "e113",
+      "sources": [
+        "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.0"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i.out.z_f_out"
+      ],
+      "labels": [
+        "z_f_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e114",
+      "sources": [
+        "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.1"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i.out.n_f_out"
+      ],
+      "labels": [
+        "n_f_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e115",
+      "sources": [
+        "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.2"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i.out.c_f_out"
+      ],
+      "labels": [
+        "c_f_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e116",
+      "sources": [
+        "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.3"
+      ],
+      "targets": [
+        "child_arnicomp_top_flag_reg_i.out.v_f_out"
+      ],
+      "labels": [
+        "v_f_out",
         "1"
       ]
     }

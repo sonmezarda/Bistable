@@ -22,13 +22,16 @@
         "top.alu_i"
       ],
       "layoutOptions": {
-        "elk.portConstraints": "FIXED_ORDER"
+        "elk.padding": "[top=32,left=0,right=0,bottom=8]",
+        "elk.portConstraints": "FIXED_ORDER",
+        "elk.spacing.portPort": "30"
       },
       "ports": [
         {
           "id": "child_top_alu_i.in.ops",
           "labels": [
-            "ops[2b]"
+            "ops[2b]",
+            "ctrl"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -38,7 +41,8 @@
         {
           "id": "child_top_alu_i.in.we",
           "labels": [
-            "we"
+            "we",
+            "ctrl"
           ],
           "layoutOptions": {
             "elk.port.index": "1",

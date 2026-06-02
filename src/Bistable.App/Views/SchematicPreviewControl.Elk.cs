@@ -52,6 +52,7 @@ public sealed partial class SchematicPreviewControl
 
         DrawElkNodeBackgrounds(context, layoutResult.Graph, transform);
         DrawElkEdges(context, layoutResult.Graph, transform, signalValues, coordinateContext);
+        CollectConnectedPortIds(layoutResult.Graph);
         DrawElkNodeForegrounds(context, layoutResult.Graph, transform, labelPlacement);
         DrawScopeProbeSummary(context, panel, scopeSignals);
     }
@@ -598,7 +599,10 @@ public sealed partial class SchematicPreviewControl
         double labelX = isInput
             ? tip.X - glyphWidth - labelGap - labelWidth
             : tip.X + glyphWidth + labelGap;
-        double labelY = tip.Y - 14;
+        // Vertically center the label on the pin tip — boundary pins have no
+        // wire crashing through the text, so the old `tip.Y - 14` offset was
+        // just an inherited rule that left the label hanging above the [>.
+        double labelY = tip.Y - 10.0 / 2 - 1;
         DrawText(context, label, labelX, labelY, stroke, 10);
     }
 
@@ -786,7 +790,54 @@ public sealed partial class SchematicPreviewControl
         double fontSize = 9;
         double labelWidth = MeasureLabelWidth(label, fontSize);
         double labelX = onEast ? px - labelGap - labelWidth : px + labelGap;
-        DrawText(context, label, labelX, py - fontSize - 3, Palette.PinStroke, fontSize);
+        // Lift the label above the pin ONLY when the owning node is rendered
+        // as an expanded compound (its inner wires can crash through the text
+        // if the label sits on the pin's horizontal line). Boundary "[>" pins,
+        // collapsed sub-modules, and primitive nodes keep their labels at the
+        // pin's vertical center.
+        bool ownerIsExpandedCompound = port.Id is not null && _expandedCompoundPortIds.Contains(port.Id);
+        double labelY = ownerIsExpandedCompound ? py - fontSize - 3 : py - fontSize / 2 - 1;
+        DrawText(context, label, labelX, labelY, Palette.PinStroke, fontSize);
+    }
+
+    private void CollectConnectedPortIds(ElkGraph graph)
+    {
+        // ElkGraph holds all edges at the root level (INCLUDE_CHILDREN hoists
+        // cross-boundary edges up here), so a single pass suffices.
+        if (graph.Edges is not null)
+        {
+            foreach (ElkEdge edge in graph.Edges)
+            {
+                if (edge.Sources is { } sources)
+                {
+                    foreach (string s in sources) _connectedPortIds.Add(s);
+                }
+                if (edge.Targets is { } targets)
+                {
+                    foreach (string t in targets) _connectedPortIds.Add(t);
+                }
+            }
+        }
+        // Walk the node tree once to flag ports owned by expanded compounds —
+        // those are the only ports whose labels lift above the pin (where inner
+        // wires would otherwise crash through the text).
+        CollectExpandedCompoundPorts(graph.Children);
+    }
+
+    private void CollectExpandedCompoundPorts(IList<ElkNode>? nodes)
+    {
+        if (nodes is null) return;
+        foreach (ElkNode node in nodes)
+        {
+            if (node.Children is { Count: > 0 } && node.Ports is { } ports)
+            {
+                foreach (ElkPort p in ports)
+                {
+                    if (!string.IsNullOrEmpty(p.Id)) _expandedCompoundPortIds.Add(p.Id);
+                }
+            }
+            CollectExpandedCompoundPorts(node.Children);
+        }
     }
 
     private void DrawElkEdges(
@@ -1015,7 +1066,14 @@ public sealed partial class SchematicPreviewControl
             && string.Equals(SelectedSignalName, signalName, StringComparison.OrdinalIgnoreCase);
         bool isHoveredNet = anyHovered
             && string.Equals(signalName, _hoveredSignalName, StringComparison.OrdinalIgnoreCase);
-        bool shouldDim = anyHovered && !isHoveredNet && !isSelected;
+        // P2.7-5: pinned multi-selection counts as a highlight reason. Same
+        // dimming rule otherwise: if anything is highlighted (hover OR any pin)
+        // and THIS wire is not part of the highlight, fade it.
+        bool isPinned = !string.IsNullOrWhiteSpace(signalName)
+            && _pinnedSignalNames.Contains(signalName!);
+        bool anyHighlight = anyHovered || _pinnedSignalNames.Count > 0;
+        bool isHighlighted = isHoveredNet || isPinned;
+        bool shouldDim = anyHighlight && !isHighlighted && !isSelected;
         // Phase 3 force visualisation: pinned signals override the normal value
         // colour with a high-saturation orange so the user can see at a glance
         // that this wire is not following simulation.

@@ -111,6 +111,8 @@ public sealed partial class SchematicPreviewControl
 
         HashSet<string> drawnSegments = new(StringComparer.OrdinalIgnoreCase);
         bool anyHovered = !string.IsNullOrEmpty(_hoveredSignalName);
+        // P2.7-5: pins count as highlight just like hover.
+        bool anyPinned = _pinnedSignalNames.Count > 0;
 
         foreach (SchematicConnectionRoute route in routes)
         {
@@ -119,7 +121,10 @@ public sealed partial class SchematicPreviewControl
                 && string.Equals(SelectedSignalName, request.SelectionSignalName, StringComparison.OrdinalIgnoreCase);
             bool isHoveredNet = anyHovered && string.Equals(
                 request.SelectionSignalName, _hoveredSignalName, StringComparison.OrdinalIgnoreCase);
-            bool shouldDim = anyHovered && !isHoveredNet && !selected;
+            bool isPinnedNet = !string.IsNullOrWhiteSpace(request.SelectionSignalName)
+                && _pinnedSignalNames.Contains(request.SelectionSignalName!);
+            bool isHighlighted = isHoveredNet || isPinnedNet;
+            bool shouldDim = (anyHovered || anyPinned) && !isHighlighted && !selected;
             IBrush routeBrush = ResolveRouteBrush(request);
 
             if (shouldDim)

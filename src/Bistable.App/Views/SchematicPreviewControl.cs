@@ -126,6 +126,18 @@ public sealed partial class SchematicPreviewControl : Control
     private readonly List<SignalReferenceHitTarget> _signalReferenceHitTargets = [];
     private readonly List<ScopeHitTarget> _scopeHitTargets = [];
     private readonly List<ExpansionHitTarget> _expansionHitTargets = [];
+    // Set of ELK port IDs that have an incident edge in the current frame.
+    // Populated once per render from graph.Edges and consulted by the port-label
+    // drawer so the label is shifted above the pin ONLY when a wire would
+    // otherwise collide with it. Unconnected ports (oe, boundary [> pins,
+    // collapsed module ports without edges) keep their default label position.
+    private readonly HashSet<string> _connectedPortIds = new(StringComparer.Ordinal);
+    // Subset of port IDs whose owning node is rendered as an EXPANDED compound
+    // (the user clicked + and we're drawing the children inside). Only these
+    // ports lift their label above the pin — that's where inner wires would
+    // crash through the label otherwise. Collapsed sub-modules, boundary [>
+    // stubs, and primitive nodes keep their labels horizontally centered.
+    private readonly HashSet<string> _expandedCompoundPortIds = new(StringComparer.Ordinal);
     private INotifyCollectionChanged? _observableSignals;
     private INotifyCollectionChanged? _observableScopeSignals;
     private INotifyCollectionChanged? _observableScopeChildren;
@@ -138,6 +150,12 @@ public sealed partial class SchematicPreviewControl : Control
     private bool _isPanningViewport;
     private Point _lastViewportPointer;
     private string? _hoveredSignalName;
+    // P2.7-5: pinned (sticky) multi-selection. Ctrl+click toggles a signal in
+    // this set; the edge renderer treats every member just like a hovered net,
+    // so all of them stay highlighted at once until cleared. Independent from
+    // SelectedSignalName (which is the single-selection used for the inspector
+    // panel + drive/force commands) so the two semantics don't collide.
+    private readonly HashSet<string> _pinnedSignalNames = new(StringComparer.OrdinalIgnoreCase);
     private bool _fitPending = true;
     private bool _viewportCustomized;
     private Size _lastViewportSize;
@@ -207,6 +225,37 @@ public sealed partial class SchematicPreviewControl : Control
     {
         get => GetValue(SelectedSignalNameProperty);
         set => SetValue(SelectedSignalNameProperty, value);
+    }
+
+    // P2.7-5: sticky multi-selection API.
+    // - `PinnedSignalNames` is the live view of the set (case-insensitive).
+    // - `TogglePinnedSignal` / `ClearPinnedSignals` are the user-facing mutators.
+    // - `PinnedSignalsChanged` fires whenever the set changes so the host VM
+    //   can mirror it into an ObservableCollection for the chip strip.
+    public IReadOnlyCollection<string> PinnedSignalNames => _pinnedSignalNames;
+
+    public event EventHandler? PinnedSignalsChanged;
+
+    public bool TogglePinnedSignal(string? signalName)
+    {
+        if (string.IsNullOrWhiteSpace(signalName)) return false;
+        bool changed = _pinnedSignalNames.Contains(signalName)
+            ? _pinnedSignalNames.Remove(signalName)
+            : _pinnedSignalNames.Add(signalName);
+        if (changed)
+        {
+            PinnedSignalsChanged?.Invoke(this, EventArgs.Empty);
+            InvalidateVisual();
+        }
+        return changed;
+    }
+
+    public void ClearPinnedSignals()
+    {
+        if (_pinnedSignalNames.Count == 0) return;
+        _pinnedSignalNames.Clear();
+        PinnedSignalsChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
     }
 
     public ICommand? ToggleInputCommand
@@ -495,6 +544,8 @@ public sealed partial class SchematicPreviewControl : Control
             _signalReferenceHitTargets.Clear();
             _scopeHitTargets.Clear();
             _expansionHitTargets.Clear();
+            _connectedPortIds.Clear();
+            _expandedCompoundPortIds.Clear();
 
             if (expandedScope)
             {

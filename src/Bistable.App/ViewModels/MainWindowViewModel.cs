@@ -65,6 +65,17 @@ public sealed class MainWindowViewModel : ViewModelBase
     private VcdTraceDocument _traceDocument = VcdTraceDocument.Empty;
     private string _schematicDriveValue = "0";
     private readonly int _liveEvaluationDelayMs;
+    // P2.7-9: schematic theme — backed by UserPreferencesStore so the choice
+    // sticks across app restarts. `SchematicTheme` is the resolved record bound
+    // to the preview control's Palette property.
+    private readonly UserPreferencesStore _preferencesStore;
+    private SchematicThemePreset _schematicThemePreset;
+    private SchematicTheme _schematicTheme = SchematicTheme.Dark;
+    private SchematicRoutingEngine _schematicRouter = SchematicRoutingEngine.Elk;
+    // P2.7-2: scope navigation history. Owned by ScopeNavigationHistory so the
+    // back/forward bookkeeping can be unit-tested in isolation.
+    private readonly ScopeNavigationHistory _scopeHistory = new();
+    private bool _suppressScopeHistoryPush;
     private bool _liveModeEnabled = true;
     private bool _suppressInputLiveUpdate;
     private CancellationTokenSource? _liveEvaluationCts;
@@ -85,10 +96,15 @@ public sealed class MainWindowViewModel : ViewModelBase
     private HierarchyNodeViewModel? _savedTopSelectedHierarchyNode;
     private List<string>? _savedTopExpandedPaths;
 
-    public MainWindowViewModel(BistableWorkspace workspace, bool loadPersistedLayout = true, int liveEvaluationDelayMs = 120)
+    public MainWindowViewModel(BistableWorkspace workspace, bool loadPersistedLayout = true, int liveEvaluationDelayMs = 120, UserPreferencesStore? preferencesStore = null)
     {
         _workspace = workspace;
         _liveEvaluationDelayMs = Math.Max(0, liveEvaluationDelayMs);
+        _preferencesStore = preferencesStore ?? new UserPreferencesStore();
+        UserPreferences prefs = _preferencesStore.Load();
+        _schematicThemePreset = prefs.SchematicTheme;
+        _schematicTheme = SchematicThemePresets.Get(_schematicThemePreset);
+        _schematicRouter = prefs.SchematicRouter;
         LoadProjectCommand = new AsyncCommand(LoadProjectAsync);
         BuildCommand = new AsyncCommand(BuildAsync);
         EvalCommand = new AsyncCommand(EvaluateAsync);
@@ -98,6 +114,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         AddSelectedWaveformSignalCommand = new RelayCommand(AddSelectedWaveformSignal);
         AddHierarchyScopeSignalsToWaveformCommand = new RelayCommand(AddHierarchyScopeSignalsToWaveform);
         SelectHierarchyScopeCommand = new ParameterizedRelayCommand<string>(SelectHierarchyScope);
+        // P2.7-2: scope back/forward commands. CanExecute reflects the stack
+        // state so toolbar buttons disable when there's nothing to navigate to.
+        NavigateScopeBackCommand    = new RelayCommand(NavigateScopeBack,    () => _scopeHistory.CanGoBack);
+        NavigateScopeForwardCommand = new RelayCommand(NavigateScopeForward, () => _scopeHistory.CanGoForward);
         EnterSubSimAtPathCommand = new ParameterizedAsyncCommand<string>(EnterSubSimAtPathAsync);
         ToggleSchematicExpansionCommand = new ParameterizedRelayCommand<string>(ToggleSchematicExpansion);
         ToggleInputSignalCommand = new ParameterizedRelayCommand<string>(ToggleInputSignal);
@@ -109,6 +129,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         ReleaseAllForcedCommand = new AsyncCommand(ReleaseAllForcedAsync);
         RemoveSelectedWaveformSignalCommand = new RelayCommand(RemoveSelectedWaveformSignal);
         ClearWaveformCommand = new RelayCommand(ClearWaveform);
+        // P2.7-5: chip-strip "Clear all" — fires through the wired action so the
+        // SchematicPreviewControl can react (clear its HashSet + InvalidateVisual)
+        // and the VM mirror gets refreshed by the resulting PinnedSignalsChanged.
+        ClearPinnedSignalsCommand = new RelayCommand(() => ClearPinnedSignalsRequested?.Invoke(this, EventArgs.Empty));
         MoveWaveformSignalUpCommand = new RelayCommand(MoveSelectedWaveformSignalUp);
         MoveWaveformSignalDownCommand = new RelayCommand(MoveSelectedWaveformSignalDown);
         ZoomWaveformInCommand = new RelayCommand(() => WaveformZoom = Math.Min(8, WaveformZoom * 1.35));
@@ -163,6 +187,12 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ObservableCollection<SignalViewModel> TraceSignals { get; } = [];
 
     public ObservableCollection<SignalViewModel> HierarchyScopeSignals { get; } = [];
+
+    // P2.7-5: live mirror of SchematicPreviewControl.PinnedSignalNames so the
+    // chip strip in the schematic panel can show them as buttons. The control
+    // owns the canonical state (it lives inside the schematic frame); the VM
+    // just observes via `RefreshPinnedSignals` and exposes a clear command.
+    public ObservableCollection<string> PinnedSignals { get; } = [];
 
     public ObservableCollection<HierarchyTraceScopeSummaryViewModel> HierarchyTraceScopeSummaries { get; } = [];
 
@@ -247,6 +277,11 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             if (SetProperty(ref _selectedHierarchyNode, value))
             {
+                // P2.7-2: push previous path onto history (unless this change
+                // came from Back/Forward itself). The future stack is cleared on
+                // any forward navigation so re-entering a branch invalidates the
+                // old redo trail — same semantics as a browser address bar.
+                PushScopeHistoryIfNeeded(value?.HierarchyPath);
                 OnPropertyChanged(nameof(SelectedHierarchyPath));
                 OnPropertyChanged(nameof(SelectedHierarchySummary));
                 OnPropertyChanged(nameof(SelectedHierarchyScopeTitle));
@@ -288,6 +323,16 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ICommand AddHierarchyScopeSignalsToWaveformCommand { get; }
 
     public ICommand SelectHierarchyScopeCommand { get; }
+
+    // P2.7-2: scope back/forward navigation. Bound to toolbar buttons + the
+    // Alt+Left / Alt+Right keyboard shortcuts. CanExecute reflects stack state
+    // so the buttons disable when there's nothing to navigate to.
+    public ICommand NavigateScopeBackCommand { get; }
+
+    public ICommand NavigateScopeForwardCommand { get; }
+
+    public bool CanNavigateScopeBack => _scopeHistory.CanGoBack;
+    public bool CanNavigateScopeForward => _scopeHistory.CanGoForward;
 
     /// <summary>Schematic double-click handler: select the clicked scope's hierarchy node AND enter sub-sim for it.</summary>
     public ICommand EnterSubSimAtPathCommand { get; }
@@ -377,6 +422,20 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ICommand RemoveSelectedWaveformSignalCommand { get; }
 
     public ICommand ClearWaveformCommand { get; }
+
+    // P2.7-5: command bound to the chip strip's "Clear all" button. Raises
+    // ClearPinnedSignalsRequested so the schematic control owning the actual
+    // HashSet can clear it and emit PinnedSignalsChanged; MainWindow listens
+    // and calls RefreshPinnedSignals to mirror the new state.
+    public ICommand ClearPinnedSignalsCommand { get; }
+
+    public event EventHandler? ClearPinnedSignalsRequested;
+
+    public void RefreshPinnedSignals(IReadOnlyCollection<string> pinned)
+    {
+        PinnedSignals.Clear();
+        foreach (string s in pinned) PinnedSignals.Add(s);
+    }
 
     public ICommand MoveWaveformSignalUpCommand { get; }
 
@@ -776,6 +835,57 @@ public sealed class MainWindowViewModel : ViewModelBase
         private set => SetProperty(ref _toastMessage, value);
     }
     private string _toastMessage = string.Empty;
+
+    // P2.7-9: schematic theme — the combo box binds to SchematicThemePreset;
+    // changes resolve to the corresponding SchematicTheme record (which the
+    // preview control binds to via its Palette property) and persist through
+    // UserPreferencesStore.
+    public SchematicThemePreset SchematicThemePreset
+    {
+        get => _schematicThemePreset;
+        set
+        {
+            if (SetProperty(ref _schematicThemePreset, value))
+            {
+                SchematicTheme = SchematicThemePresets.Get(value);
+                _preferencesStore.Save(new UserPreferences
+                {
+                    SchematicTheme = value,
+                    SchematicRouter = _schematicRouter,
+                });
+            }
+        }
+    }
+
+    public SchematicTheme SchematicTheme
+    {
+        get => _schematicTheme;
+        private set => SetProperty(ref _schematicTheme, value);
+    }
+
+    public IReadOnlyList<SchematicThemePreset> AvailableSchematicThemes { get; } =
+        Enum.GetValues<SchematicThemePreset>();
+
+    // P2.7-9 follow-up: routing engine — bound to View menu radio items and the
+    // Preferences window combo. Persists through UserPreferencesStore.
+    public SchematicRoutingEngine SchematicRouter
+    {
+        get => _schematicRouter;
+        set
+        {
+            if (SetProperty(ref _schematicRouter, value))
+            {
+                _preferencesStore.Save(new UserPreferences
+                {
+                    SchematicTheme = _schematicThemePreset,
+                    SchematicRouter = value,
+                });
+            }
+        }
+    }
+
+    public IReadOnlyList<SchematicRoutingEngine> AvailableSchematicRouters { get; } =
+        Enum.GetValues<SchematicRoutingEngine>();
 
     public bool IsToastVisible
     {
@@ -2712,6 +2822,57 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
 
         SelectedHierarchyPath = hierarchyPath;
+    }
+
+    // P2.7-2: history maintenance helpers. PushScopeHistoryIfNeeded delegates
+    // to ScopeNavigationHistory; the suppression flag short-circuits the push
+    // when Back/Forward themselves triggered the selection change so the stack
+    // bookkeeping (already done by GoBack/GoForward) stays consistent.
+    private void PushScopeHistoryIfNeeded(string? newPath)
+    {
+        if (_suppressScopeHistoryPush)
+        {
+            RaiseScopeHistoryCanExecuteChanged();
+            return;
+        }
+        _scopeHistory.RecordNavigation(newPath);
+        RaiseScopeHistoryCanExecuteChanged();
+    }
+
+    private void NavigateScopeBack()
+    {
+        string? previous = _scopeHistory.GoBack();
+        if (previous is null) return;
+        NavigateWithoutHistoryPush(previous);
+    }
+
+    private void NavigateScopeForward()
+    {
+        string? next = _scopeHistory.GoForward();
+        if (next is null) return;
+        NavigateWithoutHistoryPush(next);
+    }
+
+    private void NavigateWithoutHistoryPush(string hierarchyPath)
+    {
+        try
+        {
+            _suppressScopeHistoryPush = true;
+            SelectedHierarchyPath = hierarchyPath;
+        }
+        finally
+        {
+            _suppressScopeHistoryPush = false;
+            RaiseScopeHistoryCanExecuteChanged();
+        }
+    }
+
+    private void RaiseScopeHistoryCanExecuteChanged()
+    {
+        if (NavigateScopeBackCommand is RelayCommand back) back.RaiseCanExecuteChanged();
+        if (NavigateScopeForwardCommand is RelayCommand fwd) fwd.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(CanNavigateScopeBack));
+        OnPropertyChanged(nameof(CanNavigateScopeForward));
     }
 
     /// <summary>

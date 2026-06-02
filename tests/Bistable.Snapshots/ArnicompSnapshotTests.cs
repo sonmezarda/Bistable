@@ -101,6 +101,54 @@ public sealed class ArnicompSnapshotTests
         SnapshotAssert.MatchesElkGraph("arnicomp-reg-cell", elk.Graph);
     }
 
+    // ── snapshot 4: arnicomp_top with flag_reg_i expanded (1 level) ─────────
+    //
+    // P4.5-8: locks the synthetic joiner / fan-out wiring around flag_register's
+    // concat-bound pins (`d({z,n,c,v})`, `out({z,n,c,v})`). Before P4.5-12 these
+    // edges silently vanished — this snapshot guards against regressions in the
+    // concat parser + builder bundle-node code path.
+    [Fact]
+    public async Task Snapshot_ArnicompTop_ExpandedFlagRegI()
+    {
+        if (!HasVerilator()) return;
+
+        DesignLoadResult result = await new DesignLoadService().LoadAsync(ResolveProjectPath(), CancellationToken.None);
+        ModuleAst top = result.Ast!.TopModule!;
+
+        string topName = top.Name;
+        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            topName + ".flag_reg_i"
+        };
+
+        ElkBuildResult elk = BuildElk(top, result.Ast!, result.Design, expandedPaths: expanded);
+        SnapshotAssert.MatchesElkGraph("arnicomp-top-expanded-flag_reg_i", elk.Graph);
+    }
+
+    // ── snapshot 5: arnicomp_top with flag_reg_i AND flag_register expanded ─
+    //
+    // P4.5-8: the same wiring, but two compounds deep. Verifies that the inner
+    // namespace recursion threads concat bundles through every level — this was
+    // the user-reported "hiçbir wire göremedim" regression for nested expand.
+    [Fact]
+    public async Task Snapshot_ArnicompTop_ExpandedFlagRegI_AndFlagRegister()
+    {
+        if (!HasVerilator()) return;
+
+        DesignLoadResult result = await new DesignLoadService().LoadAsync(ResolveProjectPath(), CancellationToken.None);
+        ModuleAst top = result.Ast!.TopModule!;
+
+        string topName = top.Name;
+        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            topName + ".flag_reg_i",
+            topName + ".flag_reg_i.flag_register",
+        };
+
+        ElkBuildResult elk = BuildElk(top, result.Ast!, result.Design, expandedPaths: expanded);
+        SnapshotAssert.MatchesElkGraph("arnicomp-top-expanded-flag_reg_i-and-flag_register", elk.Graph);
+    }
+
     // ── scope builder ──────────────────────────────────────────────────────
 
     /// <summary>
@@ -194,15 +242,20 @@ public sealed class ArnicompSnapshotTests
                 if (portDecl is not null) width = portDecl.Width;
             }
             bool isInput = string.Equals(pc.Direction, "in", StringComparison.OrdinalIgnoreCase);
-            ports.Add(new HierarchyScopeInstancePortConnectionViewModel(pc.PortName, pc.SignalName, isInput, width));
+            // P4.5: thread ConcatParts through so concat-bundled pins like
+            // `flag_register.d({z_f_in,n_f_in,c_f_in,v_f_in})` register through
+            // the synthetic joiner/fan-out nodes in the snapshot graph too.
+            ports.Add(new HierarchyScopeInstancePortConnectionViewModel(
+                pc.PortName, pc.SignalName, isInput, width, pc.ConcatParts));
         }
 
         // Recurse into children when this instance is in the expanded set and has sub-instances.
+        // Pass the FULL module catalog through so port widths resolve at every depth.
         IReadOnlyList<HierarchyScopeInstanceViewModel>? children = null;
         if (expandedPaths is not null && expandedPaths.Contains(path) && subModule is not null
             && subModule.Instances.Count > 0)
         {
-            children = BuildChildScopes(subModule, new Dictionary<string, ModuleAst>(), path, expandedPaths, flat);
+            children = BuildChildScopes(subModule, moduleCatalog, path, expandedPaths, flat);
         }
 
         return new HierarchyScopeInstanceViewModel(

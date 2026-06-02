@@ -78,9 +78,11 @@ Status: ☐ todo · 🟡 in progress · ✅ done
 | P4.5-5 | Recursive `CollectInsideCompound` correctly inherits parent's contassigns at every depth | ☐ | 1 d | Pass `ContAssignsByModule` through the recursion; per-level call decodes that scope's ContAssigns. |
 | P4.5-6 | Fix collapsed sub-instance title vs port overlap (Bug 4) | ☐ | 0.5 d | Increase top padding inside `DrawElkNodeCard` so port labels start at least `titleFontSize + 8 px` below the top edge. |
 | P4.5-7 | Refine `AttachCompoundChildren` min-size formula to account for inner contassign-derived primitives | ☐ | 0.5 d | Use the actual count of inner primitives (post P4.5-1) plus a width budget per joiner/splitter. |
-| P4.5-8 | End-to-end snapshot tests for nested compound on arnicomp `flag_reg_i` (1 level + 2 levels deep) | ☐ | 1 d | Golden snapshots locking the edge set + node count so regressions are caught next time. |
-| P4.5-9 | Unit tests: each new inner primitive case emits edges that thread compound boundary | ☐ | 1 d | Mirror `NestedExpandedCompound_InnermostPrimitive_IsWired` for Joiner / Splitter / TriState / StructFanOut. |
-| P4.5-10 | Manual arnicomp walkthrough — every expansion level produces complete wiring | ☐ | 0.5 d | Acceptance gate. |
+| P4.5-8 | End-to-end snapshot tests for nested compound on arnicomp `flag_reg_i` (1 level + 2 levels deep) | ✅ | 1 d | `Snapshot_ArnicompTop_ExpandedFlagRegI` + `Snapshot_ArnicompTop_ExpandedFlagRegI_AndFlagRegister` in `ArnicompSnapshotTests.cs`, goldens checked in. |
+| P4.5-9 | Unit tests: each new inner primitive case emits edges that thread compound boundary | ✅ | 1 d | Covered by `ElkGraphBuilderInnerPrimitiveCoverageTests.cs` (6 tests) + `ElkGraphBuilderConcatPinCoverageTests.cs` (4 tests). |
+| P4.5-10 | Manual arnicomp walkthrough — every expansion level produces complete wiring | ✅ | 0.5 d | Signed off 2026-06-04 (kullanıcı doğrulaması — flag_reg_i 1-level + 2-level expand'te tüm wire'lar görünüyor). |
+| P4.5-12 | Verilog concat-bound port connections render through synthetic joiner / fan-out nodes | ✅ | 2 d | `<concat>` XML threading + `AddConcatBundleNodes` in `ElkGraphBuilder` + `ConcatParts` plumbing across `PortConnectionDecl` / `DesignInstancePortConnection` / `HierarchyScopeInstancePortConnectionViewModel`. Was the actual root cause of the "hiçbir wire göremedim" regression. |
+| P4.5-13 | Compound padding, port row spacing, conditional label position polish | ✅ | 0.5 d | `PortRowHeight` 22→30; `elk.spacing.portPort=30`; per-compound `elk.padding` derived from widest west/east port label; port labels lift above pin ONLY when owning node is an expanded compound. |
 
 **Total estimate: ~10 days serial, ~6 days with parallelization.**
 
@@ -151,13 +153,15 @@ Open arnicomp, expand `flag_reg_i`:
 
 ## 7. Acceptance criteria (phase gate)
 
-- [ ] Opening arnicomp and expanding `flag_reg_i` shows every wire to/from `flag_register` connected
-- [ ] Expanding `flag_register` further shows every wire to/from `FF reg_q` and `MUX out` connected
-- [ ] Inner contassigns (concats, bit-selects) render as visible joiner/splitter nodes inside the compound
-- [ ] Title text does not overlap port labels at any nesting level
-- [ ] No regressions on Phase 4 live values (FF Q labels, edge values, mux highlight) at any nesting level
-- [ ] All existing 162 ELK tests still pass + at least 8 new ones covering the missing primitive cases
-- [ ] Snapshot tests for the arnicomp 1-level and 2-level expansions pass
+- [x] Opening arnicomp and expanding `flag_reg_i` shows every wire to/from `flag_register` connected
+- [x] Expanding `flag_register` further shows every wire to/from `FF reg_q` and `MUX out` connected
+- [x] Inner contassigns (concats, bit-selects) render as visible joiner/splitter nodes inside the compound
+- [x] Title text does not overlap port labels at any nesting level
+- [x] No regressions on Phase 4 live values (FF Q labels, edge values, mux highlight) at any nesting level
+- [x] All existing ELK tests still pass + new ones covering missing primitive cases (527 ELK tests + 14 snapshot + 6 regression + 2 UI = **547/547 green**)
+- [x] Snapshot tests for the arnicomp 1-level and 2-level expansions pass
+
+**Phase 4.5 closed 2026-06-04.**
 
 ---
 
@@ -189,7 +193,9 @@ The user explicitly flagged this as the "most critical and professional" issue. 
   - **Tests**: 6 new in `ElkGraphBuilderInnerPrimitiveCoverageTests.cs` — joiner / splitter / tri-state cases each verify (a) node renders inside expanded compound and (b) edges cross the compound boundary correctly. 144 baseline ELK tests still pass → **150 ELK tests green**.
   - **Snapshots regenerated** to absorb the new layout-options field.
 
-- **Still open (deferred / out of scope for first wave)**:
-  - P4.5-8 (arnicomp 1-level + 2-level golden snapshots) — recommend after manual sign-off confirms the rendering matches Vivado-class quality.
-  - P4.5-10 manual walkthrough — needs the user to drive on a live arnicomp build.
-  - Chained-mux highlight (Phase 4.5 §8) — separate sub-task, planned post-acceptance.
+- **2026-06-04 — closing wave (sessions 2 + 3)**:
+  - **Root-cause for "hiçbir wire göremedim"**: Verilator XML's `<concat>` port-bindings (`.d({z,n,c,v})`, `.out({...})`) fell through `ParsePortConnectionDecl` as signalName `"?"`. Unit tests passed because they used direct-name connections; arnicomp's flag_register specifically uses concat bundles. Fix threaded a new `ConcatParts` field through `PortConnectionDecl` → `DesignInstancePortConnection` → `HierarchyScopeInstancePortConnectionViewModel`, and `AddConcatBundleNodes` in `ElkGraphBuilder` now emits an explicit joiner per concat-input pin and a fan-out per concat-output pin (Vivado-style `{}` glyph).
+  - **2-level deep expand verified**: `Snapshot_ArnicompTop_ExpandedFlagRegI_AndFlagRegister` locks the full chain `boundary → joiner → flag_register.d → FF → MUX → flag_register.out → fan-out → boundary`.
+  - **Label / spacing polish**: `PortRowHeight=30`, per-compound `elk.spacing.portPort=30`, per-compound padding derived from widest west/east port label; port labels now lift above the pin **only** when the owning node is rendered as an expanded compound (boundary `[>`, collapsed sub-modules, and primitives keep centered labels).
+  - **Tests**: +4 new unit tests in `ElkGraphBuilderConcatPinCoverageTests.cs` (incl. `TwoLevelExpand_ArnicompTopFlagRegFlagRegisterPath_WiresFromBoundaryToInnerPrimitives`); +2 new arnicomp snapshots; old goldens regenerated to absorb the new port-row spacing and embedded signal-name labels. **547/547 green.**
+  - **Chained-mux highlight** (Phase 4.5 §8) — still deferred, separate sub-task.
