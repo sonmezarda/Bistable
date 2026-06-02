@@ -45,7 +45,7 @@ public sealed class SchematicCoverageAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_PrimitiveInputWithUnknownSignal_CountsSilentMiss()
+    public void Analyze_PrimitiveInputWithUnknownSignal_ReportsUnsupportedDiagnostic()
     {
         ModuleAst module = Module(contAssigns:
         [
@@ -56,9 +56,13 @@ public sealed class SchematicCoverageAnalyzerTests
 
         SchematicCoverageReport report = SchematicCoverageAnalyzer.Analyze(module);
 
-        Assert.Equal(1, report.SilentMissCount);
+        Assert.Equal(0, report.SilentMissCount);
+        UnsupportedConstructDiagnostic diagnostic = Assert.Single(
+            report.UnsupportedConstructs,
+            static d => d.ConstructKind == "PrimitiveEndpoint");
+        Assert.Contains("could not be resolved", diagnostic.Reason);
         Assert.Contains(report.Modules.Single().Endpoints,
-            endpoint => endpoint.Status == EndpointCoverageStatus.SilentMiss
+            endpoint => endpoint.Status == EndpointCoverageStatus.Unsupported
                      && endpoint.SignalName == "?"
                      && endpoint.Kind == EndpointKind.PrimitiveInput);
     }

@@ -62,6 +62,25 @@ public enum EndpointCoverageStatus
 
 public static class SchematicCoverageAnalyzer
 {
+    public static SchematicCoverageReport Analyze(DesignAst design)
+    {
+        ArgumentNullException.ThrowIfNull(design);
+
+        List<ModuleCoverage> modules = [];
+        List<UnsupportedConstructDiagnostic> unsupported = [];
+        foreach (ModuleAst module in design.Modules)
+        {
+            SchematicCoverageReport moduleReport = Analyze(module);
+            modules.AddRange(moduleReport.Modules);
+            unsupported.AddRange(moduleReport.UnsupportedConstructs);
+        }
+
+        string topModuleName = design.TopModule?.Name
+            ?? design.Modules.FirstOrDefault()?.Name
+            ?? "<empty-design>";
+        return new SchematicCoverageReport(topModuleName, modules, unsupported);
+    }
+
     public static SchematicCoverageReport Analyze(ModuleAst module)
     {
         ArgumentNullException.ThrowIfNull(module);
@@ -305,7 +324,7 @@ public static class SchematicCoverageAnalyzer
                     AddOutput(primitive.Id, "out", joiner.OutputSignal);
                     break;
                 case MemoryPrimitive memory:
-                    endpoints.Add(ClassifySignal(moduleName, $"primitive:{primitive.Id}:mem", memory.SignalName, EndpointKind.Memory));
+                    endpoints.Add(ClassifySignal(moduleName, $"primitive:{primitive.Id}:mem", memory.SignalName, EndpointKind.Memory, unsupported));
                     break;
                 case StructFanOutPrimitive fanOut:
                     AddInput(primitive.Id, "struct", fanOut.StructSignal, EndpointKind.PrimitiveInput);
@@ -323,13 +342,13 @@ public static class SchematicCoverageAnalyzer
         void AddInput(string primitiveId, string pin, string signal, EndpointKind kind)
         {
             string endpointId = $"primitive:{primitiveId}:{pin}";
-            endpoints.Add(ClassifySignal(moduleName, endpointId, signal, kind));
+            endpoints.Add(ClassifySignal(moduleName, endpointId, signal, kind, unsupported));
         }
 
         void AddOutput(string primitiveId, string pin, string signal)
         {
             string endpointId = $"primitive:{primitiveId}:{pin}";
-            endpoints.Add(ClassifySignal(moduleName, endpointId, signal, EndpointKind.PrimitiveOutput));
+            endpoints.Add(ClassifySignal(moduleName, endpointId, signal, EndpointKind.PrimitiveOutput, unsupported));
         }
 
         void AddIntentional(string primitiveId, string pin, string signal, EndpointKind kind, string reason)
@@ -338,10 +357,22 @@ public static class SchematicCoverageAnalyzer
         }
     }
 
-    private static EndpointCoverage ClassifySignal(string moduleName, string endpointId, string signal, EndpointKind kind)
+    private static EndpointCoverage ClassifySignal(
+        string moduleName,
+        string endpointId,
+        string signal,
+        EndpointKind kind,
+        List<UnsupportedConstructDiagnostic>? unsupported = null)
     {
         if (string.IsNullOrWhiteSpace(signal) || signal == "?")
         {
+            if (unsupported is not null)
+            {
+                string reason = "Primitive endpoint signal name could not be resolved.";
+                unsupported.Add(new UnsupportedConstructDiagnostic(moduleName, endpointId, "PrimitiveEndpoint", reason));
+                return UnsupportedEndpoint(moduleName, endpointId, signal, kind, reason);
+            }
+
             return new EndpointCoverage(moduleName, null, endpointId, signal, kind, EndpointCoverageStatus.SilentMiss, "Signal name could not be resolved.");
         }
 

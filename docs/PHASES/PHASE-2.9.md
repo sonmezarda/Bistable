@@ -78,8 +78,8 @@ Status legend: `todo`, `in_progress`, `done`, `blocked`
 | P2.9-2 | Instrument `SchematicDecoder` | in_progress | 2 d | Initial `SchematicCoverageAnalyzer` inspects decoder output for unsupported contassign/sequential targets and `?` primitive pins; direct decoder event instrumentation still pending. |
 | P2.9-3 | Instrument `ElkGraphBuilder` endpoint resolution | done | 2 d | `ElkBuildResult` now carries routing telemetry; graph/PortRef and dangling consumer diagnostics are test-covered. |
 | P2.9-4 | Add Verilator XML/AST fallback diagnostics | in_progress | 2 d | Initial reader fallback diagnostics landed for unknown expressions/l-values/statements; broader `?`, dtype, range, memory diagnostics still pending. |
-| P2.9-5 | Generate per-sample reports | todo | 1 d | JSON files under `.bistable/reports/coverage/<top>.json`; tests can read in-memory. |
-| P2.9-6 | Add sample gates | todo | 2 d | arnicomp, tiny_cpu, bus_fabric, memory_demo must have zero silent misses. |
+| P2.9-5 | Generate per-sample reports | in_progress | 1 d | Design-level in-memory report landed; JSON file writer still pending. |
+| P2.9-6 | Add sample gates | in_progress | 2 d | arnicomp metadata XML gate landed: 0 silent misses, 9 explicit unsupported endpoints. tiny_cpu/bus_fabric/memory_demo pending. |
 | P2.9-7 | Add negative tests | todo | 1 d | Synthetic unsupported constructs must produce explicit diagnostic, not silent drop. |
 | P2.9-8 | Add diagnostics UI entry point | todo | 2 d | Minimal panel/list is enough; not a visual-polish project. |
 | P2.9-9 | Update docs/architecture/testing | todo | 0.5 d | Document coverage report lifecycle. |
@@ -328,3 +328,22 @@ Phase 5 (RV32I Execution Target) depends on this phase enough to identify unsupp
   - Constant literal routing is width-aware, so different-width literal uses do not accidentally share one producer key.
   - Updated Arnicomp ELK snapshots because `1'h0` constant tie nodes are now present in the graph instead of being visually omitted.
   - Validation: `dotnet build Bistable.slnx` green; targeted coverage/constant/XML tests green (`26/26`); `dotnet test tests/Bistable.Tests/Bistable.Tests.csproj -v minimal` green (`574/574`); `dotnet test Bistable.slnx -v minimal` green across Tests, Snapshots, Regression, and UiTests.
+
+- **2026-06-02 — P2.9-5/P2.9-6 initial Arnicomp sample gate landed.**
+  - Added `SchematicCoverageAnalyzer.Analyze(DesignAst)` so coverage can be computed across every module in a loaded design, not only one selected module.
+  - Added `SampleCoverageTests` for `samples/arnicomp/.bistable/metadata/arnicomp_top.xml`.
+  - Fixed `VerilatorXmlAstReader.ParseCase`: a `<caseitem>` containing only an expression label is now parsed as an empty labelled arm, not as an unknown `<const>` statement.
+  - Current Arnicomp coverage gate:
+    - `SilentMissCount = 0`
+    - `UnsupportedCount = 9`
+  - The 9 explicit unsupported endpoints are:
+    - `arnicomp_top primitive:ff_flush_next_instr_0:d`
+    - `arnicomp_top primitive:mux_mem_addr_1:in.0`
+    - `arnicomp_top primitive:mux_mem_addr_1:in.1`
+    - `arnicomp_top primitive:mux_mem_wdata_2:in.0`
+    - `arnicomp_top primitive:op_mem_ren_3:in.1`
+    - `arnicomp_top primitive:mux_bus_4:in.2`
+    - `arnicomp_top primitive:op_is_push_instr_7:left`
+    - `arnicomp_top primitive:op_is_push_instr_7:right`
+    - `alu primitive:op_zero_flag_1:left`
+  - Validation: `dotnet build Bistable.slnx` green; targeted sample/coverage/XML tests green (`12/12`); `dotnet test tests/Bistable.Tests/Bistable.Tests.csproj -v minimal` green (`577/577`); `dotnet test Bistable.slnx -v minimal` green across Tests, Snapshots, Regression, and UiTests.

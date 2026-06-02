@@ -41,6 +41,23 @@ public sealed class VerilatorXmlAstDiagnosticsTests
         Assert.Equal(VerilatorXmlAstDiagnosticKind.UnknownStatementFallback, diagnostic.Kind);
     }
 
+    [Fact]
+    public void Read_CaseItemWithOnlyExpressionLabel_IsNoOpArmNotUnknownStatement()
+    {
+        VerilatorXmlAstReader reader = ReadInline("""
+            <always>
+              <case>
+                <varref name="sel"/>
+                <caseitem>
+                  <const name="2'h0"/>
+                </caseitem>
+              </case>
+            </always>
+            """);
+
+        Assert.Empty(reader.LastDiagnostics);
+    }
+
     private static VerilatorXmlAstReader ReadInline(string moduleBody)
     {
         string xml = $"""

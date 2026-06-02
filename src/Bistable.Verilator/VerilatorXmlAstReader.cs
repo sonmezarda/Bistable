@@ -472,11 +472,21 @@ public sealed class VerilatorXmlAstReader
             if (itemChildren.Count == 0)
                 continue;
 
-            // A <caseitem> whose first child is a statement element (not an expr) is the default arm.
-            // Heuristic: if count == 1, it's default (just the body). If > 1, first is label, last is body.
+            // A <caseitem> whose only child is an expression is an empty labelled
+            // arm (`3'h7: ;`), not a default body. Verilator emits this in control
+            // ROM tables. Treat it as an explicit no-op arm so it does not become
+            // an unknown `<const>` statement diagnostic.
             if (itemChildren.Count == 1)
             {
-                defaultArm = ParseStatement(itemChildren[0]);
+                XElement onlyChild = itemChildren[0];
+                if (IsStatementElement(onlyChild))
+                {
+                    defaultArm = ParseStatement(onlyChild);
+                }
+                else
+                {
+                    arms.Add(new CaseArm(ParseExpression(onlyChild), new BeginAst([])));
+                }
             }
             else
             {
@@ -488,6 +498,9 @@ public sealed class VerilatorXmlAstReader
 
         return new CaseAst(subject, arms, defaultArm);
     }
+
+    private static bool IsStatementElement(XElement element) =>
+        element.Name.LocalName is "begin" or "if" or "case" or "casestmt" or "assign" or "assigndly";
 
     private AssignAst ParseAssignStatement(XElement e, bool isNonBlocking)
     {
