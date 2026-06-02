@@ -17,11 +17,15 @@ public sealed class VerilatorXmlAstReader
     private const int MaxExpressionDepth = 200;
 
     private readonly ILogger<VerilatorXmlAstReader> _logger;
+    private readonly List<VerilatorXmlAstDiagnostic> _diagnostics = [];
+    private string? _currentModuleName;
 
     public VerilatorXmlAstReader(ILogger<VerilatorXmlAstReader>? logger = null)
     {
         _logger = logger ?? NullLogger<VerilatorXmlAstReader>.Instance;
     }
+
+    public IReadOnlyList<VerilatorXmlAstDiagnostic> LastDiagnostics => _diagnostics;
 
     public DesignAst Read(string xmlPath)
     {
@@ -34,6 +38,7 @@ public sealed class VerilatorXmlAstReader
 
     private DesignAst ParseDesign(XDocument doc)
     {
+        _diagnostics.Clear();
         List<XElement> moduleElements = doc.Descendants("module").ToList();
         if (moduleElements.Count == 0)
             throw new InvalidDataException("Verilator XML <netlist> contains zero <module> elements.");
@@ -215,46 +220,55 @@ public sealed class VerilatorXmlAstReader
     {
         string name = (string?)e.Attribute("name") ?? "unknown";
         bool isTop = string.Equals((string?)e.Attribute("topModule"), "1", StringComparison.Ordinal);
+        string? previousModuleName = _currentModuleName;
+        _currentModuleName = name;
 
-        List<PortDecl> ports = e.Elements("var")
-            .Where(static v => v.Attribute("dir") is not null)
-            .Select(v => ParsePortDecl(v, dtypes))
-            .OrderBy(static p => p.PinIndex)
-            .ToList();
-
-        List<DesignParameter> parameters = e.Elements("var")
-            .Where(static v => string.Equals((string?)v.Attribute("param"), "true", StringComparison.Ordinal))
-            .Select(ParseParameter)
-            .ToList();
-
-        List<SignalDecl> locals = e.Elements("var")
-            .Where(static v => v.Attribute("dir") is null &&
-                               !string.Equals((string?)v.Attribute("param"), "true", StringComparison.Ordinal))
-            .Select(v => ParseSignalDecl(v, dtypes, structTypes))
-            .ToList();
-
-        List<InstanceDecl> instances = e.Elements("instance")
-            .Select(ParseInstanceDecl)
-            .ToList();
-
-        List<ContAssignAst> contAssigns = e.Elements("contassign")
-            .Select(ParseContAssign)
-            .OfType<ContAssignAst>()
-            .ToList();
-
-        List<SequentialBlockAst> sequential = [];
-        List<CombinationalBlockAst> combinational = [];
-
-        foreach (XElement always in e.Elements("always"))
+        try
         {
-            if (always.Element("sentree") is { } sentree)
-                sequential.Add(ParseSequentialBlock(always, sentree));
-            else
-                combinational.Add(new CombinationalBlockAst(ParseAlwaysBody(always)));
-        }
+            List<PortDecl> ports = e.Elements("var")
+                .Where(static v => v.Attribute("dir") is not null)
+                .Select(v => ParsePortDecl(v, dtypes))
+                .OrderBy(static p => p.PinIndex)
+                .ToList();
 
-        return new ModuleAst(name, isTop, ports, parameters, locals,
-                             instances, contAssigns, sequential, combinational);
+            List<DesignParameter> parameters = e.Elements("var")
+                .Where(static v => string.Equals((string?)v.Attribute("param"), "true", StringComparison.Ordinal))
+                .Select(ParseParameter)
+                .ToList();
+
+            List<SignalDecl> locals = e.Elements("var")
+                .Where(static v => v.Attribute("dir") is null &&
+                                   !string.Equals((string?)v.Attribute("param"), "true", StringComparison.Ordinal))
+                .Select(v => ParseSignalDecl(v, dtypes, structTypes))
+                .ToList();
+
+            List<InstanceDecl> instances = e.Elements("instance")
+                .Select(ParseInstanceDecl)
+                .ToList();
+
+            List<ContAssignAst> contAssigns = e.Elements("contassign")
+                .Select(ParseContAssign)
+                .OfType<ContAssignAst>()
+                .ToList();
+
+            List<SequentialBlockAst> sequential = [];
+            List<CombinationalBlockAst> combinational = [];
+
+            foreach (XElement always in e.Elements("always"))
+            {
+                if (always.Element("sentree") is { } sentree)
+                    sequential.Add(ParseSequentialBlock(always, sentree));
+                else
+                    combinational.Add(new CombinationalBlockAst(ParseAlwaysBody(always)));
+            }
+
+            return new ModuleAst(name, isTop, ports, parameters, locals,
+                                 instances, contAssigns, sequential, combinational);
+        }
+        finally
+        {
+            _currentModuleName = previousModuleName;
+        }
     }
 
     // ── Port / Signal / Parameter ────────────────────────────────────────────
@@ -481,6 +495,7 @@ public sealed class VerilatorXmlAstReader
         if (children.Count < 2)
         {
             _logger.LogWarning("Skipping malformed {Name} element with fewer than 2 children.", e.Name.LocalName);
+            AddDiagnostic(VerilatorXmlAstDiagnosticKind.MalformedStatement, e, "Assign statement has fewer than two children.");
             return new AssignAst(new VarRefLValue("__unknown__"), new ConstExpr(BigInteger.Zero, 1, false), isNonBlocking);
         }
 
@@ -492,6 +507,7 @@ public sealed class VerilatorXmlAstReader
     private StatementAst SkipStatement(XElement e)
     {
         _logger.LogWarning("Skipping unknown statement element '{Name}'.", e.Name.LocalName);
+        AddDiagnostic(VerilatorXmlAstDiagnosticKind.UnknownStatementFallback, e, "Unknown statement element was skipped.");
         return new BeginAst([]);
     }
 
@@ -533,6 +549,7 @@ public sealed class VerilatorXmlAstReader
     private LValueAst FallbackLValue(XElement e)
     {
         _logger.LogWarning("Unknown lvalue element '{Name}', falling back to __unknown__.", e.Name.LocalName);
+        AddDiagnostic(VerilatorXmlAstDiagnosticKind.UnknownLValueFallback, e, "Unknown l-value element fell back to __unknown__.");
         return new VarRefLValue("__unknown__");
     }
 
@@ -686,6 +703,7 @@ public sealed class VerilatorXmlAstReader
     private ExpressionAst FallbackExpression(XElement e)
     {
         _logger.LogWarning("Unknown expression element '{Name}', substituting zero constant.", e.Name.LocalName);
+        AddDiagnostic(VerilatorXmlAstDiagnosticKind.UnknownExpressionFallback, e, "Unknown expression element fell back to a zero constant.");
         return new ConstExpr(BigInteger.Zero, 1, false);
     }
 
@@ -760,6 +778,15 @@ public sealed class VerilatorXmlAstReader
     private static string Attr(XElement e, string name)
         => (string?)e.Attribute(name) ?? string.Empty;
 
+    private void AddDiagnostic(VerilatorXmlAstDiagnosticKind kind, XElement element, string reason)
+    {
+        _diagnostics.Add(new VerilatorXmlAstDiagnostic(
+            ModuleName: _currentModuleName,
+            ElementName: element.Name.LocalName,
+            Kind: kind,
+            Reason: reason));
+    }
+
     private static int ParseInt(string? value, int fallback)
         => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int v) ? v : fallback;
 
@@ -800,4 +827,18 @@ public sealed class VerilatorXmlAstReader
     {
         public static DType Scalar { get; } = new(null, 1, false, []);
     }
+}
+
+public sealed record VerilatorXmlAstDiagnostic(
+    string? ModuleName,
+    string ElementName,
+    VerilatorXmlAstDiagnosticKind Kind,
+    string Reason);
+
+public enum VerilatorXmlAstDiagnosticKind
+{
+    UnknownExpressionFallback,
+    UnknownLValueFallback,
+    UnknownStatementFallback,
+    MalformedStatement,
 }

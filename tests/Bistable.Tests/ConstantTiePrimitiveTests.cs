@@ -104,4 +104,71 @@ public sealed class ConstantTiePrimitiveTests
         Assert.Single(list.Logic.OfType<ConstantTiePrimitive>());
         Assert.DoesNotContain(list.Logic.OfType<BufferPrimitive>(), b => b.OutputSignal == "k");
     }
+
+    [Fact]
+    public void Builder_DirectConstantInstanceInput_EmitsTieNodeAndWire()
+    {
+        HierarchyScopeInstanceViewModel child = Child(
+            "top.u_leaf",
+            "leaf",
+            [new HierarchyScopeInstancePortConnectionViewModel("enable", "1'b1", isInput: true, width: 1)]);
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData(BoundaryPorts: [], ChildScopes: [child], LocalSignals: [], ContAssigns: []),
+            compactLayout: true);
+
+        ElkNode tie = Assert.Single(result.Graph.Children, n => ElkNodeIds.IsConstantTie(n.Id));
+        Assert.Equal("1'b1", tie.Labels![0].Text);
+        Assert.Contains(result.Graph.Edges,
+            e => e.Sources.Single().StartsWith(tie.Id, StringComparison.Ordinal)
+              && e.Targets.Contains("child_top_u_leaf.in.enable"));
+    }
+
+    [Fact]
+    public void Builder_ExpandedCompoundGrandchildConstantInput_EmitsInnerTieNodeAndWire()
+    {
+        HierarchyScopeInstanceViewModel grandchild = Child(
+            "top.u_parent.u_leaf",
+            "leaf",
+            [new HierarchyScopeInstancePortConnectionViewModel("enable", "1'b0", isInput: true, width: 1)]);
+        HierarchyScopeInstanceViewModel parent = Child(
+            "top.u_parent",
+            "parent",
+            ports: [],
+            grandchildren: [grandchild]);
+
+        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "top.u_parent" };
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData(
+                BoundaryPorts: [],
+                ChildScopes: [parent],
+                LocalSignals: [],
+                ContAssigns: [],
+                ExpandedPaths: expanded),
+            compactLayout: true);
+
+        ElkNode parentNode = Assert.Single(result.Graph.Children, n => n.Id == "child_top_u_parent");
+        Assert.NotNull(parentNode.Children);
+        ElkNode tie = Assert.Single(parentNode.Children!, n => ElkNodeIds.IsConstantTie(n.Id));
+        Assert.Equal("1'b0", tie.Labels![0].Text);
+        Assert.Contains(result.Graph.Edges,
+            e => e.Sources.Single().StartsWith(tie.Id, StringComparison.Ordinal)
+              && e.Targets.Contains("child_top_u_parent_u_leaf.in.enable"));
+    }
+
+    private static HierarchyScopeInstanceViewModel Child(
+        string hierarchyPath,
+        string moduleName,
+        IReadOnlyList<HierarchyScopeInstancePortConnectionViewModel> ports,
+        IReadOnlyList<HierarchyScopeInstanceViewModel>? grandchildren = null) =>
+        new(
+            hierarchyPath,
+            hierarchyPath.Split('.')[^1],
+            moduleName,
+            ports.Count(static port => port.IsInput),
+            ports.Count(static port => port.IsOutput),
+            exactSignalCount: 0,
+            descendantSignalCount: 0,
+            ports,
+            childInstances: grandchildren);
 }

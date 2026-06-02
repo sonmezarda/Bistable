@@ -58,6 +58,7 @@ internal sealed class ElkGraphBuilder
         {
             AddChildNode(graph, child, portRefs, scope.ExpandedPaths, scope.PrimitivesByModule);
             AddTopScopeConcatBundleNodes(graph.Children, child, portRefs);
+            AddTopScopeConstantLiteralNodes(graph.Children, child, portRefs);
         }
 
         // Collect target names that primitives will render. When a primitive owns a
@@ -126,9 +127,15 @@ internal sealed class ElkGraphBuilder
         // contassign-only path. No-op when scope.Primitives is null/empty.
         DispatchPrimitives(graph, scope.Primitives, portRefs);
 
-        AddEdges(graph, scope, portRefs);
-        PruneOrphanPrimitives(graph);
-        return new ElkBuildResult(graph, portRefs);
+        ElkRoutingTelemetry routingTelemetry = AddEdges(graph, scope, portRefs);
+        HashSet<string> prunedPortIds = PruneOrphanPrimitives(graph);
+        if (prunedPortIds.Count > 0)
+        {
+            RemovePortRefs(portRefs, prunedPortIds);
+            routingTelemetry = routingTelemetry.WithoutPortIds(prunedPortIds, graph.Edges.Count);
+        }
+
+        return new ElkBuildResult(graph, portRefs, routingTelemetry);
     }
 
     // Routes each primitive in the scope to its node-builder. Pulled out of Build()
@@ -1424,6 +1431,7 @@ internal sealed class ElkGraphBuilder
         foreach (HierarchyScopeInstanceViewModel grandchild in child.ChildInstances)
         {
             parent.Children.Add(BuildChildNode(grandchild, portRefs, expandedPaths, primitivesByModule));
+            AddInnerConstantLiteralNodes(parent.Children, child.HierarchyPath, grandchild, portRefs);
             // P4.5-12: explicit splitter/joiner nodes for the grandchild's concat
             // pins (e.g. flag_register.d({z,n,c,v}) / .out({z,n,c,v})). Without
             // these the boundary signals can't reach the bundled port cleanly —
@@ -1656,13 +1664,75 @@ internal sealed class ElkGraphBuilder
             labelArea + ConcatBundleHorizontalPadding);
     }
 
-    private static void AddEdges(ElkGraph graph, ElkScopeData scope, Dictionary<string, ElkPortRef> portRefs)
+    private static void AddTopScopeConstantLiteralNodes(
+        IList<ElkNode> target,
+        HierarchyScopeInstanceViewModel child,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        foreach (HierarchyScopeInstancePortConnectionViewModel pin in child.PortConnections
+                     .Where(static p => p.IsInput && IsConstantLiteralSignal(p.SignalName)))
+        {
+            AddConstantLiteralNode(target, "top", keyPrefix: string.Empty, pin.SignalName, pin.Width, portRefs);
+        }
+    }
+
+    private static void AddInnerConstantLiteralNodes(
+        IList<ElkNode> target,
+        string compoundPath,
+        HierarchyScopeInstanceViewModel child,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        foreach (HierarchyScopeInstancePortConnectionViewModel pin in child.PortConnections
+                     .Where(static p => p.IsInput && IsConstantLiteralSignal(p.SignalName)))
+        {
+            AddConstantLiteralNode(target, compoundPath, $"@inner::{compoundPath}::", pin.SignalName, pin.Width, portRefs);
+        }
+    }
+
+    private static void AddConstantLiteralNode(
+        IList<ElkNode> target,
+        string nodeScopePath,
+        string keyPrefix,
+        string literal,
+        int width,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        string key = ConstantLiteralPortRefKey(keyPrefix, literal, width);
+        if (portRefs.ContainsKey(key))
+        {
+            return;
+        }
+
+        string nodeId = $"tie_{ElkNodeIds.SanitizeId(nodeScopePath)}__const__{ElkNodeIds.SanitizeId(literal)}__w{Math.Max(1, width)}";
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = 36,
+            Height = 28,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels = [new ElkLabel { Text = literal }],
+            Ports = []
+        };
+
+        string outPortId = $"{nodeId}.out";
+        node.Ports.Add(new ElkPort
+        {
+            Id = outPortId,
+            LayoutOptions = PortLayout(PortSideEast, 0),
+            Labels = [new ElkLabel { Text = "Y" }]
+        });
+        portRefs[key] = new ElkPortRef(nodeId, outPortId, ElkPortRole.BufferOut, Math.Max(1, width));
+        target.Add(node);
+    }
+
+    private static ElkRoutingTelemetry AddEdges(ElkGraph graph, ElkScopeData scope, Dictionary<string, ElkPortRef> portRefs)
     {
         Dictionary<string, List<ElkPortRef>> producers = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, List<ElkPortRef>> consumers = new(StringComparer.OrdinalIgnoreCase);
 
         CollectBoundaryEndpoints(scope, portRefs, producers, consumers);
         CollectChildEndpoints(scope, portRefs, producers, consumers);
+        CollectTopScopeConstantLiteralEndpoints(scope, portRefs, producers);
         CollectTopScopeConcatBundleEndpoints(scope, portRefs, producers, consumers);
         CollectOperatorEndpoints(scope, portRefs, producers, consumers);
         CollectSplitterEndpoints(scope, portRefs, producers, consumers);
@@ -1678,6 +1748,7 @@ internal sealed class ElkGraphBuilder
         CollectExpandedCompoundEndpoints(scope, portRefs, producers, consumers);
         ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers);
         EmitEdges(graph, producers, consumers);
+        return ElkRoutingTelemetry.From(producers, consumers, graph.Edges.Count);
     }
 
     // For each expanded compound child, treat its inside as a separate signal namespace
@@ -1699,7 +1770,7 @@ internal sealed class ElkGraphBuilder
                 && prims.Count > 0;
             if (child.ChildInstances.Count == 0 && !hasInnerPrims) continue;
             if (!scope.ExpandedPaths.Contains(child.HierarchyPath)) continue;
-            CollectInsideCompound(child, portRefs, producers, consumers, scope.ExpandedPaths, scope.PrimitivesByModule);
+        CollectInsideCompound(child, portRefs, producers, consumers, scope.ExpandedPaths, scope.PrimitivesByModule);
         }
     }
 
@@ -1724,6 +1795,7 @@ internal sealed class ElkGraphBuilder
         foreach (HierarchyScopeInstanceViewModel grandchild in compound.ChildInstances)
         {
             CollectGrandchildEndpoints(compound.HierarchyPath, grandchild, portRefs, producers, consumers);
+            CollectInnerConstantLiteralEndpoints(compound.HierarchyPath, grandchild, portRefs, producers);
             CollectConcatBundleEndpoints(compound.HierarchyPath, grandchild, portRefs, producers, consumers);
             bool gcHasInnerPrims = primitivesByModule is not null
                 && primitivesByModule.TryGetValue(grandchild.ModuleName, out var gcPrims)
@@ -1910,7 +1982,10 @@ internal sealed class ElkGraphBuilder
             }
             else
             {
-                AddTo(target, ScopedSignalKey(compoundPath, pin.SignalName), portRef);
+                string signalKey = pin.IsInput && IsConstantLiteralSignal(pin.SignalName)
+                    ? ScopedConstantLiteralSignalKey(compoundPath, pin.SignalName, pin.Width)
+                    : ScopedSignalKey(compoundPath, pin.SignalName);
+                AddTo(target, signalKey, portRef);
             }
         }
     }
@@ -2394,8 +2469,46 @@ internal sealed class ElkGraphBuilder
                 }
                 else
                 {
-                    AddTo(target, pin.SignalName, portRef);
+                    string signalKey = pin.IsInput && IsConstantLiteralSignal(pin.SignalName)
+                        ? ConstantLiteralSignalKey(pin.SignalName, pin.Width)
+                        : pin.SignalName;
+                    AddTo(target, signalKey, portRef);
                 }
+            }
+        }
+    }
+
+    private static void CollectTopScopeConstantLiteralEndpoints(
+        ElkScopeData scope,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers)
+    {
+        foreach (HierarchyScopeInstanceViewModel child in scope.ChildScopes)
+        {
+            foreach (HierarchyScopeInstancePortConnectionViewModel pin in child.PortConnections
+                         .Where(static p => p.IsInput && IsConstantLiteralSignal(p.SignalName)))
+            {
+                if (portRefs.TryGetValue(ConstantLiteralPortRefKey(string.Empty, pin.SignalName, pin.Width), out ElkPortRef? portRef))
+                {
+                    AddTo(producers, ConstantLiteralSignalKey(pin.SignalName, pin.Width), portRef);
+                }
+            }
+        }
+    }
+
+    private static void CollectInnerConstantLiteralEndpoints(
+        string compoundPath,
+        HierarchyScopeInstanceViewModel child,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers)
+    {
+        string keyPrefix = $"@inner::{compoundPath}::";
+        foreach (HierarchyScopeInstancePortConnectionViewModel pin in child.PortConnections
+                     .Where(static p => p.IsInput && IsConstantLiteralSignal(p.SignalName)))
+        {
+            if (portRefs.TryGetValue(ConstantLiteralPortRefKey(keyPrefix, pin.SignalName, pin.Width), out ElkPortRef? portRef))
+            {
+                AddTo(producers, ScopedConstantLiteralSignalKey(compoundPath, pin.SignalName, pin.Width), portRef);
             }
         }
     }
@@ -2470,11 +2583,12 @@ internal sealed class ElkGraphBuilder
         }
     }
 
-    private static void PruneOrphanPrimitives(ElkGraph graph)
+    private static HashSet<string> PruneOrphanPrimitives(ElkGraph graph)
     {
         HashSet<string> connectedPorts = graph.Edges
             .SelectMany(static e => e.Sources.Concat(e.Targets))
             .ToHashSet(StringComparer.Ordinal);
+        HashSet<string> allRemovedPorts = new(StringComparer.Ordinal);
 
         while (true)
         {
@@ -2482,11 +2596,14 @@ internal sealed class ElkGraphBuilder
             PruneOrphanPrimitives(graph.Children, connectedPorts, removedPorts);
             if (removedPorts.Count == 0) break;
 
+            allRemovedPorts.UnionWith(removedPorts);
             graph.Edges.RemoveAll(e => e.Sources.Any(removedPorts.Contains) || e.Targets.Any(removedPorts.Contains));
             connectedPorts = graph.Edges
                 .SelectMany(static e => e.Sources.Concat(e.Targets))
                 .ToHashSet(StringComparer.Ordinal);
         }
+
+        return allRemovedPorts;
     }
 
     private static void PruneOrphanPrimitives(List<ElkNode> nodes, HashSet<string> connectedPorts, HashSet<string> removedPorts)
@@ -2518,6 +2635,17 @@ internal sealed class ElkGraphBuilder
         || ElkNodeIds.IsArith(node.Id)
         || ElkNodeIds.IsFlipFlop(node.Id);
 
+    private static void RemovePortRefs(Dictionary<string, ElkPortRef> portRefs, HashSet<string> removedPortIds)
+    {
+        foreach (string key in portRefs
+                     .Where(kvp => removedPortIds.Contains(kvp.Value.PortId))
+                     .Select(static kvp => kvp.Key)
+                     .ToArray())
+        {
+            portRefs.Remove(key);
+        }
+    }
+
     // Strips internal namespace prefixes from synthetic signal keys (e.g. "::fanout::ctrl.ops"
     // becomes "ctrl.ops") so the user sees a clean wire label instead of plumbing details.
     private static string PrettifySignalLabel(string signal)
@@ -2525,6 +2653,13 @@ internal sealed class ElkGraphBuilder
         const string fanOutPrefix = "::fanout::";
         if (signal.StartsWith(fanOutPrefix, StringComparison.Ordinal))
             return signal[fanOutPrefix.Length..];
+        const string constPrefix = "::const::";
+        if (signal.StartsWith(constPrefix, StringComparison.Ordinal))
+        {
+            int lastColon = signal.LastIndexOf("::", StringComparison.Ordinal);
+            if (lastColon > 0 && lastColon + 2 < signal.Length)
+                return signal[(lastColon + 2)..];
+        }
         const string innerPrefix = "@inner::";
         if (signal.StartsWith(innerPrefix, StringComparison.Ordinal))
         {
@@ -2535,6 +2670,30 @@ internal sealed class ElkGraphBuilder
         }
         return signal;
     }
+
+    private static bool IsConstantLiteralSignal(string? signal)
+    {
+        if (string.IsNullOrWhiteSpace(signal))
+        {
+            return false;
+        }
+
+        string trimmed = signal.Trim();
+        return trimmed is "0" or "1"
+               || trimmed.StartsWith("'")
+               || trimmed.Contains("'b", StringComparison.OrdinalIgnoreCase)
+               || trimmed.Contains("'h", StringComparison.OrdinalIgnoreCase)
+               || trimmed.Contains("'d", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ConstantLiteralSignalKey(string literal, int width) =>
+        $"::const::{Math.Max(1, width)}::{literal}";
+
+    private static string ScopedConstantLiteralSignalKey(string scopePath, string literal, int width) =>
+        $"@inner::{scopePath}::const::{Math.Max(1, width)}::{literal}";
+
+    private static string ConstantLiteralPortRefKey(string keyPrefix, string literal, int width) =>
+        $"{keyPrefix}__const__{Math.Max(1, width)}__{literal}";
 
     private static int ResolveEdgeWidth(ElkPortRef source, ElkPortRef target)
     {
@@ -2686,7 +2845,78 @@ public sealed record ElkScopeData(
     // sub-instance-only expansion working unchanged.
     IReadOnlyDictionary<string, IReadOnlyList<SchematicPrimitive>>? PrimitivesByModule = null);
 
-public sealed record ElkBuildResult(ElkGraph Graph, IReadOnlyDictionary<string, ElkPortRef> PortRefs);
+public sealed record ElkBuildResult(
+    ElkGraph Graph,
+    IReadOnlyDictionary<string, ElkPortRef> PortRefs,
+    ElkRoutingTelemetry RoutingTelemetry);
+
+public sealed record ElkRoutingTelemetry(
+    IReadOnlyDictionary<string, IReadOnlyList<ElkPortRef>> ProducersBySignal,
+    IReadOnlyDictionary<string, IReadOnlyList<ElkPortRef>> ConsumersBySignal,
+    int EmittedEdgeCount)
+{
+    public int ProducerSignalCount => ProducersBySignal.Count;
+    public int ConsumerSignalCount => ConsumersBySignal.Count;
+
+    public int DanglingProducerSignalCount =>
+        ProducersBySignal.Keys.Count(signal => !ConsumersBySignal.ContainsKey(signal));
+
+    public int DanglingConsumerSignalCount =>
+        ConsumersBySignal.Keys.Count(signal => !ProducersBySignal.ContainsKey(signal));
+
+    public static ElkRoutingTelemetry Empty { get; } =
+        new(
+            new Dictionary<string, IReadOnlyList<ElkPortRef>>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, IReadOnlyList<ElkPortRef>>(StringComparer.OrdinalIgnoreCase),
+            EmittedEdgeCount: 0);
+
+    public static ElkRoutingTelemetry From(
+        IReadOnlyDictionary<string, List<ElkPortRef>> producers,
+        IReadOnlyDictionary<string, List<ElkPortRef>> consumers,
+        int emittedEdgeCount) =>
+        new(
+            CopyMap(producers),
+            CopyMap(consumers),
+            emittedEdgeCount);
+
+    public ElkRoutingTelemetry WithoutPortIds(IReadOnlySet<string> removedPortIds, int emittedEdgeCount) =>
+        new(
+            RemovePortIds(ProducersBySignal, removedPortIds),
+            RemovePortIds(ConsumersBySignal, removedPortIds),
+            emittedEdgeCount);
+
+    private static Dictionary<string, IReadOnlyList<ElkPortRef>> CopyMap(
+        IReadOnlyDictionary<string, List<ElkPortRef>> source)
+    {
+        Dictionary<string, IReadOnlyList<ElkPortRef>> copy = new(StringComparer.OrdinalIgnoreCase);
+        foreach ((string signal, List<ElkPortRef> refs) in source)
+        {
+            if (refs.Count > 0)
+            {
+                copy[signal] = [.. refs];
+            }
+        }
+
+        return copy;
+    }
+
+    private static Dictionary<string, IReadOnlyList<ElkPortRef>> RemovePortIds(
+        IReadOnlyDictionary<string, IReadOnlyList<ElkPortRef>> source,
+        IReadOnlySet<string> removedPortIds)
+    {
+        Dictionary<string, IReadOnlyList<ElkPortRef>> copy = new(StringComparer.OrdinalIgnoreCase);
+        foreach ((string signal, IReadOnlyList<ElkPortRef> refs) in source)
+        {
+            ElkPortRef[] kept = [.. refs.Where(r => !removedPortIds.Contains(r.PortId))];
+            if (kept.Length > 0)
+            {
+                copy[signal] = kept;
+            }
+        }
+
+        return copy;
+    }
+}
 
 public sealed record ElkPortRef(string NodeId, string PortId, ElkPortRole Role, int Width);
 

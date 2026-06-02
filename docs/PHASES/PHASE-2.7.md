@@ -1,21 +1,36 @@
-# Phase 2.7 — Schematic UX & Persistence (live status)
+# Phase 2.7 — Schematic UX & Persistence (paused)
 
 **Master plan:** `/home/ardac/.claude/plans/fluffy-wishing-kettle.md`
 **Phase goal:** Make the schematic feel like a professional EDA tool — search, breadcrumbs, mini-map, drill-down navigation, hover/selection feedback, manual layout overrides, view-state persistence, theme presets, export.
 **Prerequisite:** Phase 2.5 + 2.6 complete (polish + constructs).
 **Phase gate:** All 10 UX features functional with keyboard shortcuts where appropriate; user session state persists across app restarts; export produces valid SVG/PNG/PDF.
 
+**Status override — 2026-06-02 capability pivot:** This phase is no longer the main next step. Completed items stay in place, but remaining UX/persistence polish is paused until the tool can prove RTL completeness, run an RV32I target, and add a gate-level synthesis path. See:
+
+- `docs/PROFESSIONAL_TOOL_CAPABILITY_ANALYSIS.md`
+- `docs/PHASES/PHASE-2.9.md`
+- `docs/PHASES/PHASE-5.md`
+- `docs/PHASES/PHASE-6.md`
+
 ---
 
 ## 1. Why this phase matters
 
-After 2.5 (polish) and 2.6 (constructs), the schematic RENDERS correctly. But the user can't navigate it. Vivado/Quartus/ModelSim have decades of UX investment in EDA navigation; matching the basics here is what makes the tool *usable* on real designs.
+After 2.5 (polish) and 2.6 (constructs), the schematic renders much better than the original baseline. But the user correctly pointed out that visual polish and navigation are not enough: a professional tool must first be able to prove it did not silently drop signals, run meaningful CPU workloads, and synthesize gate-level netlists.
+
+This phase still matters later. Vivado/Quartus/ModelSim have decades of UX investment in EDA navigation; matching the basics is necessary once the core engine can handle real designs. It is not sufficient as the next product milestone.
 
 Without these:
 - 10K-gate design = scroll-wheel hunting
 - "Where is signal `pc_d`?" = no answer
 - Layout shifts every time → muscle memory broken
 - No way to share screenshots with colleagues
+
+But without the new capability track:
+- missing wires can still be discovered only by manual inspection
+- RV32I/RV32IM CPU simulation has no program-loader/pass-fail workflow
+- gate-level synthesis is impossible
+- out-of-order CPU designs have no coverage/performance certification path
 
 ---
 

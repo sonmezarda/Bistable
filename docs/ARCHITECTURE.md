@@ -187,14 +187,17 @@ Phase 5 will refactor this into a `SimulationContext` record so adding/removing 
 
 See `/home/ardac/.claude/plans/fluffy-wishing-kettle.md` for the master plan. Per-phase status in `docs/PHASES/PHASE-<N>.md`.
 
+**2026-06-02 capability pivot:** Phase 2.7 UX/persistence work is paused as the main next step. The product target is now explicitly defined as professional RTL/simulation/synthesis capability: no silent missing wires, RV32I execution, and gate-level synthesis. See `docs/PROFESSIONAL_TOOL_CAPABILITY_ANALYSIS.md`.
+
 | Phase | Focus |
 |-------|-------|
 | 0 | Test & CI infrastructure (current) |
 | 1 | Design IR + AST parser |
 | 2 | Schematic builder from AST (FF/mux/buffer/memory) |
+| 2.9 | RTL completeness and coverage audit — no silent missing wires |
 | 3 | Worker Protocol v2 (live internal probe) |
 | 4 | Live schematic values |
-| 5 | Sub-sim maturation |
-| 6 | Streaming VCD + async layout |
+| 5 | RV32I execution target — program load, reset/run, pass/fail, CPU state probes |
+| 6 | Gate-level synthesis backend — Yosys, netlist import, gate schematic, RTL vs gate compare |
 | 7 | Generate / FSM / force-release UI |
 | 8 | Multi-clock / breakpoints / assertions |

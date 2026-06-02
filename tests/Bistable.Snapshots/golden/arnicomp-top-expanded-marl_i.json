@@ -337,6 +337,28 @@
       "children": []
     },
     {
+      "id": "tie_top__const__1\u0027h0__w1",
+      "labels": [
+        "1\u0027h0"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "tie_top__const__1\u0027h0__w1.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
       "id": "child_arnicomp_top_reg_b",
       "labels": [
         "reg_b",
@@ -409,6 +431,28 @@
           "labels": [
             "out[8b]",
             "reg_b_out"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "tie_top__const__1\u0027h1__w1",
+      "labels": [
+        "1\u0027h1"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "tie_top__const__1\u0027h1__w1.out",
+          "labels": [
+            "Y"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -782,6 +826,28 @@
               "labels": [
                 "out[16b]",
                 "mar_q"
+              ],
+              "layoutOptions": {
+                "elk.port.index": "0",
+                "elk.port.side": "EAST"
+              }
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "tie_arnicomp_top_marl_i__const__1\u0027h1__w1",
+          "labels": [
+            "1\u0027h1"
+          ],
+          "layoutOptions": {
+            "elk.portConstraints": "FIXED_ORDER"
+          },
+          "ports": [
+            {
+              "id": "tie_arnicomp_top_marl_i__const__1\u0027h1__w1.out",
+              "labels": [
+                "Y"
               ],
               "layoutOptions": {
                 "elk.port.index": "0",
@@ -3434,6 +3500,487 @@
     {
       "id": "e68",
       "sources": [
+        "tie_top__const__1\u0027h0__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_a_i.in.smsbra"
+      ],
+      "labels": [
+        "1\u0027h0",
+        "1"
+      ]
+    },
+    {
+      "id": "e69",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e70",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e71",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e72",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e73",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e74",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e75",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e76",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e77",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e78",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e79",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e80",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e81",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e82",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e83",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e84",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e85",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e86",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e87",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e88",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e89",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e90",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e91",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e92",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e93",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e94",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e95",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e96",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e97",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e98",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e99",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e100",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e101",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e102",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e103",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e104",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e105",
+      "sources": [
         "join_top__concat_in__arnicomp_top_pc__load_data.out"
       ],
       "targets": [
@@ -3445,7 +3992,7 @@
       ]
     },
     {
-      "id": "e69",
+      "id": "e106",
       "sources": [
         "split_lr_out.out.1"
       ],
@@ -3458,7 +4005,7 @@
       ]
     },
     {
-      "id": "e70",
+      "id": "e107",
       "sources": [
         "split_lr_out.out.0"
       ],
@@ -3471,7 +4018,7 @@
       ]
     },
     {
-      "id": "e71",
+      "id": "e108",
       "sources": [
         "ff_flush_next_instr.q"
       ],
@@ -3484,7 +4031,7 @@
       ]
     },
     {
-      "id": "e72",
+      "id": "e109",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3497,7 +4044,7 @@
       ]
     },
     {
-      "id": "e73",
+      "id": "e110",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3510,7 +4057,7 @@
       ]
     },
     {
-      "id": "e74",
+      "id": "e111",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3523,7 +4070,7 @@
       ]
     },
     {
-      "id": "e75",
+      "id": "e112",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -3536,7 +4083,7 @@
       ]
     },
     {
-      "id": "e76",
+      "id": "e113",
       "sources": [
         "mux_mem_addr.out"
       ],
@@ -3549,7 +4096,7 @@
       ]
     },
     {
-      "id": "e77",
+      "id": "e114",
       "sources": [
         "mux_mem_wdata.out"
       ],
@@ -3562,7 +4109,7 @@
       ]
     },
     {
-      "id": "e78",
+      "id": "e115",
       "sources": [
         "mux_bus.out"
       ],
@@ -3575,7 +4122,7 @@
       ]
     },
     {
-      "id": "e79",
+      "id": "e116",
       "sources": [
         "mux_bus.out"
       ],
@@ -3588,7 +4135,7 @@
       ]
     },
     {
-      "id": "e80",
+      "id": "e117",
       "sources": [
         "mux_bus.out"
       ],
@@ -3601,7 +4148,7 @@
       ]
     },
     {
-      "id": "e81",
+      "id": "e118",
       "sources": [
         "mux_bus.out"
       ],
@@ -3614,7 +4161,7 @@
       ]
     },
     {
-      "id": "e82",
+      "id": "e119",
       "sources": [
         "mux_bus.out"
       ],
@@ -3627,7 +4174,7 @@
       ]
     },
     {
-      "id": "e83",
+      "id": "e120",
       "sources": [
         "mux_bus.out"
       ],
@@ -3640,7 +4187,7 @@
       ]
     },
     {
-      "id": "e84",
+      "id": "e121",
       "sources": [
         "mux_bus.out"
       ],
@@ -3653,7 +4200,7 @@
       ]
     },
     {
-      "id": "e85",
+      "id": "e122",
       "sources": [
         "mux_bus.out"
       ],
@@ -3666,7 +4213,7 @@
       ]
     },
     {
-      "id": "e86",
+      "id": "e123",
       "sources": [
         "mux_exec_instr.out"
       ],
@@ -3679,7 +4226,7 @@
       ]
     },
     {
-      "id": "e87",
+      "id": "e124",
       "sources": [
         "mux_alu_carry_in.out"
       ],
@@ -3692,7 +4239,7 @@
       ]
     },
     {
-      "id": "e88",
+      "id": "e125",
       "sources": [
         "buf_pc_out.out"
       ],
@@ -3705,7 +4252,7 @@
       ]
     },
     {
-      "id": "e89",
+      "id": "e126",
       "sources": [
         "buf_mem_wen.out"
       ],
@@ -3718,7 +4265,7 @@
       ]
     },
     {
-      "id": "e90",
+      "id": "e127",
       "sources": [
         "gate_mem_ren.out"
       ],
@@ -3731,7 +4278,7 @@
       ]
     },
     {
-      "id": "e91",
+      "id": "e128",
       "sources": [
         "fanout_control_pins.leg.0"
       ],
@@ -3744,7 +4291,7 @@
       ]
     },
     {
-      "id": "e92",
+      "id": "e129",
       "sources": [
         "fanout_control_pins.leg.1"
       ],
@@ -3757,7 +4304,7 @@
       ]
     },
     {
-      "id": "e93",
+      "id": "e130",
       "sources": [
         "fanout_control_pins.leg.2"
       ],
@@ -3770,7 +4317,7 @@
       ]
     },
     {
-      "id": "e94",
+      "id": "e131",
       "sources": [
         "fanout_control_pins.leg.3"
       ],
@@ -3783,7 +4330,7 @@
       ]
     },
     {
-      "id": "e95",
+      "id": "e132",
       "sources": [
         "fanout_control_pins.leg.4"
       ],
@@ -3796,7 +4343,7 @@
       ]
     },
     {
-      "id": "e96",
+      "id": "e133",
       "sources": [
         "fanout_control_pins.leg.5"
       ],
@@ -3809,7 +4356,7 @@
       ]
     },
     {
-      "id": "e97",
+      "id": "e134",
       "sources": [
         "fanout_control_pins.leg.6"
       ],
@@ -3822,7 +4369,7 @@
       ]
     },
     {
-      "id": "e98",
+      "id": "e135",
       "sources": [
         "fanout_control_pins.leg.7"
       ],
@@ -3835,7 +4382,7 @@
       ]
     },
     {
-      "id": "e99",
+      "id": "e136",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -3848,7 +4395,7 @@
       ]
     },
     {
-      "id": "e100",
+      "id": "e137",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -3861,7 +4408,7 @@
       ]
     },
     {
-      "id": "e101",
+      "id": "e138",
       "sources": [
         "fanout_control_pins.leg.9"
       ],
@@ -3874,7 +4421,7 @@
       ]
     },
     {
-      "id": "e102",
+      "id": "e139",
       "sources": [
         "fanout_control_pins.leg.10"
       ],
@@ -3887,7 +4434,7 @@
       ]
     },
     {
-      "id": "e103",
+      "id": "e140",
       "sources": [
         "fanout_control_pins.leg.11"
       ],
@@ -3900,7 +4447,7 @@
       ]
     },
     {
-      "id": "e104",
+      "id": "e141",
       "sources": [
         "child_arnicomp_top_marl_i.in.clk"
       ],
@@ -3913,7 +4460,7 @@
       ]
     },
     {
-      "id": "e105",
+      "id": "e142",
       "sources": [
         "child_arnicomp_top_marl_i.in.rst_n"
       ],
@@ -3926,7 +4473,7 @@
       ]
     },
     {
-      "id": "e106",
+      "id": "e143",
       "sources": [
         "child_arnicomp_top_marl_i.in.inc_by_two"
       ],
@@ -3939,7 +4486,7 @@
       ]
     },
     {
-      "id": "e107",
+      "id": "e144",
       "sources": [
         "split_arnicomp_top_marl_i__marl_out.out"
       ],
@@ -3952,7 +4499,7 @@
       ]
     },
     {
-      "id": "e108",
+      "id": "e145",
       "sources": [
         "split_arnicomp_top_marl_i__marh_out.out"
       ],
@@ -3965,7 +4512,7 @@
       ]
     },
     {
-      "id": "e109",
+      "id": "e146",
       "sources": [
         "child_arnicomp_top_marl_i_mar_cell.out.out"
       ],
@@ -3978,7 +4525,7 @@
       ]
     },
     {
-      "id": "e110",
+      "id": "e147",
       "sources": [
         "child_arnicomp_top_marl_i_mar_cell.out.out"
       ],
@@ -3987,6 +4534,19 @@
       ],
       "labels": [
         "mar_q",
+        "1"
+      ]
+    },
+    {
+      "id": "e148",
+      "sources": [
+        "tie_arnicomp_top_marl_i__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_marl_i_mar_cell.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
         "1"
       ]
     }
