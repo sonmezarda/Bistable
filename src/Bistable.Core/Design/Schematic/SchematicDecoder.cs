@@ -37,6 +37,7 @@ public static class SchematicDecoder
             .ToList();
 
         List<SchematicPrimitive> logic = [];
+        List<SchematicDecoderCoverageEvent> coverageEvents = [];
 
         // Memories (skip if the array signal name is internal — defensive, unusual)
         foreach (SignalDecl s in module.LocalSignals
@@ -51,9 +52,16 @@ public static class SchematicDecoder
         int seqIndex = 0;
         foreach (SequentialBlockAst block in module.SequentialBlocks)
         {
-            SchematicPrimitive? primitive = DecodeSequentialBlock(block, seqIndex++, logic, memorySignals);
-            if (primitive is not null && !IsPrimitiveOnInternalSignal(primitive))
-                logic.Add(primitive);
+            int currentIndex = seqIndex++;
+            SchematicPrimitive? primitive = DecodeSequentialBlock(block, currentIndex, logic, memorySignals);
+            SchematicPrimitive? materializedPrimitive = primitive is not null && !IsPrimitiveOnInternalSignal(primitive)
+                ? primitive
+                : null;
+            if (materializedPrimitive is not null)
+            {
+                logic.Add(materializedPrimitive);
+            }
+            AddSequentialCoverageEvents(module.Name, block, currentIndex, materializedPrimitive, coverageEvents);
         }
 
         // P2-11: scan struct-typed signals for field accesses, group into fan-out
@@ -70,15 +78,89 @@ public static class SchematicDecoder
         int caIndex = 0;
         foreach (ContAssignAst ca in module.ContAssigns)
         {
+            int currentIndex = caIndex++;
             string target = LValueName(ca.Target);
-            if (fanOutSplitterTargets.Contains(target)) { caIndex++; continue; }
-            if (IsVerilatorInternalSignal(target))       { caIndex++; continue; }
-            SchematicPrimitive? primitive = DecodeContAssign(ca, caIndex++, logic, memorySignals);
-            if (primitive is not null) logic.Add(primitive);
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                AddCoverageEvent(
+                    coverageEvents,
+                    module.Name,
+                    $"contassign:{currentIndex}:?",
+                    "?",
+                    EndpointKind.ContAssignTarget,
+                    EndpointCoverageStatus.Unsupported,
+                    "ContAssign target could not be resolved.",
+                    "ContAssign");
+                continue;
+            }
+            if (LValueContainsUnknownSegment(ca.Target))
+            {
+                string reason = $"ContAssign l-value contains an unresolved segment ({ca.Target.GetType().Name}).";
+                AddCoverageEvent(
+                    coverageEvents,
+                    module.Name,
+                    $"contassign:{currentIndex}:{target}",
+                    target,
+                    EndpointKind.ContAssignTarget,
+                    EndpointCoverageStatus.Unsupported,
+                    reason,
+                    "ContAssignLValue");
+                continue;
+            }
+            if (fanOutSplitterTargets.Contains(target))
+            {
+                AddCoverageEvent(
+                    coverageEvents,
+                    module.Name,
+                    $"contassign:{currentIndex}:{target}",
+                    target,
+                    EndpointKind.ContAssignTarget,
+                    EndpointCoverageStatus.Routed,
+                    "ContAssign target is owned by a struct fan-out primitive.");
+                continue;
+            }
+            if (IsVerilatorInternalSignal(target))
+            {
+                AddCoverageEvent(
+                    coverageEvents,
+                    module.Name,
+                    $"contassign:{currentIndex}:{target}",
+                    target,
+                    EndpointKind.ContAssignTarget,
+                    EndpointCoverageStatus.IntentionalOmission,
+                    "Verilator internal target intentionally hidden.");
+                continue;
+            }
+            SchematicPrimitive? primitive = DecodeContAssign(ca, currentIndex, logic, memorySignals);
+            if (primitive is not null)
+            {
+                logic.Add(primitive);
+                AddCoverageEvent(
+                    coverageEvents,
+                    module.Name,
+                    $"contassign:{currentIndex}:{target}",
+                    target,
+                    EndpointKind.ContAssignTarget,
+                    EndpointCoverageStatus.Routed,
+                    "ContAssign target is owned by a schematic primitive.");
+            }
+            else
+            {
+                string reason = $"Unsupported contassign source expression '{ca.Source.GetType().Name}'.";
+                AddCoverageEvent(
+                    coverageEvents,
+                    module.Name,
+                    $"contassign:{currentIndex}:{target}",
+                    target,
+                    EndpointKind.ContAssignTarget,
+                    EndpointCoverageStatus.Unsupported,
+                    reason,
+                    "ContAssign");
+            }
         }
 
         IReadOnlyList<MultiDriverDiagnostic> diagnostics = DetectMultiDriver(module);
-        return new SchematicPrimitiveList(module.Name, ports, signals, instances, logic, diagnostics);
+        return new SchematicPrimitiveList(module.Name, ports, signals, instances, logic, diagnostics, coverageEvents);
     }
 
     /// <summary>
@@ -185,6 +267,132 @@ public static class SchematicDecoder
         MemoryReadPrimitive rd => IsVerilatorInternalSignal(rd.OutputSignal),
         _ => false
     };
+
+    private static void AddSequentialCoverageEvents(
+        string moduleName,
+        SequentialBlockAst block,
+        int index,
+        SchematicPrimitive? materializedPrimitive,
+        List<SchematicDecoderCoverageEvent> coverageEvents)
+    {
+        HashSet<string> routedTargets = materializedPrimitive is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : PrimitiveOutputTargets(materializedPrimitive).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string target in AssignedTargets(block.Body).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            string endpointId = $"sequential:{index}:{target}";
+            if (IsVerilatorInternalSignal(target))
+            {
+                AddCoverageEvent(
+                    coverageEvents,
+                    moduleName,
+                    endpointId,
+                    target,
+                    EndpointKind.SequentialTarget,
+                    EndpointCoverageStatus.IntentionalOmission,
+                    "Verilator internal sequential target intentionally hidden.");
+            }
+            else if (routedTargets.Contains(target))
+            {
+                AddCoverageEvent(
+                    coverageEvents,
+                    moduleName,
+                    endpointId,
+                    target,
+                    EndpointKind.SequentialTarget,
+                    EndpointCoverageStatus.Routed,
+                    "Sequential target is owned by a schematic primitive.");
+            }
+            else
+            {
+                string reason = "Sequential assignment was not decoded into a supported FF/latch primitive.";
+                AddCoverageEvent(
+                    coverageEvents,
+                    moduleName,
+                    endpointId,
+                    target,
+                    EndpointKind.SequentialTarget,
+                    EndpointCoverageStatus.Unsupported,
+                    reason,
+                    "SequentialBlock");
+            }
+        }
+    }
+
+    private static IEnumerable<string> PrimitiveOutputTargets(SchematicPrimitive primitive)
+    {
+        switch (primitive)
+        {
+            case FlipFlopPrimitive ff:
+                yield return ff.QSignal;
+                break;
+            case LatchPrimitive latch:
+                yield return latch.QSignal;
+                break;
+            case MuxPrimitive mux:
+                yield return mux.OutputSignal;
+                break;
+            case BufferPrimitive buffer:
+                yield return buffer.OutputSignal;
+                break;
+            case ConstantTiePrimitive tie:
+                yield return tie.OutputSignal;
+                break;
+            case TriStatePrimitive triState:
+                yield return triState.OutputSignal;
+                break;
+            case InverterPrimitive inverter:
+                yield return inverter.OutputSignal;
+                break;
+            case GatePrimitive gate:
+                yield return gate.OutputSignal;
+                break;
+            case ArithPrimitive arith:
+                yield return arith.OutputSignal;
+                break;
+            case SplitterPrimitive splitter:
+                yield return splitter.OutputSignal;
+                break;
+            case JoinerPrimitive joiner:
+                yield return joiner.OutputSignal;
+                break;
+            case MemoryPrimitive memory:
+                yield return memory.SignalName;
+                break;
+            case MemoryReadPrimitive read:
+                yield return read.OutputSignal;
+                break;
+            case StructFanOutPrimitive fanOut:
+                yield return fanOut.StructSignal;
+                foreach (StructFanOutLeg leg in fanOut.Legs)
+                {
+                    foreach (string consumer in leg.Consumers)
+                    {
+                        yield return consumer;
+                    }
+                }
+                break;
+        }
+    }
+
+    private static void AddCoverageEvent(
+        List<SchematicDecoderCoverageEvent> coverageEvents,
+        string moduleName,
+        string endpointId,
+        string signalName,
+        EndpointKind endpointKind,
+        EndpointCoverageStatus status,
+        string reason,
+        string? unsupportedConstructKind = null) =>
+        coverageEvents.Add(new SchematicDecoderCoverageEvent(
+            moduleName,
+            endpointId,
+            signalName,
+            endpointKind,
+            status,
+            reason,
+            unsupportedConstructKind));
 
     // ── Struct fan-out (P2-11) ───────────────────────────────────────────────
 
@@ -809,6 +1017,52 @@ public static class SchematicDecoder
         StructFieldLValue sf => sf.SignalName,
         ConcatLValue c       => c.Parts.Count > 0 ? LValueName(c.Parts[0]) : string.Empty,
         _ => string.Empty
+    };
+
+    private static IEnumerable<string> AssignedTargets(StatementAst statement)
+    {
+        switch (statement)
+        {
+            case AssignAst assign:
+                string name = LValueName(assign.Target);
+                if (!string.IsNullOrWhiteSpace(name)) yield return name;
+                break;
+            case BeginAst begin:
+                foreach (StatementAst child in begin.Statements)
+                {
+                    foreach (string target in AssignedTargets(child)) yield return target;
+                }
+                break;
+            case IfAst branch:
+                foreach (string target in AssignedTargets(branch.Then)) yield return target;
+                if (branch.Else is not null)
+                {
+                    foreach (string target in AssignedTargets(branch.Else)) yield return target;
+                }
+                break;
+            case CaseAst caseAst:
+                foreach (CaseArm arm in caseAst.Arms)
+                {
+                    foreach (string target in AssignedTargets(arm.Body)) yield return target;
+                }
+                if (caseAst.Default is not null)
+                {
+                    foreach (string target in AssignedTargets(caseAst.Default)) yield return target;
+                }
+                break;
+        }
+    }
+
+    private const string UnknownLValueMarker = "__unknown__";
+
+    private static bool LValueContainsUnknownSegment(LValueAst lval) => lval switch
+    {
+        VarRefLValue v       => string.Equals(v.Name,       UnknownLValueMarker, StringComparison.Ordinal),
+        BitSelectLValue b    => string.Equals(b.SignalName, UnknownLValueMarker, StringComparison.Ordinal),
+        ArraySelectLValue a  => string.Equals(a.SignalName, UnknownLValueMarker, StringComparison.Ordinal),
+        StructFieldLValue sf => string.Equals(sf.SignalName, UnknownLValueMarker, StringComparison.Ordinal),
+        ConcatLValue c       => c.Parts.Any(LValueContainsUnknownSegment),
+        _                    => false,
     };
 
     /// <summary>Best-effort name extraction for an expression. Returns null for non-signal expressions.</summary>

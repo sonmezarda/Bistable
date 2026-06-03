@@ -7,6 +7,43 @@ namespace Bistable.Tests.Schematic;
 public sealed class SchematicCoverageAnalyzerTests
 {
     [Fact]
+    public void Decode_UnsupportedContAssign_EmitsCoverageEvent()
+    {
+        ModuleAst module = Module(contAssigns:
+        [
+            new ContAssignAst(
+                new VarRefLValue("y"),
+                new FunctionCallExpr("user_func", [new SignalRef("a")]))
+        ]);
+
+        SchematicPrimitiveList primitives = SchematicDecoder.Decode(module);
+
+        SchematicDecoderCoverageEvent coverageEvent = Assert.Single(primitives.CoverageEvents!);
+        Assert.Equal("contassign:0:y", coverageEvent.EndpointId);
+        Assert.Equal(EndpointCoverageStatus.Unsupported, coverageEvent.Status);
+        Assert.Equal("ContAssign", coverageEvent.UnsupportedConstructKind);
+    }
+
+    [Fact]
+    public void Decode_RoutedSequentialBlock_EmitsCoverageEvent()
+    {
+        ModuleAst module = Module(sequentialBlocks:
+        [
+            new SequentialBlockAst(
+                Triggers: [new EdgeTrigger(EdgeKind.Rising, "clk")],
+                Body: new AssignAst(new VarRefLValue("q"), new SignalRef("d"), IsNonBlocking: true),
+                HasAsynchronousReset: false)
+        ]);
+
+        SchematicPrimitiveList primitives = SchematicDecoder.Decode(module);
+
+        SchematicDecoderCoverageEvent coverageEvent = Assert.Single(primitives.CoverageEvents!);
+        Assert.Equal("sequential:0:q", coverageEvent.EndpointId);
+        Assert.Equal(EndpointCoverageStatus.Routed, coverageEvent.Status);
+        Assert.Null(coverageEvent.UnsupportedConstructKind);
+    }
+
+    [Fact]
     public void Analyze_BufferContAssign_ReportsRoutedEndpointWithoutUnsupported()
     {
         ModuleAst module = Module(contAssigns:

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Bistable.Core.Design.Schematic;
 
 /// <summary>
@@ -9,7 +11,9 @@ public sealed record SchematicPrimitiveList(
     IReadOnlyList<SignalPrimitive> Signals,
     IReadOnlyList<InstancePrimitive> Instances,
     IReadOnlyList<SchematicPrimitive> Logic,
-    IReadOnlyList<MultiDriverDiagnostic>? Diagnostics = null);
+    IReadOnlyList<MultiDriverDiagnostic>? Diagnostics = null,
+    [property: JsonIgnore]
+    IReadOnlyList<SchematicDecoderCoverageEvent>? CoverageEvents = null);
 
 /// <summary>
 /// P2.6-5: a signal whose value is computed by more than one driver in the
@@ -22,3 +26,16 @@ public sealed record SchematicPrimitiveList(
 public sealed record MultiDriverDiagnostic(
     string SignalName,
     IReadOnlyList<string> DriverDescriptions);
+
+/// <summary>
+/// Decoder-side coverage event for a source construct that was routed,
+/// intentionally omitted, or could not be materialized.
+/// </summary>
+public sealed record SchematicDecoderCoverageEvent(
+    string ModuleName,
+    string EndpointId,
+    string SignalName,
+    EndpointKind EndpointKind,
+    EndpointCoverageStatus Status,
+    string Reason,
+    string? UnsupportedConstructKind = null);

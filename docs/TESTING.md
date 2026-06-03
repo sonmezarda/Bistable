@@ -54,8 +54,8 @@ Phase 2.9 adds a second kind of coverage: schematic semantic coverage. This is n
 Lifecycle:
 
 1. `VerilatorXmlAstReader` parses Verilator XML into `DesignAst`. Reader fallbacks such as unknown expression or unknown l-value elements must create diagnostics instead of hiding the fallback.
-2. `SchematicDecoder` converts each `ModuleAst` into primitives where possible.
-3. `SchematicCoverageAnalyzer.Analyze(...)` compares the AST against decoded primitives and produces a `SchematicCoverageReport`.
+2. `SchematicDecoder` converts each `ModuleAst` into primitives where possible and emits decoder coverage events for source constructs it routes, intentionally hides, or cannot materialize.
+3. `SchematicCoverageAnalyzer.Analyze(...)` combines decoder events, primitive endpoint checks, and boundary-port coverage into a `SchematicCoverageReport`.
 4. `ElkGraphBuilder` and `ElkGraphCoverageAnalyzer` cover the graph-level route: missing ports, invalid edge endpoints, dangling consumers, and duplicate graph IDs.
 5. The UI opens the current in-memory report through `View > Schematic Coverage...`. The report is rebuilt on demand from the loaded AST; it is not a stale file.
 6. `SchematicCoverageReportJson` writes the same report as a stable JSON artifact for CI/sample reporting.

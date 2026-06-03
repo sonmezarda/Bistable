@@ -75,7 +75,7 @@ Status legend: `todo`, `in_progress`, `done`, `blocked`
 | ID | Task | Status | Est. | Notes |
 |----|------|--------|------|-------|
 | P2.9-1 | Define coverage data model | done | 1 d | `SchematicCoverageReport`, `ModuleCoverage`, `EndpointCoverage`, `UnsupportedConstructDiagnostic` landed in Core. |
-| P2.9-2 | Instrument `SchematicDecoder` | in_progress | 2 d | Initial `SchematicCoverageAnalyzer` inspects decoder output for unsupported contassign/sequential targets and `?` primitive pins; direct decoder event instrumentation still pending. |
+| P2.9-2 | Instrument `SchematicDecoder` | done | 2 d | `SchematicDecoder` now emits source-construct coverage events for contassign/sequential decode decisions; analyzer consumes them before fallback inference. |
 | P2.9-3 | Instrument `ElkGraphBuilder` endpoint resolution | done | 2 d | `ElkBuildResult` now carries routing telemetry; graph/PortRef and dangling consumer diagnostics are test-covered. |
 | P2.9-4 | Add Verilator XML/AST fallback diagnostics | in_progress | 2 d | Initial reader fallback diagnostics landed for unknown expressions/l-values/statements; broader `?`, dtype, range, memory diagnostics still pending. |
 | P2.9-5 | Generate per-sample reports | done | 1 d | Added `SchematicCoverageReportJson` writer/reader and sample coverage JSON artifact roundtrip tests. |
@@ -363,3 +363,12 @@ Phase 5 (RV32I Execution Target) depends on this phase enough to identify unsupp
     - `samples/memory_demo/`
     - `samples/riscv_single_cycle/`
   - Added per-sample JSON artifact write/read roundtrip tests under temp output.
+
+- **2026-06-03 — P2.9-2 direct decoder event instrumentation landed.**
+  - Added `SchematicDecoderCoverageEvent` to `SchematicPrimitiveList`.
+  - `SchematicDecoder.Decode` now records contassign and sequential source-construct outcomes as:
+    - `Routed`,
+    - `IntentionalOmission`,
+    - `Unsupported` with explicit unsupported construct kind.
+  - `SchematicCoverageAnalyzer` now consumes decoder coverage events when present and keeps the older inference path only for hand-built primitive lists in tests.
+  - Added tests proving unsupported contassign and routed sequential block decisions are emitted directly by the decoder.

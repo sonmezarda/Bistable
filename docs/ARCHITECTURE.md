@@ -138,6 +138,8 @@ DesignAst / ModuleAst
         ▼
 SchematicDecoder.Decode
         │
+        ├──> SchematicDecoderCoverageEvent
+        │
         ▼
 SchematicCoverageAnalyzer.Analyze  ──>  SchematicCoverageReport
         │                                      │
@@ -152,6 +154,7 @@ ElkGraphCoverageAnalyzer  ──>  graph/port/edge routing diagnostics
 Core ownership:
 
 - `Bistable.Core.Design.Schematic.SchematicCoverageReport` owns the report records and `SchematicCoverageAnalyzer`.
+- `Bistable.Core.Design.Schematic.SchematicPrimitiveList` carries `SchematicDecoderCoverageEvent` entries emitted by `SchematicDecoder`.
 - `Bistable.Core.Design.Schematic.SchematicCoverageReportJson` owns stable JSON artifact serialization.
 - `Bistable.App.Services.Routing.Elk.ElkGraphCoverageAnalyzer` owns graph-level port/edge validation.
 - `Bistable.App.Views.DiagnosticsWindow` is a thin viewer over the current in-memory `SchematicCoverageReport`.

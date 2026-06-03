@@ -109,11 +109,46 @@ public static class SchematicCoverageAnalyzer
         }
 
         AddPrimitiveEndpointCoverage(module.Name, primitives, endpoints, unsupported);
-        AddContAssignCoverage(module, routedTargets, endpoints, unsupported);
-        AddSequentialCoverage(module, routedTargets, endpoints, unsupported);
+        if (primitives.CoverageEvents is { Count: > 0 } decoderEvents)
+        {
+            AddDecoderCoverageEvents(decoderEvents, endpoints, unsupported);
+        }
+        else
+        {
+            AddContAssignCoverage(module, routedTargets, endpoints, unsupported);
+            AddSequentialCoverage(module, routedTargets, endpoints, unsupported);
+        }
 
         ModuleCoverage moduleCoverage = new(module.Name, endpoints);
         return new SchematicCoverageReport(module.Name, [moduleCoverage], unsupported);
+    }
+
+    private static void AddDecoderCoverageEvents(
+        IReadOnlyList<SchematicDecoderCoverageEvent> events,
+        List<EndpointCoverage> endpoints,
+        List<UnsupportedConstructDiagnostic> unsupported)
+    {
+        foreach (SchematicDecoderCoverageEvent e in events)
+        {
+            endpoints.Add(new EndpointCoverage(
+                e.ModuleName,
+                null,
+                e.EndpointId,
+                e.SignalName,
+                e.EndpointKind,
+                e.Status,
+                e.Reason));
+
+            if (e.Status == EndpointCoverageStatus.Unsupported
+                && !string.IsNullOrWhiteSpace(e.UnsupportedConstructKind))
+            {
+                unsupported.Add(new UnsupportedConstructDiagnostic(
+                    e.ModuleName,
+                    e.EndpointId,
+                    e.UnsupportedConstructKind,
+                    e.Reason));
+            }
+        }
     }
 
     private static HashSet<string> CollectRoutedTargets(SchematicPrimitiveList primitives)
