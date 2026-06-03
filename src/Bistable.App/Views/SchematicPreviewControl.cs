@@ -132,6 +132,18 @@ public sealed partial class SchematicPreviewControl : Control
     // otherwise collide with it. Unconnected ports (oe, boundary [> pins,
     // collapsed module ports without edges) keep their default label position.
     private readonly HashSet<string> _connectedPortIds = new(StringComparer.Ordinal);
+    // P4-5: live-probe path set the renderer touched in the most recent frame.
+    // After each Eval/Tick the ViewModel reads this through `VisibleProbePaths`
+    // and asks the worker only for these probes, instead of every scalar in
+    // the catalog. The set is mutated during draw (single-threaded UI render).
+    private readonly HashSet<string> _visibleProbePaths = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Snapshot of the probe paths consulted during the last frame.</summary>
+    public IReadOnlyCollection<string> VisibleProbePaths
+    {
+        get { lock (_visibleProbePaths) return _visibleProbePaths.ToArray(); }
+    }
+
     // Subset of port IDs whose owning node is rendered as an EXPANDED compound
     // (the user clicked + and we're drawing the children inside). Only these
     // ports lift their label above the pin — that's where inner wires would
@@ -546,6 +558,7 @@ public sealed partial class SchematicPreviewControl : Control
             _expansionHitTargets.Clear();
             _connectedPortIds.Clear();
             _expandedCompoundPortIds.Clear();
+            lock (_visibleProbePaths) _visibleProbePaths.Clear();
 
             if (expandedScope)
             {

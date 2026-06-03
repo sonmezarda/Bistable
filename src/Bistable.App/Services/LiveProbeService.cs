@@ -111,27 +111,48 @@ public sealed class LiveProbeService
     /// </summary>
     public async Task RefreshAllScalarsAsync(CancellationToken cancellationToken)
     {
-        SimulationWorkerClient? worker;
         ProbeDescriptor[] descriptors;
         lock (_gate)
         {
-            worker = _worker;
             descriptors = _descriptors.Values.Where(d => !d.IsMemory).ToArray();
         }
+        await RefreshScalarPathsCoreAsync(descriptors.Select(d => d.Path), cancellationToken);
+    }
+
+    /// <summary>
+    /// P4-5: refresh only the explicitly-listed scalar probe paths instead of
+    /// every probe in the catalog. Used by <see cref="MainWindowViewModel"/>
+    /// after Tick/Eval when the schematic renderer has reported which paths
+    /// it actually touched in the last frame (memory probes / off-screen FFs
+    /// / collapsed compounds are skipped).
+    /// </summary>
+    public Task RefreshScalarsAsync(IEnumerable<string> paths, CancellationToken cancellationToken) =>
+        RefreshScalarPathsCoreAsync(paths, cancellationToken);
+
+    private async Task RefreshScalarPathsCoreAsync(IEnumerable<string> paths, CancellationToken cancellationToken)
+    {
+        SimulationWorkerClient? worker;
+        lock (_gate) worker = _worker;
         if (worker is null) return;
-        foreach (ProbeDescriptor d in descriptors)
+        foreach (string path in paths.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (cancellationToken.IsCancellationRequested) return;
+            ProbeDescriptor? descriptor;
+            lock (_gate)
+            {
+                _descriptors.TryGetValue(path, out descriptor);
+            }
+            if (descriptor is null || descriptor.IsMemory) continue;
             try
             {
-                SignalReadResult r = await worker.ReadSignalAsync(d.Path, cancellationToken);
+                SignalReadResult r = await worker.ReadSignalAsync(path, cancellationToken);
                 bool changed;
                 lock (_gate)
                 {
-                    changed = !_cache.TryGetValue(d.Path, out string? prior) || !string.Equals(prior, r.Value, StringComparison.Ordinal);
-                    _cache[d.Path] = r.Value;
+                    changed = !_cache.TryGetValue(path, out string? prior) || !string.Equals(prior, r.Value, StringComparison.Ordinal);
+                    _cache[path] = r.Value;
                 }
-                if (changed) ValueUpdated?.Invoke(this, new ProbeValueUpdatedEventArgs(d.Path, r.Value));
+                if (changed) ValueUpdated?.Invoke(this, new ProbeValueUpdatedEventArgs(path, r.Value));
             }
             catch (InvalidOperationException) { /* per-path miss, continue */ }
         }

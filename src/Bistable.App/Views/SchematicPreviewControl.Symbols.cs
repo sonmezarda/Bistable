@@ -87,6 +87,9 @@ public sealed partial class SchematicPreviewControl
         if (string.IsNullOrWhiteSpace(outSignal)) return;
 
         string probePath = string.IsNullOrWhiteSpace(ActiveScopePath) ? outSignal : ActiveScopePath + "." + outSignal;
+        // P4-5: track which probe path this frame consulted so the post-Tick
+        // refresh in the ViewModel only re-reads visible signals.
+        lock (_visibleProbePaths) _visibleProbePaths.Add(probePath);
         string? value = LiveProbes?.GetCached(probePath);
         if (string.IsNullOrWhiteSpace(value)) return;
 

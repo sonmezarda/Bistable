@@ -1642,20 +1642,73 @@ public sealed class MainWindow : Window
             Orientation = Orientation.Horizontal,
             Spacing = 4,
         });
-        chips.ItemTemplate = new FuncDataTemplate<string>((name, _) => new Border
+        chips.ItemTemplate = new FuncDataTemplate<string>((name, _) =>
         {
-            Background = SurfaceAltBrush,
-            BorderBrush = AccentBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(8, 2),
-            Child = new TextBlock
+            // P2.7-5 follow-up: chip is now actionable. Clicking the chip body
+            // selects the signal (same as clicking the wire in the canvas) so
+            // the right-hand inspector panel opens with this signal's value,
+            // force/release controls, etc. The trailing "×" button unpins
+            // this single chip without disturbing the rest.
+            string captured = name;
+            Button label = new()
             {
-                Text = name,
-                Foreground = TextBrush,
-                FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center,
-            },
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0),
+                MinHeight = 22,
+                Content = new TextBlock
+                {
+                    Text = captured,
+                    Foreground = TextBrush,
+                    FontSize = 11,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            };
+            ToolTip.SetTip(label, "Click to select this signal");
+            label.Click += (_, _) =>
+            {
+                if (label.DataContext is MainWindowViewModel vm)
+                {
+                    vm.SelectedSchematicSignalName = captured;
+                }
+            };
+
+            Button closeButton = new()
+            {
+                Content = "×",
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(4, 0),
+                Margin = new Thickness(4, 0, 0, 0),
+                MinHeight = 22,
+                MinWidth = 18,
+                Foreground = MutedBrush,
+                FontSize = 13,
+                FontWeight = FontWeight.SemiBold,
+            };
+            ToolTip.SetTip(closeButton, "Unpin this signal");
+            closeButton.Click += (_, _) =>
+            {
+                if (closeButton.DataContext is MainWindowViewModel vm)
+                {
+                    vm.UnpinSignal(captured);
+                }
+            };
+
+            return new Border
+            {
+                Background = SurfaceAltBrush,
+                BorderBrush = AccentBrush,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(8, 2),
+                Child = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 0,
+                    Children = { label, closeButton },
+                },
+            };
         }, supportsRecycling: true);
 
         Button clearButton = new()
@@ -2199,6 +2252,19 @@ public sealed class MainWindow : Window
             [!SchematicPreviewControl.RoutingEngineProperty] = new Binding("SchematicRouter")
         };
         preview.SignalEditorRequested += OnSchematicSignalEditorRequested;
+        // P4-5: register the visible-probes provider so the VM's post-Tick
+        // refresh only re-reads the probes the schematic actually rendered.
+        if (DataContext is MainWindowViewModel initialVisVm)
+        {
+            initialVisVm.VisibleProbePathsProvider = () => preview.VisibleProbePaths;
+        }
+        DataContextChanged += (_, _) =>
+        {
+            if (DataContext is MainWindowViewModel newVisVm)
+            {
+                newVisVm.VisibleProbePathsProvider = () => preview.VisibleProbePaths;
+            }
+        };
         preview.SchematicContextRequested += OnSchematicContextRequested;
         // P2.7-5: mirror Ctrl+click multi-selection into the VM so the chip
         // strip can display it; route the chip strip's "Clear all" command
@@ -2213,12 +2279,14 @@ public sealed class MainWindow : Window
         if (DataContext is MainWindowViewModel initialVm)
         {
             initialVm.ClearPinnedSignalsRequested += (_, _) => preview.ClearPinnedSignals();
+            initialVm.UnpinSignalRequested += (_, name) => preview.TogglePinnedSignal(name);
         }
         DataContextChanged += (_, _) =>
         {
             if (DataContext is MainWindowViewModel newVm)
             {
                 newVm.ClearPinnedSignalsRequested += (_, _) => preview.ClearPinnedSignals();
+                newVm.UnpinSignalRequested += (_, name) => preview.TogglePinnedSignal(name);
             }
         };
         return preview;

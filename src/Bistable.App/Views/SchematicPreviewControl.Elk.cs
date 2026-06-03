@@ -890,6 +890,7 @@ public sealed partial class SchematicPreviewControl
                 string selPath = string.IsNullOrWhiteSpace(ActiveScopePath)
                     ? selectorSignal
                     : ActiveScopePath + "." + selectorSignal;
+                lock (_visibleProbePaths) _visibleProbePaths.Add(selPath);
                 string? selValue = LiveProbes?.GetCached(selPath);
                 if (!string.IsNullOrWhiteSpace(selValue))
                 {
@@ -1003,12 +1004,28 @@ public sealed partial class SchematicPreviewControl
     /// </summary>
     private string? LookupLiveValue(string signalName, IReadOnlyDictionary<string, string> signalValues)
     {
+        // P4-5: record every probe path the renderer reads so the post-Tick
+        // refresh narrows worker queries to the visible set. Top-level snapshot
+        // signals aren't probe paths so they don't need to be tracked.
+        TrackVisibleProbe(signalName);
         if (signalValues.TryGetValue(signalName, out string? snapshotValue)
             && !string.IsNullOrWhiteSpace(snapshotValue) && snapshotValue != "-")
         {
             return snapshotValue;
         }
         return LiveProbes?.GetCached(signalName);
+    }
+
+    private void TrackVisibleProbe(string signalName)
+    {
+        if (string.IsNullOrWhiteSpace(signalName)) return;
+        // ActiveScopePath + "." + signalName is the canonical probe key.
+        // Without an active scope the signal name is already a hierarchical
+        // path (top-level / boundary), still valid as a key.
+        string key = string.IsNullOrWhiteSpace(ActiveScopePath)
+            ? signalName
+            : ActiveScopePath + "." + signalName;
+        lock (_visibleProbePaths) _visibleProbePaths.Add(key);
     }
 
     /// <summary>

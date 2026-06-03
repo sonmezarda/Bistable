@@ -353,6 +353,14 @@ public sealed class MainWindowViewModel : ViewModelBase
     public event EventHandler? MemoryViewerRequested;
     public LiveProbeService LiveProbes => _liveProbes;
 
+    /// <summary>
+    /// P4-5: optional callback the View sets so the VM can narrow post-Tick
+    /// scalar refreshes to "what the schematic actually rendered last frame."
+    /// Null when no view is bound or when the legacy path (refresh all) is
+    /// desired (tests / headless paths). Read-only path lists.
+    /// </summary>
+    public Func<IReadOnlyCollection<string>>? VisibleProbePathsProvider { get; set; }
+
 
     /// <summary>
     /// Enumerate every memory probe declared in the module at the given
@@ -431,6 +439,17 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ICommand ClearPinnedSignalsCommand { get; }
 
     public event EventHandler? ClearPinnedSignalsRequested;
+
+    // P2.7-5 follow-up: chip "×" button asks the control to unpin one signal.
+    // The control owns the canonical HashSet (it's where Ctrl+click also
+    // toggles), so the VM just relays the request via this event.
+    public event EventHandler<string>? UnpinSignalRequested;
+
+    public void UnpinSignal(string signalName)
+    {
+        if (string.IsNullOrWhiteSpace(signalName)) return;
+        UnpinSignalRequested?.Invoke(this, signalName);
+    }
 
     public void RefreshPinnedSignals(IReadOnlyCollection<string> pinned)
     {
@@ -2085,7 +2104,19 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
         if (_liveProbes.HasWorker)
         {
-            _ = _liveProbes.RefreshAllScalarsAsync(CancellationToken.None);
+            // P4-5: prefer the visible-set if the SchematicPreviewControl has
+            // populated it. Falls back to refreshing every scalar (legacy
+            // behaviour) when the schematic hasn't rendered yet or when the
+            // tracker is unset (e.g. tests without a live UI).
+            IReadOnlyCollection<string>? visible = VisibleProbePathsProvider?.Invoke();
+            if (visible is { Count: > 0 })
+            {
+                _ = _liveProbes.RefreshScalarsAsync(visible, CancellationToken.None);
+            }
+            else
+            {
+                _ = _liveProbes.RefreshAllScalarsAsync(CancellationToken.None);
+            }
         }
 
         Time = frame.Time;

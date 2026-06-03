@@ -4,6 +4,8 @@ using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
+using Bistable.App.Services;
 using Bistable.App.ViewModels;
 
 namespace Bistable.App.Views;
@@ -37,6 +39,34 @@ public sealed class MemoryViewerWindow : Window
         Background = BackgroundBrush;
         Content = BuildLayout();
         Closed += (_, _) => _viewModel.Detach();
+        // P2.7-mem-load: dialog stays in the view so we can reach the window
+        // handle for StorageProvider. ViewModel raises the request; we open the
+        // picker, then call back into LoadFromFileAsync with the chosen path.
+        viewModel.LoadFromFileRequested += async (_, _) => await OnLoadFromFileRequestedAsync();
+    }
+
+    private async Task OnLoadFromFileRequestedAsync()
+    {
+        IStorageProvider? storage = StorageProvider;
+        if (storage is null) return;
+        FilePickerOpenOptions options = new()
+        {
+            Title = "Load memory image",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("Memory image (*.hex; *.bin; *.mem; *.txt)")
+                {
+                    Patterns = new[] { "*.hex", "*.bin", "*.mem", "*.txt" }
+                },
+                new FilePickerFileType("All files") { Patterns = new[] { "*" } }
+            }
+        };
+        IReadOnlyList<IStorageFile> files = await storage.OpenFilePickerAsync(options);
+        if (files.Count == 0) return;
+        string? path = files[0].TryGetLocalPath();
+        if (string.IsNullOrEmpty(path)) return;
+        await _viewModel.LoadFromFileAsync(path, CancellationToken.None);
     }
 
     private Control BuildLayout()
@@ -114,6 +144,30 @@ public sealed class MemoryViewerWindow : Window
             [!Button.CommandProperty] = new Binding("ReloadCommand")
         };
         row.Children.Add(reload);
+
+        // P2.7-mem-load: format combo + Load File button. Format combo lets the
+        // user pick between $readmemh and $readmemb without renaming files.
+        row.Children.Add(new TextBlock
+        {
+            Text = "  Format:",
+            Foreground = MutedBrush,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        ComboBox formatBox = new()
+        {
+            Width = 70,
+            [!ComboBox.ItemsSourceProperty] = new Binding(nameof(MemoryViewerWindowViewModel.AvailableFormats)),
+            [!ComboBox.SelectedItemProperty] = new Binding(nameof(MemoryViewerWindowViewModel.SelectedFormat), BindingMode.TwoWay)
+        };
+        row.Children.Add(formatBox);
+
+        Button loadFile = new()
+        {
+            Content = "Load File…",
+            Padding = new Thickness(10, 4, 10, 4),
+            [!Button.CommandProperty] = new Binding(nameof(MemoryViewerWindowViewModel.LoadFromFileCommand))
+        };
+        row.Children.Add(loadFile);
 
         toolbar.Child = row;
         DockPanel.SetDock(toolbar, Avalonia.Controls.Dock.Top);

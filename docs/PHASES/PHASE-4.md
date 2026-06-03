@@ -38,12 +38,12 @@ Status legend: ☐ todo · 🟡 in progress · ✅ done · ⛔ blocked
 
 | ID | Task | Status | Model | Est. | Notes |
 |----|------|--------|-------|------|-------|
-| P4-1 | Edge live values — annotate wires with current value | ☐ | Sonnet | 2 d | Mid-edge label showing hex value; auto-suppress for 1-bit (already colored). Use existing `signalValues` lookup, just extend to query `LiveProbeService` for internal signals. |
-| P4-2 | FF Q values on FlipFlop symbol body | ☐ | Sonnet | 2 d | Render the live Q value inside the FF body. Polling via subscription model. |
-| P4-3 | Mux active-path highlight | ☐ | Sonnet | 1 d | Read selector value, render the selected input edge with thicker pen + accent color. |
+| P4-1 | Edge live values — annotate wires with current value | ✅ | Sonnet | 2 d | Mid-edge value chip rendered via `DrawEdgeLiveValueLabel`; `LookupLiveValue` blends snapshot table + `LiveProbeService.GetCached`. |
+| P4-2 | FF Q values on FlipFlop symbol body | ✅ | Sonnet | 2 d | Q label inside the FF body, fed by `LiveProbeService` cache via the bare-Q signal name label on the FF node. |
+| P4-3 | Mux active-path highlight | ✅ | Sonnet | 1 d | `BuildActiveMuxInputSet` reads the selector value each frame, the active input edge is painted accent-cyan with thicker pen. |
 | P4-4 | Memory inline grid on RAM tiles | ☐ | Sonnet | 2 d | Like Logisim Evolution: draw a small NxN hex grid inside the memory primitive. Subset of cells visible at viewport zoom; click → opens viewer window. |
-| P4-5 | Visible-probes tracker + batched refresh | ☐ | Sonnet | 1 d | Track which paths the renderer accessed in the last frame. After each Eval/Tick, batch-refresh just those paths instead of all 100s. |
-| P4-6 | Symbol-body value rendering (Latch/Buffer/Inverter/Gate/Arith outputs) | ☐ | Sonnet | 1 d | Same as FF but for the other primitive types. Output value shown near the output port. |
+| P4-5 | Visible-probes tracker + batched refresh | ✅ | Sonnet | 1 d | `SchematicPreviewControl._visibleProbePaths` records every probe touched per frame; `LiveProbeService.RefreshScalarsAsync(paths)` re-reads only those. ViewModel falls back to `RefreshAllScalarsAsync` when the set is empty (first frame / no view bound). |
+| P4-6 | Symbol-body value rendering (Latch/Buffer/Inverter/Gate/Arith outputs) | ✅ | Sonnet | 1 d | `RenderPrimitiveBodyValue` shared between FF/Latch/Buffer/Inverter/Gate/Arith via the per-node bare-output-signal label. |
 | P4-7 | Wire value tooltip on hover | ☐ | Sonnet | 0.5 d | Hover a wire → small tooltip with full hex value + width + signed interpretation. |
 | P4-8 | Schematic legend / value formatting toggle | ☐ | Sonnet | 0.5 d | Bottom-right corner: hex / decimal / binary toggle for display values. |
 
@@ -76,4 +76,14 @@ Status legend: ☐ todo · 🟡 in progress · ✅ done · ⛔ blocked
 
 ## 6. Recent activity
 
-(empty — phase starting)
+- **2026-06-04 — status reconciliation.** Code-level audit shows P4-1 (edge live values), P4-2 (FF Q on body), P4-3 (mux active path), and P4-6 (other primitive output values) all landed earlier in code but were not reflected in this doc; updated to ✅ accordingly. Remaining work:
+  - **P4-5 (visible-probes tracker)** — `RefreshAllScalarsAsync` still re-reads every scalar every Eval/Tick. RV32I core (~70 probes) is fine; OoO target (1000+ probes) will need the visible-only narrowing.
+  - **P4-4 (memory inline grid)**, **P4-7 (hover tooltip)**, **P4-8 (format toggle)** — UX add-ons; pick after P4-5 to avoid premature optimization without the tracker.
+  - User-visible state on RISC-V single-cycle sample: live FF values, mid-edge value chips, mux active-path all render in real-time after each Tick. The recent `MemoryFileLoader` 0x-prefix bug fix unblocked actually loading + executing a program through the Memory Viewer.
+
+- **2026-06-04 — P4-5 (visible-probes tracker) landed.**
+  - `SchematicPreviewControl` now tracks every probe path the renderer reads in a frame (`_visibleProbePaths`) — every wire value lookup (`LookupLiveValue`), every primitive body value (`DrawPrimitiveLiveOutput`), every mux selector resolve (`MatchActiveMuxInput`) registers its path.
+  - `LiveProbeService.RefreshScalarsAsync(IEnumerable<string> paths, …)` reads only the requested probes from the worker, dedupes case-insensitively, and respects cancellation. The original `RefreshAllScalarsAsync` now delegates to the same core helper.
+  - `MainWindowViewModel.VisibleProbePathsProvider` callback is set by `MainWindow.CreateBoundSchematicPreview` so the post-Tick refresh prefers the visible set; legacy "refresh all" stays as fallback when the set is empty.
+  - Tests: +4 in `LiveProbeServiceRefreshScalarsTests.cs` (no-worker, empty list, duplicate paths, cancellation). Combined suite **639/639 green**.
+  - Next P4 work: P4-4 (memory inline grid), P4-7 (hover tooltip), P4-8 (format toggle).

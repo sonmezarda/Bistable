@@ -33,6 +33,14 @@ public sealed record ProjectConfiguration
 
     public TraceConfiguration Trace { get; init; } = new();
 
+    /// <summary>
+    /// Phase 5: optional CPU-style runtime metadata. When present, the GUI
+    /// exposes a Run panel that drives reset cycles, loads program images
+    /// into the probed memory paths, and ticks the clock through one of the
+    /// declared presets. Null for designs that aren't CPU-shaped.
+    /// </summary>
+    public CpuRuntimeConfiguration? Runtime { get; init; }
+
     public static JsonSerializerOptions JsonOptions { get; } = new(JsonSerializerDefaults.Web)
     {
         ReadCommentHandling = JsonCommentHandling.Skip,
