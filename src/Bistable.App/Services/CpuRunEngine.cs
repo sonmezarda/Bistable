@@ -38,14 +38,20 @@ public sealed class CpuRunEngine
         // Drive reset to its active level…
         string assertedValue = reset.ActiveLevel == 0 ? "0" : "1";
         string releasedValue = reset.ActiveLevel == 0 ? "1" : "0";
-        await worker.SetInputAsync(reset.Signal, assertedValue, cancellationToken);
+        await worker.StepAsync(
+            new SimulationCommand(SimulationCommandType.SetInput, reset.Signal, assertedValue),
+            cancellationToken);
         // …tick `Cycles` times while asserted…
         for (int i = 0; i < Math.Max(1, reset.Cycles); i++)
         {
-            await worker.TickAsync(clock, cancellationToken);
+            await worker.StepAsync(
+                new SimulationCommand(SimulationCommandType.Tick, Signal: clock),
+                cancellationToken);
         }
         // …then de-assert so the CPU can run on the next tick.
-        await worker.SetInputAsync(reset.Signal, releasedValue, cancellationToken);
+        await worker.StepAsync(
+            new SimulationCommand(SimulationCommandType.SetInput, reset.Signal, releasedValue),
+            cancellationToken);
     }
 
     /// <summary>
@@ -102,7 +108,9 @@ public sealed class CpuRunEngine
         for (; cycles < Math.Max(1, preset.MaxCycles); cycles++)
         {
             if (cancellationToken.IsCancellationRequested) break;
-            await worker.TickAsync(preset.Clock, cancellationToken);
+            await worker.StepAsync(
+                new SimulationCommand(SimulationCommandType.Tick, Signal: preset.Clock),
+                cancellationToken);
             if (predicate is not null && await predicate.EvaluateAsync(worker, cancellationToken))
             {
                 stopHit = true;

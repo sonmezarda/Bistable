@@ -201,6 +201,16 @@ public static class SchematicCoverageAnalyzer
                 endpoints.Add(UnsupportedEndpoint(module.Name, endpointId, "?", EndpointKind.ContAssignTarget, "ContAssign target could not be resolved."));
                 unsupported.Add(new UnsupportedConstructDiagnostic(module.Name, endpointId, "ContAssign", "Target l-value could not be resolved."));
             }
+            else if (LValueContainsUnknownSegment(assign.Target))
+            {
+                // P2.9-7: a concat l-value with at least one __unknown__
+                // segment is a partial render — the schematic can show the
+                // resolved half but the rest is dropped. Surface that so the
+                // coverage report keeps the SilentMiss counter clean.
+                string reason = $"ContAssign l-value contains an unresolved segment ({assign.Target.GetType().Name}).";
+                endpoints.Add(UnsupportedEndpoint(module.Name, endpointId, target, EndpointKind.ContAssignTarget, reason));
+                unsupported.Add(new UnsupportedConstructDiagnostic(module.Name, endpointId, "ContAssignLValue", reason));
+            }
             else if (SchematicDecoder.IsVerilatorInternalSignal(target))
             {
                 endpoints.Add(IntentionalEndpoint(module.Name, endpointId, target, EndpointKind.ContAssignTarget, "Verilator internal target intentionally hidden."));
@@ -458,5 +468,24 @@ public static class SchematicCoverageAnalyzer
         StructFieldLValue sf => sf.SignalName,
         ConcatLValue c => c.Parts.Count > 0 ? LValueName(c.Parts[0]) : string.Empty,
         _ => string.Empty
+    };
+
+    /// <summary>
+    /// P2.9-7: a composite l-value (concat) might carry a `__unknown__`
+    /// segment emitted by the XML reader's fallback when it encountered an
+    /// element it didn't recognise. Any such segment must surface as Unsupported
+    /// instead of letting the analyzer treat the whole assign as Routed based
+    /// on the first segment alone.
+    /// </summary>
+    private const string UnknownLValueMarker = "__unknown__";
+
+    private static bool LValueContainsUnknownSegment(LValueAst lval) => lval switch
+    {
+        VarRefLValue v       => string.Equals(v.Name,       UnknownLValueMarker, StringComparison.Ordinal),
+        BitSelectLValue b    => string.Equals(b.SignalName, UnknownLValueMarker, StringComparison.Ordinal),
+        ArraySelectLValue a  => string.Equals(a.SignalName, UnknownLValueMarker, StringComparison.Ordinal),
+        StructFieldLValue sf => string.Equals(sf.SignalName, UnknownLValueMarker, StringComparison.Ordinal),
+        ConcatLValue c       => c.Parts.Any(LValueContainsUnknownSegment),
+        _                    => false,
     };
 }

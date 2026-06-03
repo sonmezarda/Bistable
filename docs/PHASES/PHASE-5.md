@@ -127,17 +127,17 @@ Status legend: `todo`, `in_progress`, `done`, `blocked`
 
 | ID | Task | Status | Est. | Notes |
 |----|------|--------|------|-------|
-| P5-1 | Select/add RV32I sample | todo | 2 d | In-repo sample with license clarity. Must compile with Verilator. |
-| P5-2 | Add runtime config model | todo | 2 d | Clock/reset/program/pass-fail/probe paths. |
-| P5-3 | Program image loader | todo | 3 d | Start with `.hex`/`.mem`; ELF later. |
-| P5-4 | Memory initialization path | todo | 3 d | Either Verilator parameter/`$readmemh` or worker memory writes via probe API. |
-| P5-5 | Reset/run preset engine | todo | 2 d | Apply reset cycles, then run until max cycles or stop condition. |
-| P5-6 | CPU state probe model | todo | 2 d | PC, instruction, registers, memory, pass/fail. |
-| P5-7 | RV32I smoke tests | todo | 4 d | Program-level integration tests. |
-| P5-8 | GUI CPU run panel | todo | 3 d | Minimal: load program, reset, run, status, PC, pass/fail. |
-| P5-9 | Register file and memory viewer integration | todo | 3 d | Reuse memory/probe infrastructure. |
-| P5-10 | Schematic/probe correlation | todo | 2 d | Selecting PC/register probes highlights schematic paths. |
-| P5-11 | Documentation and sample guide | todo | 1 d | How to add a CPU target. |
+| P5-1 | Select/add RV32I sample | done | 2 d | `samples/riscv_single_cycle/` with `add_then_halt.hex`. Single-cycle RV32I subset (addi/add/sub/lw/sw/beq/jal/ebreak). |
+| P5-2 | Add runtime config model | done | 2 d | `CpuRuntimeConfiguration` + reset/program/preset/state records in Core; ProjectConfiguration.Runtime optional field. |
+| P5-3 | Program image loader | done | 3 d | `MemoryFileLoader` parses Verilog `$readmemh` style. ELF deferred. |
+| P5-4 | Memory initialization path | done | 3 d | Strategy B (worker probe API). `WriteMemoryAsync` writes cells directly into the `mem` array via `--public-flat-rw`. |
+| P5-5 | Reset/run preset engine | done | 2 d | `CpuRunEngine.ApplyResetAsync` / `LoadProgramAsync` / `RunAsync`. Stop predicate parses `<path> == <value>` or defaults to `state.Halted == 1`. |
+| P5-6 | CPU state probe model | done | 2 d | `CpuStateProbeMap { Pc, Instruction, Halted, RegisterFile, DataMemory, Pass, Fail }`. Optional fields — Run panel only renders what the design exposes. |
+| P5-7 | RV32I smoke tests | done | 4 d | `NativeWorkerExecutesRiscvSingleCycleSampleProgram` + `NativeWorkerExecutesRiscvProgramLoadedViaWriteMemory` + `CpuRunEngineIntegrationTests`. Reset→load→run end-to-end via the engine. |
+| P5-8 | GUI CPU run panel | done | 3 d | Toolbar "Run CPU" button (visible only when `CpuRuntime` is non-null) + status text bound to `CpuRunStatus`. Drives reset → load → enable=1 → run, then refreshes scalar probes. |
+| P5-9 | Register file and memory viewer integration | done | 3 d | Already wired in Phase 3/4: schematic context menu "Open Memory Viewer" reaches `u_registers.regs` and `u_dmem.mem`. |
+| P5-10 | Schematic/probe correlation | todo | 2 d | Selecting PC/register probes highlights schematic paths. Deferred to a later UX pass. |
+| P5-11 | Documentation and sample guide | todo | 1 d | Walkthrough for adding a CPU target. |
 
 ---
 
@@ -325,4 +325,17 @@ The phase closes only when:
 - PC and at least one architectural register can be read through probes,
 - the GUI exposes a minimal CPU run workflow,
 - docs explain how to add another CPU target.
+
+---
+
+## 12. Recent activity
+
+- **2026-06-04 — P5-1..P5-9 landed in one wave.**
+  - New `Bistable.Core.Projects.CpuRuntimeConfiguration` + `CpuResetSequence` / `ProgramImageBinding` / `RunPreset` / `CpuStateProbeMap` records; opt-in `ProjectConfiguration.Runtime` field. Designs that aren't CPU-shaped just leave `runtime` out of their bistable.json.
+  - New `Bistable.App.Services.CpuRunEngine` — `ApplyResetAsync` drives the reset signal at its active level, ticks the configured cycles, then de-asserts. `LoadProgramAsync` walks a `MemoryFileLoader.MemoryImage` and writes every cell through the probe table. `RunAsync` ticks until `MaxCycles` or until the stop predicate fires (parsed `<path> == <value>` form, defaults to `state.Halted == 1`).
+  - `MainWindowViewModel.RunCpuPresetCommand` wires the engine end-to-end: reset → enable=1 → load program(s) → run → invalidate + refresh probes for the next render. `CpuRunStatus` updates per stage; `IsCpuRunning` re-evaluates `CanExecute` so double-presses are suppressed.
+  - UI: toolbar "Run CPU" button (accent-coloured, visible only when `CpuRuntime` is non-null) + bound status text via `NotNullConverter`. Sits right of the existing Reset button.
+  - Sample: [riscv_single_cycle.bistable.json](../../samples/riscv_single_cycle/riscv_single_cycle.bistable.json) now ships the full `runtime` block — reset on `rst_n`, program from `programs/add_then_halt.hex` into `u_imem.mem`, `Run sample program` preset, full `CpuStateProbeMap` to the RV32I `pc`/`instruction`/`halted`/`u_registers.regs`/`u_dmem.mem`.
+  - Tests: +4 in `CpuRunEngineConfigTests.cs` (JSON round-trip, optional Runtime, RISC-V sample load) and +1 end-to-end in `CpuRunEngineIntegrationTests.cs` (reset → load → run drives RISC-V sample to `halted == 1` in < 20 cycles). Combined suite **643/643 green** (623 Tests + 14 Snapshots + 4 Regression + 2 UI).
+  - **Remaining**: P5-10 (schematic ↔ probe selection correlation) and P5-11 (docs / "how to add another CPU target" guide).
 

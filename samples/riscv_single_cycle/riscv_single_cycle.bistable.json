@@ -19,5 +19,34 @@
     "enabled": true,
     "format": "vcd",
     "depth": 3
+  },
+  "runtime": {
+    "reset": {
+      "signal": "rst_n",
+      "activeLevel": 0,
+      "cycles": 4
+    },
+    "programImages": [
+      {
+        "path": "programs/add_then_halt.hex",
+        "format": "hex",
+        "probePath": "riscv_single_cycle_top.u_imem.mem",
+        "baseAddress": 0
+      }
+    ],
+    "runPresets": [
+      {
+        "name": "Run sample program",
+        "clock": "clk",
+        "maxCycles": 256
+      }
+    ],
+    "state": {
+      "pc": "riscv_single_cycle_top.pc",
+      "instruction": "riscv_single_cycle_top.instruction",
+      "halted": "riscv_single_cycle_top.halted",
+      "registerFile": "riscv_single_cycle_top.u_registers.regs",
+      "dataMemory": "riscv_single_cycle_top.u_dmem.mem"
+    }
   }
 }

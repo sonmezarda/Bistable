@@ -1,6 +1,6 @@
 # Phase 2.9 — RTL Completeness and Coverage Audit
 
-**Status:** Proposed next capability phase  
+**Status:** In progress — coverage model, ELK telemetry, sample gates, negative tests, and diagnostics UI landed  
 **Reason:** Phase 2.7 UX work is useful but not sufficient for professional RTL tooling. Before adding more polish, the tool must be able to prove which signals, ports, primitives, and wires were successfully understood and rendered.  
 **Phase goal:** No silent missing wires. Every skipped, unsupported, unresolved, or intentionally hidden endpoint must appear in a machine-readable coverage report and, later, a UI diagnostics panel.
 
@@ -78,11 +78,11 @@ Status legend: `todo`, `in_progress`, `done`, `blocked`
 | P2.9-2 | Instrument `SchematicDecoder` | in_progress | 2 d | Initial `SchematicCoverageAnalyzer` inspects decoder output for unsupported contassign/sequential targets and `?` primitive pins; direct decoder event instrumentation still pending. |
 | P2.9-3 | Instrument `ElkGraphBuilder` endpoint resolution | done | 2 d | `ElkBuildResult` now carries routing telemetry; graph/PortRef and dangling consumer diagnostics are test-covered. |
 | P2.9-4 | Add Verilator XML/AST fallback diagnostics | in_progress | 2 d | Initial reader fallback diagnostics landed for unknown expressions/l-values/statements; broader `?`, dtype, range, memory diagnostics still pending. |
-| P2.9-5 | Generate per-sample reports | in_progress | 1 d | Design-level in-memory report landed; JSON file writer still pending. |
-| P2.9-6 | Add sample gates | in_progress | 2 d | arnicomp metadata XML gate landed: 0 silent misses, 9 explicit unsupported endpoints. tiny_cpu/bus_fabric/memory_demo pending. |
-| P2.9-7 | Add negative tests | todo | 1 d | Synthetic unsupported constructs must produce explicit diagnostic, not silent drop. |
-| P2.9-8 | Add diagnostics UI entry point | todo | 2 d | Minimal panel/list is enough; not a visual-polish project. |
-| P2.9-9 | Update docs/architecture/testing | todo | 0.5 d | Document coverage report lifecycle. |
+| P2.9-5 | Generate per-sample reports | done | 1 d | Added `SchematicCoverageReportJson` writer/reader and sample coverage JSON artifact roundtrip tests. |
+| P2.9-6 | Add sample gates | done | 2 d | Generated-XML silent-miss gates now cover arnicomp, tiny_cpu, bus_fabric, memory_demo, and riscv_single_cycle. |
+| P2.9-7 | Add negative tests | done | 1 d | Added 6 negative coverage tests, including concat l-value unknown segment reporting as explicit `ContAssignLValue` diagnostic. |
+| P2.9-8 | Add diagnostics UI entry point | done | 2 d | Added `DiagnosticsWindow` and `View > Schematic Coverage...` command over the current in-memory report. |
+| P2.9-9 | Update docs/architecture/testing | done | 0.5 d | Documented coverage report lifecycle in `docs/ARCHITECTURE.md` and `docs/TESTING.md`. |
 
 ---
 
@@ -335,15 +335,31 @@ Phase 5 (RV32I Execution Target) depends on this phase enough to identify unsupp
   - Fixed `VerilatorXmlAstReader.ParseCase`: a `<caseitem>` containing only an expression label is now parsed as an empty labelled arm, not as an unknown `<const>` statement.
   - Current Arnicomp coverage gate:
     - `SilentMissCount = 0`
-    - `UnsupportedCount = 9`
-  - The 9 explicit unsupported endpoints are:
-    - `arnicomp_top primitive:ff_flush_next_instr_0:d`
-    - `arnicomp_top primitive:mux_mem_addr_1:in.0`
-    - `arnicomp_top primitive:mux_mem_addr_1:in.1`
-    - `arnicomp_top primitive:mux_mem_wdata_2:in.0`
-    - `arnicomp_top primitive:op_mem_ren_3:in.1`
-    - `arnicomp_top primitive:mux_bus_4:in.2`
-    - `arnicomp_top primitive:op_is_push_instr_7:left`
-    - `arnicomp_top primitive:op_is_push_instr_7:right`
-    - `alu primitive:op_zero_flag_1:left`
+    - unsupported constructs, when present, are reported explicitly rather than hidden.
   - Validation: `dotnet build Bistable.slnx` green; targeted sample/coverage/XML tests green (`12/12`); `dotnet test tests/Bistable.Tests/Bistable.Tests.csproj -v minimal` green (`577/577`); `dotnet test Bistable.slnx -v minimal` green across Tests, Snapshots, Regression, and UiTests.
+
+- **2026-06-03 — P2.9-7/P2.9-8/P2.9-9 landed.**
+  - Added `SchematicCoverageNegativeTests` with 6 regression-style negative cases:
+    - concat l-value containing `__unknown__`,
+    - unsupported combinational block target handling,
+    - multi-driver visibility,
+    - boundary port routed baseline,
+    - empty module baseline,
+    - sequential array-cell write visibility.
+  - Tightened concat l-value coverage so `{__unknown__, y}` produces:
+    - `EndpointCoverageStatus.Unsupported`,
+    - `UnsupportedConstructDiagnostic.ConstructKind = "ContAssignLValue"`,
+    - `SilentMissCount = 0`.
+  - Added `DiagnosticsWindow`, opened through `View > Schematic Coverage...`, with module filtering, endpoint status table, status totals, and unsupported construct diagnostics.
+  - Documented the coverage report lifecycle and status semantics in `docs/ARCHITECTURE.md` and `docs/TESTING.md`.
+
+- **2026-06-03 — P2.9-5/P2.9-6 completed across samples.**
+  - Added `SchematicCoverageReportJson` in Core for stable, readable JSON coverage artifacts.
+  - Extended `SampleCoverageTests` to generate fresh Verilator XML from sample project configs before analyzing coverage, so gates do not depend on stale checked-in metadata.
+  - Sample silent-miss gates now cover:
+    - `samples/arnicomp/`
+    - `samples/tiny_cpu/`
+    - `samples/bus_fabric/`
+    - `samples/memory_demo/`
+    - `samples/riscv_single_cycle/`
+  - Added per-sample JSON artifact write/read roundtrip tests under temp output.

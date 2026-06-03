@@ -128,7 +128,44 @@ SchematicPreviewControl.Elk.DrawElkScopePanel  ──>  Avalonia drawing
 
 Caching: `ElkSchematicEngine` keeps an 8-entry LRU keyed on a SHA-1 of the scope structure + expansion set. Cache misses trigger the full Compute. Cache hits return in microseconds.
 
-## 6. The simulation pipeline
+## 6. Schematic coverage diagnostics
+
+Phase 2.9 adds a machine-readable completeness layer around the schematic path. The goal is to make missing wires auditable before large RV32I or out-of-order designs are debugged visually.
+
+```
+DesignAst / ModuleAst
+        │
+        ▼
+SchematicDecoder.Decode
+        │
+        ▼
+SchematicCoverageAnalyzer.Analyze  ──>  SchematicCoverageReport
+        │                                      │
+        │                                      └── UI: View > Schematic Coverage...
+        ▼
+ElkGraphBuilder.Build
+        │
+        ▼
+ElkGraphCoverageAnalyzer  ──>  graph/port/edge routing diagnostics
+```
+
+Core ownership:
+
+- `Bistable.Core.Design.Schematic.SchematicCoverageReport` owns the report records and `SchematicCoverageAnalyzer`.
+- `Bistable.Core.Design.Schematic.SchematicCoverageReportJson` owns stable JSON artifact serialization.
+- `Bistable.App.Services.Routing.Elk.ElkGraphCoverageAnalyzer` owns graph-level port/edge validation.
+- `Bistable.App.Views.DiagnosticsWindow` is a thin viewer over the current in-memory `SchematicCoverageReport`.
+
+Status semantics:
+
+- `Routed`: decoded/rendered endpoint exists.
+- `IntentionalOmission`: endpoint was deliberately hidden with a reason.
+- `Unsupported`: endpoint is known but not renderable yet, with a diagnostic reason.
+- `SilentMiss`: endpoint should have appeared but did not. This is a bug, not an acceptable limitation.
+
+The diagnostics window rebuilds the report on demand from the loaded AST. JSON artifacts are produced through `SchematicCoverageReportJson`; automatic UI export remains a separate workflow decision.
+
+## 7. The simulation pipeline
 
 ```
 ProjectConfiguration (.bistable.json)
@@ -172,7 +209,7 @@ Full wire-format spec: `docs/PROTOCOL.md`. Phase 3 task board:
 API; Phase 5 (sub-sim maturation) reuses the probe table to enumerate a
 sub-module's internal signals.
 
-## 7. Sub-simulation
+## 8. Sub-simulation
 
 Currently a state-swap pattern in `MainWindowViewModel`:
 
@@ -183,7 +220,7 @@ Currently a state-swap pattern in `MainWindowViewModel`:
 
 Phase 5 will refactor this into a `SimulationContext` record so adding/removing state requires updating one place, not eleven.
 
-## 8. Phase plan summary
+## 9. Phase plan summary
 
 See `/home/ardac/.claude/plans/fluffy-wishing-kettle.md` for the master plan. Per-phase status in `docs/PHASES/PHASE-<N>.md`.
 

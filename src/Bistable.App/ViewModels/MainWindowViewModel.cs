@@ -353,6 +353,28 @@ public sealed class MainWindowViewModel : ViewModelBase
     public event EventHandler? MemoryViewerRequested;
     public LiveProbeService LiveProbes => _liveProbes;
 
+    // ── Phase 2.9: Schematic coverage diagnostics ─────────────────────────
+
+    /// <summary>
+    /// Build the schematic coverage report for the currently-loaded design.
+    /// Returns null when no project is open. Heavy enough to run on demand;
+    /// the report is not cached because the underlying decode is fast and the
+    /// user might rebuild between opens.
+    /// </summary>
+    public Bistable.Core.Design.Schematic.SchematicCoverageReport? BuildSchematicCoverageReport()
+    {
+        if (_currentAst is null) return null;
+        return Bistable.Core.Design.Schematic.SchematicCoverageAnalyzer.Analyze(_currentAst);
+    }
+
+    public ICommand OpenDiagnosticsCommand =>
+        _openDiagnosticsCommand ??= new RelayCommand(
+            () => DiagnosticsRequested?.Invoke(this, EventArgs.Empty),
+            () => _currentAst is not null);
+    private ICommand? _openDiagnosticsCommand;
+
+    public event EventHandler? DiagnosticsRequested;
+
     /// <summary>
     /// P4-5: optional callback the View sets so the VM can narrow post-Tick
     /// scalar refreshes to "what the schematic actually rendered last frame."
@@ -360,6 +382,195 @@ public sealed class MainWindowViewModel : ViewModelBase
     /// desired (tests / headless paths). Read-only path lists.
     /// </summary>
     public Func<IReadOnlyCollection<string>>? VisibleProbePathsProvider { get; set; }
+
+    // ── Phase 5: CPU Run panel ──────────────────────────────────────────────
+
+    /// <summary>
+    /// The current project's runtime config, or null when the design isn't
+    /// CPU-shaped (or no project loaded). Bound to the Run panel's IsVisible.
+    /// </summary>
+    public Bistable.Core.Projects.CpuRuntimeConfiguration? CpuRuntime =>
+        _currentProject?.Runtime;
+
+    /// <summary>
+    /// P5-8 follow-up: optional absolute path to a program image that should
+    /// override the one declared in the project's first ProgramImageBinding.
+    /// Set by the toolbar "Load Program…" button after the user picks a file.
+    /// Cleared on project load so a fresh project never inherits an old override.
+    /// </summary>
+    public string? CpuProgramOverridePath
+    {
+        get => _cpuProgramOverridePath;
+        private set
+        {
+            if (SetProperty(ref _cpuProgramOverridePath, value))
+            {
+                OnPropertyChanged(nameof(CpuProgramDisplayName));
+            }
+        }
+    }
+    private string? _cpuProgramOverridePath;
+
+    /// <summary>Filename of the active program (override if set, otherwise config default).</summary>
+    public string CpuProgramDisplayName
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(_cpuProgramOverridePath))
+            {
+                return Path.GetFileName(_cpuProgramOverridePath);
+            }
+            string? configPath = CpuRuntime?.ProgramImages is { Count: > 0 } imgs ? imgs[0].Path : null;
+            return string.IsNullOrWhiteSpace(configPath) ? "(no program)" : Path.GetFileName(configPath);
+        }
+    }
+
+    public ICommand LoadCpuProgramCommand =>
+        _loadCpuProgramCommand ??= new RelayCommand(() => LoadCpuProgramRequested?.Invoke(this, EventArgs.Empty));
+    private ICommand? _loadCpuProgramCommand;
+
+    public event EventHandler? LoadCpuProgramRequested;
+
+    /// <summary>
+    /// Called by the View after the file picker returns a path. Setting null
+    /// reverts to the config default.
+    /// </summary>
+    public void SetCpuProgramOverride(string? filePath) => CpuProgramOverridePath = filePath;
+
+    /// <summary>
+    /// Status line shown next to the Run button — "Loaded N cells", "Ran K
+    /// cycles, halted", "Run failed: …", etc.
+    /// </summary>
+    public string CpuRunStatus
+    {
+        get => _cpuRunStatus;
+        private set
+        {
+            if (SetProperty(ref _cpuRunStatus, value) && !string.IsNullOrWhiteSpace(value))
+            {
+                // Also surface CPU run progress on the global status bar so the
+                // user notices long-running ticks even when the toolbar text is
+                // clipped behind the dock panels.
+                Status = value;
+            }
+        }
+    }
+    private string _cpuRunStatus = string.Empty;
+
+    public bool IsCpuRunning
+    {
+        get => _isCpuRunning;
+        private set
+        {
+            if (SetProperty(ref _isCpuRunning, value))
+            {
+                ((AsyncCommand)RunCpuPresetCommand).RaiseCanExecuteChanged();
+            }
+        }
+    }
+    private bool _isCpuRunning;
+
+    public ICommand RunCpuPresetCommand =>
+        _runCpuPresetCommand ??= new AsyncCommand(RunCpuPresetAsync, () =>
+            !_isCpuRunning && _worker is not null && CpuRuntime?.RunPresets is { Count: > 0 });
+    private ICommand? _runCpuPresetCommand;
+
+    private async Task RunCpuPresetAsync(CancellationToken cancellationToken)
+    {
+        if (_worker is null || CpuRuntime is not { } runtime || _currentProjectDirectory is null) return;
+        var preset = runtime.RunPresets?.FirstOrDefault();
+        if (preset is null) return;
+
+        IsCpuRunning = true;
+        try
+        {
+            CpuRunEngine engine = new(_liveProbes);
+
+            if (runtime.Reset is { } reset)
+            {
+                CpuRunStatus = "Resetting…";
+                await engine.ApplyResetAsync(_worker, reset, preset.Clock, cancellationToken);
+            }
+
+            // enable=1 is the canonical "let it run" gate — most CPU samples
+            // expose it; harmless when absent (worker will return error and
+            // we swallow it for non-CPU shapes).
+            try
+            {
+                await _worker.StepAsync(
+                    new SimulationCommand(SimulationCommandType.SetInput, "enable", "1"),
+                    cancellationToken);
+            }
+            catch (InvalidOperationException) { /* design has no enable port */ }
+
+            if (runtime.ProgramImages is { Count: > 0 } images)
+            {
+                CpuRunStatus = "Loading program…";
+                for (int i = 0; i < images.Count; i++)
+                {
+                    var img = images[i];
+                    // P5-8 follow-up: override the FIRST image's path when the
+                    // user picked a file. Other images keep their config paths
+                    // so multi-image configs still work for trickier designs.
+                    string sourcePath = i == 0 && !string.IsNullOrWhiteSpace(_cpuProgramOverridePath)
+                        ? _cpuProgramOverridePath!
+                        : img.Path;
+                    string filePath = Path.IsPathRooted(sourcePath)
+                        ? sourcePath
+                        : Path.Combine(_currentProjectDirectory, sourcePath);
+                    if (!File.Exists(filePath))
+                    {
+                        CpuRunStatus = $"Program image missing: {img.Path}";
+                        return;
+                    }
+                    int width = ResolveMemoryCellWidth(img.ProbePath);
+                    var imgFormat = string.Equals(img.Format, "bin", StringComparison.OrdinalIgnoreCase)
+                        ? MemoryFileLoader.NumeralBase.Bin
+                        : MemoryFileLoader.NumeralBase.Hex;
+                    var image = MemoryFileLoader.LoadFromFile(filePath, width, depth: 0, imgFormat);
+                    var loaded = await engine.LoadProgramAsync(_worker, img, image, cancellationToken);
+                    if (loaded.Failed > 0)
+                    {
+                        CpuRunStatus = $"Program load partial: {loaded.Written} written, {loaded.Failed} failed";
+                        return;
+                    }
+                }
+            }
+
+            CpuRunStatus = $"Running '{preset.Name}'…";
+            var result = await engine.RunAsync(_worker, preset, runtime.State, cancellationToken);
+
+            // P5-8: end the run with an Eval so the top-level snapshot (pc,
+            // halted, debug_xN, …) is current. Without this, the toolbar shows
+            // "Stopped after N cycles" but the output bindings still hold the
+            // pre-run frame until the user manually presses Eval.
+            SimulationFrame frame = await _worker.StepAsync(
+                new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
+            ApplyFrame(frame);
+
+            CpuRunStatus = result.StopConditionHit
+                ? $"Stopped after {result.Cycles} cycles."
+                : $"Reached {result.Cycles}-cycle cap.";
+        }
+        catch (OperationCanceledException)
+        {
+            CpuRunStatus = "Cancelled.";
+        }
+        catch (Exception ex)
+        {
+            CpuRunStatus = $"Run failed: {ex.Message}";
+        }
+        finally
+        {
+            IsCpuRunning = false;
+        }
+    }
+
+    private int ResolveMemoryCellWidth(string probePath)
+    {
+        var descriptor = _liveProbes.GetDescriptor(probePath);
+        return descriptor?.Width ?? 32;
+    }
 
 
     /// <summary>
@@ -1512,9 +1723,17 @@ public sealed class MainWindowViewModel : ViewModelBase
             VerilatorVersion = result.VerilatorVersion;
             _currentProjectPath = path;
             _currentProject = result.Project;
+            // P5-8: notify the "Run CPU" button binding so the IsVisible
+            // NotNullConverter can pick up the new project's CpuRuntime.
+            OnPropertyChanged(nameof(CpuRuntime));
+            // Reset any program override carried over from the previous project.
+            CpuProgramOverridePath = null;
+            OnPropertyChanged(nameof(CpuProgramDisplayName));
             _currentMetadata = result.Metadata;
             _currentDesign = result.Design;
             _currentAst = result.Ast;
+            // P2.9-8: enable View → Schematic Coverage… now that AST is loaded.
+            ((RelayCommand)OpenDiagnosticsCommand).RaiseCanExecuteChanged();
             _currentProjectDirectory = result.ProjectDirectory;
             RebuildPrimitivesByModule();
             SchematicExpandedPaths.Clear();
@@ -1590,6 +1809,9 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         _worker = new SimulationWorkerClient(build.ExecutablePath);
         _liveProbes.AttachWorker(_worker); _ = _liveProbes.RefreshDescriptorsAsync(CancellationToken.None);
+        // P5-8: the Run CPU button gates on `_worker is not null`. Refresh the
+        // command's CanExecute now that we just attached the worker.
+        ((AsyncCommand)RunCpuPresetCommand).RaiseCanExecuteChanged();
         _traceFilePath = build.TraceFilePath;
         await PushInputsAsync(cancellationToken);
         SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.Eval), cancellationToken);

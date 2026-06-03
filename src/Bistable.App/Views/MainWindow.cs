@@ -9,6 +9,7 @@ using Avalonia.Data;
 using Avalonia.Data.Converters;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Bistable.App.Infrastructure;
@@ -50,6 +51,7 @@ public sealed class MainWindow : Window
     private TabControl? _centerWorkspaceTabs;
     private SchematicStudioWindow? _schematicStudioWindow;
     private PreferencesWindow? _preferencesWindow;
+    private DiagnosticsWindow? _diagnosticsWindow;
     private WaveformStudioWindow? _waveformStudioWindow;
     private readonly Dictionary<string, MemoryViewerWindow> _memoryViewerWindows = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<DockPanelKind, ToolPanelWindow> _floatingToolWindows = [];
@@ -452,6 +454,16 @@ public sealed class MainWindow : Window
                     BuildSchematicThemeMenuItem(),
                     BuildSchematicRouterMenuItem(),
                     new Separator(),
+                    // P2.9-8: diagnostics window — surfaces the schematic
+                    // coverage report so users can tell which constructs the
+                    // renderer skipped (Unsupported / IntentionalOmission) and
+                    // catch any genuine SilentMiss bugs.
+                    new MenuItem
+                    {
+                        Header = "Schematic Coverage…",
+                        [!MenuItem.CommandProperty] = new Binding("OpenDiagnosticsCommand"),
+                    },
+                    new Separator(),
                     new MenuItem
                     {
                         Header = "Reset Tool Layout",
@@ -490,7 +502,10 @@ public sealed class MainWindow : Window
                 ToolbarLabel("Cycles"),
                 ToolbarTextBox("RunCyclesText", 72),
                 ToolbarButton("Run", "RunCyclesCommand"),
-                ToolbarButton("Reset", "ResetCommand")
+                ToolbarButton("Reset", "ResetCommand"),
+                BuildCpuRunButton(),
+                BuildCpuLoadProgramButton(),
+                BuildCpuProgramNameTextBlock()
             }
         };
         Grid.SetColumn(actions, 2);
@@ -2135,6 +2150,74 @@ public sealed class MainWindow : Window
         return menu;
     }
 
+    // Phase 5 follow-up: "Load Program…" — opens a file picker, sets the VM's
+    // CpuProgramOverridePath so the next Run CPU uses the chosen file instead
+    // of the config default. Visible alongside Run CPU.
+    private static Button BuildCpuLoadProgramButton()
+    {
+        Button button = new()
+        {
+            Content = "Load Program…",
+            MinWidth = 120,
+            Height = 34,
+            Background = SurfaceAltBrush,
+            Foreground = TextBrush,
+            BorderBrush = StrokeBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            [!Button.CommandProperty] = new Binding("LoadCpuProgramCommand"),
+            [!Control.IsVisibleProperty] = new Binding("CpuRuntime") { Converter = new NotNullConverter() },
+        };
+        ToolTip.SetTip(button, "Pick a .hex/.bin file. Next Run CPU writes it to the project's imem probe path.");
+        return button;
+    }
+
+    // Phase 5 follow-up: small read-only label showing the active program's
+    // filename. Lives next to Run CPU so the user can tell whether the last
+    // Load Program selection is active.
+    private static TextBlock BuildCpuProgramNameTextBlock() => new()
+    {
+        Foreground = MutedBrush,
+        FontSize = 11,
+        VerticalAlignment = VerticalAlignment.Center,
+        MaxWidth = 180,
+        TextTrimming = TextTrimming.CharacterEllipsis,
+        [!TextBlock.TextProperty] = new Binding("CpuProgramDisplayName"),
+        [!Control.IsVisibleProperty] = new Binding("CpuRuntime") { Converter = new NotNullConverter() },
+    };
+
+    // Phase 5: CPU-aware "Run sample program" button. Visible only when the
+    // project ships a CpuRuntimeConfiguration (e.g. the RISC-V sample). The
+    // button resets, loads the configured program image into imem, sets
+    // enable=1, then ticks until halted or the cycle cap fires.
+    private static Control BuildCpuRunButton()
+    {
+        Button button = new()
+        {
+            Content = "Run CPU",
+            MinWidth = 92,
+            Height = 34,
+            Background = AccentBrush,
+            Foreground = TextBrush,
+            BorderBrush = StrokeBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            FontWeight = FontWeight.SemiBold,
+            [!Button.CommandProperty] = new Binding("RunCpuPresetCommand"),
+            [!Control.IsVisibleProperty] = new Binding("CpuRuntime") { Converter = new NotNullConverter() },
+        };
+        ToolTip.SetTip(button, "Reset, load program, then tick until halted (Phase 5 CPU run preset).");
+        return button;
+    }
+
+    private sealed class NotNullConverter : Avalonia.Data.Converters.IValueConverter
+    {
+        public object? Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+            => value is not null;
+        public object? ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+            => Avalonia.Data.BindingOperations.DoNothing;
+    }
+
     private static Button ToolbarButton(string text, string commandPath) => new()
     {
         Content = text,
@@ -2451,6 +2534,52 @@ public sealed class MainWindow : Window
     /// selected memory probe. Deduped by hierarchy path so multiple Open clicks
     /// don't spawn duplicate windows; closing the window unregisters it.
     /// </summary>
+    // Phase 5 follow-up: Load Program… file picker handler. Defaults the
+    // dialog to the project directory when known and the .hex/.bin/.mem
+    // family. Setting null on cancel clears nothing — only an explicit pick
+    // overrides the config default.
+    // P2.9-8: rebuild + display the coverage report. Single-instance window;
+    // re-opening regenerates the report so the data stays in sync with the
+    // currently-loaded design (rebuilds invalidate the previous report).
+    private void OnDiagnosticsRequested(object? sender, EventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        var report = vm.BuildSchematicCoverageReport();
+        if (report is null) return;
+        if (_diagnosticsWindow is { IsVisible: true } existing)
+        {
+            existing.Close();
+        }
+        _diagnosticsWindow = new DiagnosticsWindow(report);
+        _diagnosticsWindow.Closed += (_, _) => _diagnosticsWindow = null;
+        _diagnosticsWindow.Show(this);
+    }
+
+    private async void OnLoadCpuProgramRequested(object? sender, EventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+        IStorageProvider? storage = StorageProvider;
+        if (storage is null) return;
+        FilePickerOpenOptions options = new()
+        {
+            Title = "Load CPU program",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("Program image (*.hex; *.bin; *.mem; *.txt)")
+                {
+                    Patterns = new[] { "*.hex", "*.bin", "*.mem", "*.txt" }
+                },
+                new FilePickerFileType("All files") { Patterns = new[] { "*" } }
+            }
+        };
+        IReadOnlyList<IStorageFile> files = await storage.OpenFilePickerAsync(options);
+        if (files.Count == 0) return;
+        string? path = files[0].TryGetLocalPath();
+        if (string.IsNullOrEmpty(path)) return;
+        viewModel.SetCpuProgramOverride(path);
+    }
+
     private void OnMemoryViewerRequested(object? sender, EventArgs e)
     {
         if (DataContext is not MainWindowViewModel viewModel) return;
@@ -2678,12 +2807,16 @@ public sealed class MainWindow : Window
         {
             previousViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             previousViewModel.MemoryViewerRequested -= OnMemoryViewerRequested;
+            previousViewModel.LoadCpuProgramRequested -= OnLoadCpuProgramRequested;
+            previousViewModel.DiagnosticsRequested -= OnDiagnosticsRequested;
         }
 
         if (window.DataContext is MainWindowViewModel viewModel)
         {
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
             viewModel.MemoryViewerRequested += OnMemoryViewerRequested;
+            viewModel.LoadCpuProgramRequested += OnLoadCpuProgramRequested;
+            viewModel.DiagnosticsRequested += OnDiagnosticsRequested;
             // P2.7-2: now that the DataContext is set, point the Alt+Left /
             // Alt+Right gestures at the VM's back/forward commands.
             _scopeBackKeyBinding.Command = viewModel.NavigateScopeBackCommand;

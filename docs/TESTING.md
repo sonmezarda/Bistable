@@ -45,7 +45,32 @@ In CI: `dotnet test --filter "Category!=UI"` for the fast path; full path runs e
 
 The current list of locked-down bugs is in `docs/PHASES/PHASE-0.md` Section 2.
 
-## 4. Golden snapshot tests
+## 4. Schematic coverage reports
+
+Phase 2.9 adds a second kind of coverage: schematic semantic coverage. This is not code coverage. It answers one production question:
+
+> Did every expected schematic endpoint route, or did the tool explicitly explain why it did not?
+
+Lifecycle:
+
+1. `VerilatorXmlAstReader` parses Verilator XML into `DesignAst`. Reader fallbacks such as unknown expression or unknown l-value elements must create diagnostics instead of hiding the fallback.
+2. `SchematicDecoder` converts each `ModuleAst` into primitives where possible.
+3. `SchematicCoverageAnalyzer.Analyze(...)` compares the AST against decoded primitives and produces a `SchematicCoverageReport`.
+4. `ElkGraphBuilder` and `ElkGraphCoverageAnalyzer` cover the graph-level route: missing ports, invalid edge endpoints, dangling consumers, and duplicate graph IDs.
+5. The UI opens the current in-memory report through `View > Schematic Coverage...`. The report is rebuilt on demand from the loaded AST; it is not a stale file.
+6. `SchematicCoverageReportJson` writes the same report as a stable JSON artifact for CI/sample reporting.
+7. Sample gates and negative tests keep `SilentMissCount == 0` for supported samples and require unsupported constructs to be explicit.
+
+Endpoint statuses:
+
+- `Routed`: the endpoint exists in the decoded schematic or graph.
+- `IntentionalOmission`: the endpoint is omitted by policy with a reason, for example a hidden Verilator internal target.
+- `Unsupported`: the endpoint is known but not renderable yet; this is acceptable only with a diagnostic reason.
+- `SilentMiss`: the endpoint should exist but has no route and no explanation. This is a phase-gate failure.
+
+When adding parser, decoder, or routing behavior, add a negative coverage test for each new unsupported construct category. The test should prove that the construct becomes `Unsupported` or `IntentionalOmission`, never `SilentMiss` or an unexplained drop.
+
+## 5. Golden snapshot tests
 
 We capture the deterministic JSON output of `ElkGraphBuilder.Build()` for each sample project and compare future runs against the captured snapshot.
 
@@ -79,7 +104,7 @@ This overwrites the golden files. **Always inspect the diff before committing.**
 - The output of `LegacyDesignFlattener` (Phase 1+).
 - The `DesignAst` JSON dump (Phase 1+).
 
-## 5. Headless UI tests (Avalonia)
+## 6. Headless UI tests (Avalonia)
 
 ### Setup
 
@@ -113,23 +138,23 @@ Tests inherit `[Collection("Headless")]` to share fixtures across the suite.
 - Entering sub-sim → trace + hierarchy swapped; exiting → restored.
 - Expansion: `ToggleSchematicExpansion("path")` → builder emits internal edges for that compound.
 
-## 6. Integration tests (full Verilator)
+## 7. Integration tests (full Verilator)
 
 Existing in `tests/Bistable.Tests/VerilatorIntegrationTests.cs`. These require `verilator` on PATH.
 
 In CI: `apt-get install verilator` is installed. Locally: ensure `which verilator` works (Ubuntu: `apt`, Mac: `brew install verilator`, Windows: WSL recommended).
 
-## 7. Coverage
+## 8. Coverage
 
 CI runs `dotnet test --collect:"XPlat Code Coverage"` and uploads the cobertura XML as an artifact. Local: same command, output under `tests/**/TestResults/`.
 
 Target: every public production type has at least one test that touches its happy path.
 
-## 8. Performance tests
+## 9. Performance tests
 
 Mark slow tests with `[Trait("Speed", "Slow")]`. CI runs `dotnet test --filter "Speed!=Slow"` for the fast path on PRs; `Slow` runs nightly.
 
-## 9. Adding a test — checklist
+## 10. Adding a test — checklist
 
 - [ ] Pick the right project (`Tests`, `Regression`, `Snapshots`, `UiTests`).
 - [ ] Use the naming convention.
