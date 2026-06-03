@@ -1958,6 +1958,49 @@
       "children": []
     },
     {
+      "id": "gate___schematic_expr_flush_next_instr_0_ff_d_0",
+      "labels": [
+        "And __schematic_expr_flush_next_instr_0_ff_d_0",
+        "__schematic_expr_flush_next_instr_0_ff_d_0"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "gate___schematic_expr_flush_next_instr_0_ff_d_0.in.0",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "gate___schematic_expr_flush_next_instr_0_ff_d_0.in.1",
+          "labels": [
+            "B"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "gate___schematic_expr_flush_next_instr_0_ff_d_0.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
       "id": "ff_flush_next_instr",
       "labels": [
         "FF flush_next_instr",
@@ -1970,7 +2013,7 @@
         {
           "id": "ff_flush_next_instr.d",
           "labels": [
-            "D\u00B7X"
+            "D"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -2229,6 +2272,49 @@
       "children": []
     },
     {
+      "id": "arith___schematic_expr_mem_addr_1_mux_in_0_0",
+      "labels": [
+        "Sub __schematic_expr_mem_addr_1_mux_in_0_0",
+        "__schematic_expr_mem_addr_1_mux_in_0_0"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "arith___schematic_expr_mem_addr_1_mux_in_0_0.l",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "arith___schematic_expr_mem_addr_1_mux_in_0_0.r",
+          "labels": [
+            "B"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "arith___schematic_expr_mem_addr_1_mux_in_0_0.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
       "id": "mux_mem_addr",
       "labels": [
         "MUX mem_addr",
@@ -2242,7 +2328,7 @@
         {
           "id": "mux_mem_addr.in.0",
           "labels": [
-            "1\u00B7X"
+            "1"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -2252,7 +2338,7 @@
         {
           "id": "mux_mem_addr.in.1",
           "labels": [
-            "0\u00B7X"
+            "0"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -2283,6 +2369,231 @@
       "children": []
     },
     {
+      "id": "tie___schematic_expr_mem_wdata_2_left_3",
+      "labels": [
+        "3\u0027h4 \u2192 __schematic_expr_mem_wdata_2_left_3"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "tie___schematic_expr_mem_wdata_2_left_3.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "arith___schematic_expr_mem_wdata_2_right_2",
+      "labels": [
+        "Equal __schematic_expr_mem_wdata_2_right_2",
+        "__schematic_expr_mem_wdata_2_right_2"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "arith___schematic_expr_mem_wdata_2_right_2.l",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "arith___schematic_expr_mem_wdata_2_right_2.r",
+          "labels": [
+            "B"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "arith___schematic_expr_mem_wdata_2_right_2.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "gate___schematic_expr_mem_wdata_2_mux_sel_0_1",
+      "labels": [
+        "And __schematic_expr_mem_wdata_2_mux_sel_0_1",
+        "__schematic_expr_mem_wdata_2_mux_sel_0_1"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "gate___schematic_expr_mem_wdata_2_mux_sel_0_1.in.0",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "gate___schematic_expr_mem_wdata_2_mux_sel_0_1.in.1",
+          "labels": [
+            "B"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "gate___schematic_expr_mem_wdata_2_mux_sel_0_1.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "gate___schematic_expr_mem_wdata_2_mux_sel_1_4",
+      "labels": [
+        "And __schematic_expr_mem_wdata_2_mux_sel_1_4",
+        "__schematic_expr_mem_wdata_2_mux_sel_1_4"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "gate___schematic_expr_mem_wdata_2_mux_sel_1_4.in.0",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "gate___schematic_expr_mem_wdata_2_mux_sel_1_4.in.1",
+          "labels": [
+            "B"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "gate___schematic_expr_mem_wdata_2_mux_sel_1_4.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "mux___schematic_expr_mem_wdata_2_mux_in_0_0",
+      "labels": [
+        "MUX __schematic_expr_mem_wdata_2_mux_in_0_0",
+        "__schematic_expr_mem_wdata_2_mux_in_0_0",
+        "__schematic_expr_mem_wdata_2_mux_sel_0_1"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "mux___schematic_expr_mem_wdata_2_mux_in_0_0.in.0",
+          "labels": [
+            "?"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux___schematic_expr_mem_wdata_2_mux_in_0_0.in.1",
+          "labels": [
+            "?"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux___schematic_expr_mem_wdata_2_mux_in_0_0.in.2",
+          "labels": [
+            "else"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "2",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux___schematic_expr_mem_wdata_2_mux_in_0_0.sel.0",
+          "labels": [
+            "?"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
+          }
+        },
+        {
+          "id": "mux___schematic_expr_mem_wdata_2_mux_in_0_0.sel.1",
+          "labels": [
+            "?"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "SOUTH"
+          }
+        },
+        {
+          "id": "mux___schematic_expr_mem_wdata_2_mux_in_0_0.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
       "id": "mux_mem_wdata",
       "labels": [
         "MUX mem_wdata",
@@ -2296,7 +2607,7 @@
         {
           "id": "mux_mem_wdata.in.0",
           "labels": [
-            "1\u00B7X"
+            "1"
           ],
           "layoutOptions": {
             "elk.port.index": "0",
@@ -2337,6 +2648,82 @@
       "children": []
     },
     {
+      "id": "inv___schematic_expr_mem_ren_3_left_1",
+      "labels": [
+        "INV __schematic_expr_mem_ren_3_left_1",
+        "__schematic_expr_mem_ren_3_left_1"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "inv___schematic_expr_mem_ren_3_left_1.in",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "inv___schematic_expr_mem_ren_3_left_1.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "gate___schematic_expr_mem_ren_3_right_0",
+      "labels": [
+        "And __schematic_expr_mem_ren_3_right_0",
+        "__schematic_expr_mem_ren_3_right_0"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "gate___schematic_expr_mem_ren_3_right_0.in.0",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "gate___schematic_expr_mem_ren_3_right_0.in.1",
+          "labels": [
+            "B"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "gate___schematic_expr_mem_ren_3_right_0.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
       "id": "gate_mem_ren",
       "labels": [
         "And mem_ren",
@@ -2359,7 +2746,7 @@
         {
           "id": "gate_mem_ren.in.1",
           "labels": [
-            "B\u00B7X"
+            "B"
           ],
           "layoutOptions": {
             "elk.port.index": "1",
@@ -2368,6 +2755,125 @@
         },
         {
           "id": "gate_mem_ren.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "tie___schematic_expr_bus_4_left_2",
+      "labels": [
+        "3\u0027h1 \u2192 __schematic_expr_bus_4_left_2"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "tie___schematic_expr_bus_4_left_2.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "arith___schematic_expr_bus_4_mux_sel_0_1",
+      "labels": [
+        "Equal __schematic_expr_bus_4_mux_sel_0_1",
+        "__schematic_expr_bus_4_mux_sel_0_1"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "arith___schematic_expr_bus_4_mux_sel_0_1.l",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "arith___schematic_expr_bus_4_mux_sel_0_1.r",
+          "labels": [
+            "B"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "arith___schematic_expr_bus_4_mux_sel_0_1.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "mux___schematic_expr_bus_4_mux_in_2_0",
+      "labels": [
+        "MUX __schematic_expr_bus_4_mux_in_2_0",
+        "__schematic_expr_bus_4_mux_in_2_0",
+        "__schematic_expr_bus_4_mux_sel_0_1"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "mux___schematic_expr_bus_4_mux_in_2_0.in.0",
+          "labels": [
+            "1"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux___schematic_expr_bus_4_mux_in_2_0.in.1",
+          "labels": [
+            "0"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux___schematic_expr_bus_4_mux_in_2_0.sel.0",
+          "labels": [
+            "?"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
+          }
+        },
+        {
+          "id": "mux___schematic_expr_bus_4_mux_in_2_0.out",
           "labels": [
             "Y"
           ],
@@ -2413,7 +2919,7 @@
         {
           "id": "mux_bus.in.2",
           "labels": [
-            "control_pins[7]\u00B7X"
+            "control_pins[7]"
           ],
           "layoutOptions": {
             "elk.port.index": "2",
@@ -2570,6 +3076,125 @@
         },
         {
           "id": "mux_alu_carry_in.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "tie___schematic_expr_is_push_instr_7_left_0",
+      "labels": [
+        "5\u0027h4 \u2192 __schematic_expr_is_push_instr_7_left_0"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "tie___schematic_expr_is_push_instr_7_left_0.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "mux___schematic_expr_is_push_instr_7_right_1",
+      "labels": [
+        "MUX __schematic_expr_is_push_instr_7_right_1",
+        "__schematic_expr_is_push_instr_7_right_1",
+        "flush_next_instr"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "mux___schematic_expr_is_push_instr_7_right_1.in.0",
+          "labels": [
+            "1\u00B70"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux___schematic_expr_is_push_instr_7_right_1.in.1",
+          "labels": [
+            "0"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mux___schematic_expr_is_push_instr_7_right_1.sel.0",
+          "labels": [
+            "flush_next_instr"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "SOUTH"
+          }
+        },
+        {
+          "id": "mux___schematic_expr_is_push_instr_7_right_1.out",
+          "labels": [
+            "Y"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "arith_is_push_instr",
+      "labels": [
+        "Equal is_push_instr",
+        "is_push_instr"
+      ],
+      "layoutOptions": {
+        "elk.portConstraints": "FIXED_ORDER"
+      },
+      "ports": [
+        {
+          "id": "arith_is_push_instr.l",
+          "labels": [
+            "A"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "arith_is_push_instr.r",
+          "labels": [
+            "B"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "1",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "arith_is_push_instr.out",
           "labels": [
             "Y"
           ],
@@ -2944,6 +3569,19 @@
     {
       "id": "e25",
       "sources": [
+        "boundary_in.rst_n"
+      ],
+      "targets": [
+        "gate___schematic_expr_flush_next_instr_0_ff_d_0.in.0"
+      ],
+      "labels": [
+        "rst_n",
+        "1"
+      ]
+    },
+    {
+      "id": "e26",
+      "sources": [
         "boundary_in.instruction"
       ],
       "targets": [
@@ -2955,7 +3593,7 @@
       ]
     },
     {
-      "id": "e26",
+      "id": "e27",
       "sources": [
         "boundary_in.mem_rdata"
       ],
@@ -2968,7 +3606,7 @@
       ]
     },
     {
-      "id": "e27",
+      "id": "e28",
       "sources": [
         "child_arnicomp_top_bus_selector_i.out.out"
       ],
@@ -2981,7 +3619,7 @@
       ]
     },
     {
-      "id": "e28",
+      "id": "e29",
       "sources": [
         "child_arnicomp_top_reg_a_i.out.out"
       ],
@@ -2994,7 +3632,7 @@
       ]
     },
     {
-      "id": "e29",
+      "id": "e30",
       "sources": [
         "child_arnicomp_top_reg_b.out.out"
       ],
@@ -3007,7 +3645,7 @@
       ]
     },
     {
-      "id": "e30",
+      "id": "e31",
       "sources": [
         "child_arnicomp_top_reg_d.out.out"
       ],
@@ -3020,7 +3658,7 @@
       ]
     },
     {
-      "id": "e31",
+      "id": "e32",
       "sources": [
         "child_arnicomp_top_reg_d.out.out"
       ],
@@ -3033,7 +3671,7 @@
       ]
     },
     {
-      "id": "e32",
+      "id": "e33",
       "sources": [
         "child_arnicomp_top_acc.out.out"
       ],
@@ -3046,7 +3684,33 @@
       ]
     },
     {
-      "id": "e33",
+      "id": "e34",
+      "sources": [
+        "child_arnicomp_top_marl_i.out.marl_out"
+      ],
+      "targets": [
+        "mux___schematic_expr_mem_wdata_2_mux_in_0_0.in.1"
+      ],
+      "labels": [
+        "marl_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e35",
+      "sources": [
+        "child_arnicomp_top_marl_i.out.marh_out"
+      ],
+      "targets": [
+        "mux___schematic_expr_mem_wdata_2_mux_in_0_0.in.0"
+      ],
+      "labels": [
+        "marh_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e36",
       "sources": [
         "child_arnicomp_top_prl.out.out"
       ],
@@ -3059,7 +3723,7 @@
       ]
     },
     {
-      "id": "e34",
+      "id": "e37",
       "sources": [
         "child_arnicomp_top_prh.out.out"
       ],
@@ -3072,7 +3736,7 @@
       ]
     },
     {
-      "id": "e35",
+      "id": "e38",
       "sources": [
         "child_arnicomp_top_lr.out.out"
       ],
@@ -3085,7 +3749,20 @@
       ]
     },
     {
-      "id": "e36",
+      "id": "e39",
+      "sources": [
+        "child_arnicomp_top_sp_i.out.out"
+      ],
+      "targets": [
+        "arith___schematic_expr_mem_addr_1_mux_in_0_0.l"
+      ],
+      "labels": [
+        "sp_out",
+        "1"
+      ]
+    },
+    {
+      "id": "e40",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.z_f_out"
       ],
@@ -3098,7 +3775,7 @@
       ]
     },
     {
-      "id": "e37",
+      "id": "e41",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.n_f_out"
       ],
@@ -3111,7 +3788,7 @@
       ]
     },
     {
-      "id": "e38",
+      "id": "e42",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.c_f_out"
       ],
@@ -3124,7 +3801,7 @@
       ]
     },
     {
-      "id": "e39",
+      "id": "e43",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.c_f_out"
       ],
@@ -3137,7 +3814,7 @@
       ]
     },
     {
-      "id": "e40",
+      "id": "e44",
       "sources": [
         "child_arnicomp_top_flag_reg_i.out.v_f_out"
       ],
@@ -3150,7 +3827,7 @@
       ]
     },
     {
-      "id": "e41",
+      "id": "e45",
       "sources": [
         "child_arnicomp_top_pc.out.paddr"
       ],
@@ -3163,7 +3840,7 @@
       ]
     },
     {
-      "id": "e42",
+      "id": "e46",
       "sources": [
         "child_arnicomp_top_pc.out.paddr"
       ],
@@ -3176,7 +3853,7 @@
       ]
     },
     {
-      "id": "e43",
+      "id": "e47",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3189,7 +3866,7 @@
       ]
     },
     {
-      "id": "e44",
+      "id": "e48",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3202,7 +3879,7 @@
       ]
     },
     {
-      "id": "e45",
+      "id": "e49",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3215,7 +3892,7 @@
       ]
     },
     {
-      "id": "e46",
+      "id": "e50",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3228,7 +3905,7 @@
       ]
     },
     {
-      "id": "e47",
+      "id": "e51",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3241,7 +3918,7 @@
       ]
     },
     {
-      "id": "e48",
+      "id": "e52",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3254,7 +3931,7 @@
       ]
     },
     {
-      "id": "e49",
+      "id": "e53",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3267,7 +3944,7 @@
       ]
     },
     {
-      "id": "e50",
+      "id": "e54",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3280,7 +3957,46 @@
       ]
     },
     {
-      "id": "e51",
+      "id": "e55",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "arith___schematic_expr_mem_addr_1_mux_in_0_0.r"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e56",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "arith___schematic_expr_mem_wdata_2_right_2.r"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e57",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "arith___schematic_expr_bus_4_mux_sel_0_1.r"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e58",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
       ],
@@ -3293,7 +4009,33 @@
       ]
     },
     {
-      "id": "e52",
+      "id": "e59",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "gate___schematic_expr_mem_wdata_2_mux_sel_1_4.in.1"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e60",
+      "sources": [
+        "child_arnicomp_top_instruction_decoder.out.ctrl_pkg_out"
+      ],
+      "targets": [
+        "gate___schematic_expr_mem_ren_3_right_0.in.1"
+      ],
+      "labels": [
+        "control_pins",
+        "1"
+      ]
+    },
+    {
+      "id": "e61",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.jmp_sel"
       ],
@@ -3306,7 +4048,7 @@
       ]
     },
     {
-      "id": "e53",
+      "id": "e62",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_a_we"
       ],
@@ -3319,7 +4061,7 @@
       ]
     },
     {
-      "id": "e54",
+      "id": "e63",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_b_we"
       ],
@@ -3332,7 +4074,7 @@
       ]
     },
     {
-      "id": "e55",
+      "id": "e64",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.reg_d_we"
       ],
@@ -3345,7 +4087,7 @@
       ]
     },
     {
-      "id": "e56",
+      "id": "e65",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.marl_we"
       ],
@@ -3358,7 +4100,7 @@
       ]
     },
     {
-      "id": "e57",
+      "id": "e66",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.marh_we"
       ],
@@ -3371,7 +4113,7 @@
       ]
     },
     {
-      "id": "e58",
+      "id": "e67",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.prl_we"
       ],
@@ -3384,7 +4126,7 @@
       ]
     },
     {
-      "id": "e59",
+      "id": "e68",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.prh_we"
       ],
@@ -3397,7 +4139,7 @@
       ]
     },
     {
-      "id": "e60",
+      "id": "e69",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.mem_we"
       ],
@@ -3410,7 +4152,7 @@
       ]
     },
     {
-      "id": "e61",
+      "id": "e70",
       "sources": [
         "child_arnicomp_top_instruction_decoder.out.acc_we"
       ],
@@ -3423,7 +4165,7 @@
       ]
     },
     {
-      "id": "e62",
+      "id": "e71",
       "sources": [
         "child_arnicomp_top_alu_i.out.result"
       ],
@@ -3436,7 +4178,7 @@
       ]
     },
     {
-      "id": "e63",
+      "id": "e72",
       "sources": [
         "child_arnicomp_top_alu_i.out.zero_flag"
       ],
@@ -3449,7 +4191,7 @@
       ]
     },
     {
-      "id": "e64",
+      "id": "e73",
       "sources": [
         "child_arnicomp_top_alu_i.out.negative_flag"
       ],
@@ -3462,7 +4204,7 @@
       ]
     },
     {
-      "id": "e65",
+      "id": "e74",
       "sources": [
         "child_arnicomp_top_alu_i.out.carry_flag"
       ],
@@ -3475,7 +4217,7 @@
       ]
     },
     {
-      "id": "e66",
+      "id": "e75",
       "sources": [
         "child_arnicomp_top_alu_i.out.overflow_flag"
       ],
@@ -3488,7 +4230,7 @@
       ]
     },
     {
-      "id": "e67",
+      "id": "e76",
       "sources": [
         "child_arnicomp_top_jump_decoder.out.jmp_taken"
       ],
@@ -3501,7 +4243,20 @@
       ]
     },
     {
-      "id": "e68",
+      "id": "e77",
+      "sources": [
+        "child_arnicomp_top_jump_decoder.out.jmp_taken"
+      ],
+      "targets": [
+        "gate___schematic_expr_flush_next_instr_0_ff_d_0.in.1"
+      ],
+      "labels": [
+        "jump_taken",
+        "1"
+      ]
+    },
+    {
+      "id": "e78",
       "sources": [
         "tie_top__const__1\u0027h0__w1.out"
       ],
@@ -3514,142 +4269,12 @@
       ]
     },
     {
-      "id": "e69",
-      "sources": [
-        "tie_top__const__1\u0027h1__w1.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_reg_b.in.oe"
-      ],
-      "labels": [
-        "1\u0027h1",
-        "1"
-      ]
-    },
-    {
-      "id": "e70",
-      "sources": [
-        "tie_top__const__1\u0027h1__w1.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_reg_d.in.oe"
-      ],
-      "labels": [
-        "1\u0027h1",
-        "1"
-      ]
-    },
-    {
-      "id": "e71",
-      "sources": [
-        "tie_top__const__1\u0027h1__w1.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_acc.in.oe"
-      ],
-      "labels": [
-        "1\u0027h1",
-        "1"
-      ]
-    },
-    {
-      "id": "e72",
-      "sources": [
-        "tie_top__const__1\u0027h1__w1.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_prl.in.oe"
-      ],
-      "labels": [
-        "1\u0027h1",
-        "1"
-      ]
-    },
-    {
-      "id": "e73",
-      "sources": [
-        "tie_top__const__1\u0027h1__w1.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_prh.in.oe"
-      ],
-      "labels": [
-        "1\u0027h1",
-        "1"
-      ]
-    },
-    {
-      "id": "e74",
-      "sources": [
-        "tie_top__const__1\u0027h1__w1.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_lr.in.oe"
-      ],
-      "labels": [
-        "1\u0027h1",
-        "1"
-      ]
-    },
-    {
-      "id": "e75",
-      "sources": [
-        "tie_top__const__1\u0027h1__w1.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_reg_b.in.oe"
-      ],
-      "labels": [
-        "1\u0027h1",
-        "1"
-      ]
-    },
-    {
-      "id": "e76",
-      "sources": [
-        "tie_top__const__1\u0027h1__w1.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_reg_d.in.oe"
-      ],
-      "labels": [
-        "1\u0027h1",
-        "1"
-      ]
-    },
-    {
-      "id": "e77",
-      "sources": [
-        "tie_top__const__1\u0027h1__w1.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_acc.in.oe"
-      ],
-      "labels": [
-        "1\u0027h1",
-        "1"
-      ]
-    },
-    {
-      "id": "e78",
-      "sources": [
-        "tie_top__const__1\u0027h1__w1.out"
-      ],
-      "targets": [
-        "child_arnicomp_top_prl.in.oe"
-      ],
-      "labels": [
-        "1\u0027h1",
-        "1"
-      ]
-    },
-    {
       "id": "e79",
       "sources": [
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_prh.in.oe"
+        "child_arnicomp_top_reg_b.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3662,7 +4287,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_lr.in.oe"
+        "child_arnicomp_top_reg_d.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3675,7 +4300,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_reg_b.in.oe"
+        "child_arnicomp_top_acc.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3688,7 +4313,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_reg_d.in.oe"
+        "child_arnicomp_top_prl.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3701,7 +4326,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_acc.in.oe"
+        "child_arnicomp_top_prh.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3714,7 +4339,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_prl.in.oe"
+        "child_arnicomp_top_lr.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3727,7 +4352,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_prh.in.oe"
+        "child_arnicomp_top_reg_b.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3740,7 +4365,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_lr.in.oe"
+        "child_arnicomp_top_reg_d.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3753,7 +4378,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_reg_b.in.oe"
+        "child_arnicomp_top_acc.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3766,7 +4391,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_reg_d.in.oe"
+        "child_arnicomp_top_prl.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3779,7 +4404,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_acc.in.oe"
+        "child_arnicomp_top_prh.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3792,7 +4417,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_prl.in.oe"
+        "child_arnicomp_top_lr.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3805,7 +4430,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_prh.in.oe"
+        "child_arnicomp_top_reg_b.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3818,7 +4443,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_lr.in.oe"
+        "child_arnicomp_top_reg_d.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3831,7 +4456,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_reg_b.in.oe"
+        "child_arnicomp_top_acc.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3844,7 +4469,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_reg_d.in.oe"
+        "child_arnicomp_top_prl.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3857,7 +4482,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_acc.in.oe"
+        "child_arnicomp_top_prh.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3870,7 +4495,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_prl.in.oe"
+        "child_arnicomp_top_lr.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3883,7 +4508,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_prh.in.oe"
+        "child_arnicomp_top_reg_b.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3896,7 +4521,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_lr.in.oe"
+        "child_arnicomp_top_reg_d.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3909,7 +4534,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_reg_b.in.oe"
+        "child_arnicomp_top_acc.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3922,7 +4547,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_reg_d.in.oe"
+        "child_arnicomp_top_prl.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3935,7 +4560,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_acc.in.oe"
+        "child_arnicomp_top_prh.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3948,7 +4573,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_prl.in.oe"
+        "child_arnicomp_top_lr.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3961,7 +4586,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_prh.in.oe"
+        "child_arnicomp_top_reg_b.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3974,7 +4599,7 @@
         "tie_top__const__1\u0027h1__w1.out"
       ],
       "targets": [
-        "child_arnicomp_top_lr.in.oe"
+        "child_arnicomp_top_reg_d.in.oe"
       ],
       "labels": [
         "1\u0027h1",
@@ -3983,6 +4608,136 @@
     },
     {
       "id": "e105",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e106",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e107",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e108",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e109",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_b.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e110",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_reg_d.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e111",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_acc.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e112",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prl.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e113",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_prh.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e114",
+      "sources": [
+        "tie_top__const__1\u0027h1__w1.out"
+      ],
+      "targets": [
+        "child_arnicomp_top_lr.in.oe"
+      ],
+      "labels": [
+        "1\u0027h1",
+        "1"
+      ]
+    },
+    {
+      "id": "e115",
       "sources": [
         "join_top__concat_in__arnicomp_top_pc__load_data.out"
       ],
@@ -3995,7 +4750,7 @@
       ]
     },
     {
-      "id": "e106",
+      "id": "e116",
       "sources": [
         "split_lr_out.out.1"
       ],
@@ -4008,7 +4763,7 @@
       ]
     },
     {
-      "id": "e107",
+      "id": "e117",
       "sources": [
         "split_lr_out.out.0"
       ],
@@ -4021,7 +4776,7 @@
       ]
     },
     {
-      "id": "e108",
+      "id": "e118",
       "sources": [
         "ff_flush_next_instr.q"
       ],
@@ -4034,7 +4789,20 @@
       ]
     },
     {
-      "id": "e109",
+      "id": "e119",
+      "sources": [
+        "ff_flush_next_instr.q"
+      ],
+      "targets": [
+        "mux___schematic_expr_is_push_instr_7_right_1.sel.0"
+      ],
+      "labels": [
+        "flush_next_instr",
+        "1"
+      ]
+    },
+    {
+      "id": "e120",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -4047,7 +4815,7 @@
       ]
     },
     {
-      "id": "e110",
+      "id": "e121",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -4060,7 +4828,7 @@
       ]
     },
     {
-      "id": "e111",
+      "id": "e122",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -4073,7 +4841,7 @@
       ]
     },
     {
-      "id": "e112",
+      "id": "e123",
       "sources": [
         "ff_inst_q.q"
       ],
@@ -4086,7 +4854,20 @@
       ]
     },
     {
-      "id": "e113",
+      "id": "e124",
+      "sources": [
+        "ff_inst_q.q"
+      ],
+      "targets": [
+        "mux___schematic_expr_is_push_instr_7_right_1.in.1"
+      ],
+      "labels": [
+        "inst_q",
+        "1"
+      ]
+    },
+    {
+      "id": "e125",
       "sources": [
         "mux_mem_addr.out"
       ],
@@ -4099,7 +4880,20 @@
       ]
     },
     {
-      "id": "e114",
+      "id": "e126",
+      "sources": [
+        "mux___schematic_expr_mem_wdata_2_mux_in_0_0.out"
+      ],
+      "targets": [
+        "mux_mem_wdata.in.0"
+      ],
+      "labels": [
+        "__schematic_expr_mem_wdata_2_mux_in_0_0",
+        "1"
+      ]
+    },
+    {
+      "id": "e127",
       "sources": [
         "mux_mem_wdata.out"
       ],
@@ -4112,7 +4906,20 @@
       ]
     },
     {
-      "id": "e115",
+      "id": "e128",
+      "sources": [
+        "mux___schematic_expr_bus_4_mux_in_2_0.out"
+      ],
+      "targets": [
+        "mux_bus.in.2"
+      ],
+      "labels": [
+        "__schematic_expr_bus_4_mux_in_2_0",
+        "1"
+      ]
+    },
+    {
+      "id": "e129",
       "sources": [
         "mux_bus.out"
       ],
@@ -4125,7 +4932,7 @@
       ]
     },
     {
-      "id": "e116",
+      "id": "e130",
       "sources": [
         "mux_bus.out"
       ],
@@ -4138,7 +4945,7 @@
       ]
     },
     {
-      "id": "e117",
+      "id": "e131",
       "sources": [
         "mux_bus.out"
       ],
@@ -4151,7 +4958,7 @@
       ]
     },
     {
-      "id": "e118",
+      "id": "e132",
       "sources": [
         "mux_bus.out"
       ],
@@ -4164,7 +4971,7 @@
       ]
     },
     {
-      "id": "e119",
+      "id": "e133",
       "sources": [
         "mux_bus.out"
       ],
@@ -4177,7 +4984,7 @@
       ]
     },
     {
-      "id": "e120",
+      "id": "e134",
       "sources": [
         "mux_bus.out"
       ],
@@ -4190,7 +4997,7 @@
       ]
     },
     {
-      "id": "e121",
+      "id": "e135",
       "sources": [
         "mux_bus.out"
       ],
@@ -4203,7 +5010,20 @@
       ]
     },
     {
-      "id": "e122",
+      "id": "e136",
+      "sources": [
+        "mux_bus.out"
+      ],
+      "targets": [
+        "mux___schematic_expr_mem_wdata_2_mux_in_0_0.in.2"
+      ],
+      "labels": [
+        "bus",
+        "1"
+      ]
+    },
+    {
+      "id": "e137",
       "sources": [
         "mux_bus.out"
       ],
@@ -4216,7 +5036,7 @@
       ]
     },
     {
-      "id": "e123",
+      "id": "e138",
       "sources": [
         "mux_exec_instr.out"
       ],
@@ -4229,7 +5049,7 @@
       ]
     },
     {
-      "id": "e124",
+      "id": "e139",
       "sources": [
         "mux_alu_carry_in.out"
       ],
@@ -4242,7 +5062,20 @@
       ]
     },
     {
-      "id": "e125",
+      "id": "e140",
+      "sources": [
+        "mux___schematic_expr_is_push_instr_7_right_1.out"
+      ],
+      "targets": [
+        "arith_is_push_instr.r"
+      ],
+      "labels": [
+        "__schematic_expr_is_push_instr_7_right_1",
+        "1"
+      ]
+    },
+    {
+      "id": "e141",
       "sources": [
         "buf_pc_out.out"
       ],
@@ -4255,7 +5088,7 @@
       ]
     },
     {
-      "id": "e126",
+      "id": "e142",
       "sources": [
         "buf_mem_wen.out"
       ],
@@ -4268,7 +5101,72 @@
       ]
     },
     {
-      "id": "e127",
+      "id": "e143",
+      "sources": [
+        "inv___schematic_expr_mem_ren_3_left_1.out"
+      ],
+      "targets": [
+        "gate___schematic_expr_mem_ren_3_right_0.in.0"
+      ],
+      "labels": [
+        "__schematic_expr_mem_ren_3_left_1",
+        "1"
+      ]
+    },
+    {
+      "id": "e144",
+      "sources": [
+        "gate___schematic_expr_flush_next_instr_0_ff_d_0.out"
+      ],
+      "targets": [
+        "ff_flush_next_instr.d"
+      ],
+      "labels": [
+        "__schematic_expr_flush_next_instr_0_ff_d_0",
+        "1"
+      ]
+    },
+    {
+      "id": "e145",
+      "sources": [
+        "gate___schematic_expr_mem_wdata_2_mux_sel_0_1.out"
+      ],
+      "targets": [
+        "mux___schematic_expr_mem_wdata_2_mux_in_0_0.sel.0"
+      ],
+      "labels": [
+        "__schematic_expr_mem_wdata_2_mux_sel_0_1",
+        "1"
+      ]
+    },
+    {
+      "id": "e146",
+      "sources": [
+        "gate___schematic_expr_mem_wdata_2_mux_sel_1_4.out"
+      ],
+      "targets": [
+        "mux___schematic_expr_mem_wdata_2_mux_in_0_0.sel.1"
+      ],
+      "labels": [
+        "__schematic_expr_mem_wdata_2_mux_sel_1_4",
+        "1"
+      ]
+    },
+    {
+      "id": "e147",
+      "sources": [
+        "gate___schematic_expr_mem_ren_3_right_0.out"
+      ],
+      "targets": [
+        "gate_mem_ren.in.1"
+      ],
+      "labels": [
+        "__schematic_expr_mem_ren_3_right_0",
+        "1"
+      ]
+    },
+    {
+      "id": "e148",
       "sources": [
         "gate_mem_ren.out"
       ],
@@ -4281,7 +5179,85 @@
       ]
     },
     {
-      "id": "e128",
+      "id": "e149",
+      "sources": [
+        "arith___schematic_expr_mem_addr_1_mux_in_0_0.out"
+      ],
+      "targets": [
+        "mux_mem_addr.in.0"
+      ],
+      "labels": [
+        "__schematic_expr_mem_addr_1_mux_in_0_0",
+        "1"
+      ]
+    },
+    {
+      "id": "e150",
+      "sources": [
+        "arith___schematic_expr_mem_wdata_2_right_2.out"
+      ],
+      "targets": [
+        "gate___schematic_expr_mem_wdata_2_mux_sel_0_1.in.1"
+      ],
+      "labels": [
+        "__schematic_expr_mem_wdata_2_right_2",
+        "1"
+      ]
+    },
+    {
+      "id": "e151",
+      "sources": [
+        "arith___schematic_expr_bus_4_mux_sel_0_1.out"
+      ],
+      "targets": [
+        "mux___schematic_expr_bus_4_mux_in_2_0.sel.0"
+      ],
+      "labels": [
+        "__schematic_expr_bus_4_mux_sel_0_1",
+        "1"
+      ]
+    },
+    {
+      "id": "e152",
+      "sources": [
+        "arith_is_push_instr.out"
+      ],
+      "targets": [
+        "inv___schematic_expr_mem_ren_3_left_1.in"
+      ],
+      "labels": [
+        "is_push_instr",
+        "1"
+      ]
+    },
+    {
+      "id": "e153",
+      "sources": [
+        "arith_is_push_instr.out"
+      ],
+      "targets": [
+        "gate___schematic_expr_mem_wdata_2_mux_sel_0_1.in.0"
+      ],
+      "labels": [
+        "is_push_instr",
+        "1"
+      ]
+    },
+    {
+      "id": "e154",
+      "sources": [
+        "arith_is_push_instr.out"
+      ],
+      "targets": [
+        "gate___schematic_expr_mem_wdata_2_mux_sel_1_4.in.0"
+      ],
+      "labels": [
+        "is_push_instr",
+        "1"
+      ]
+    },
+    {
+      "id": "e155",
       "sources": [
         "fanout_control_pins.leg.0"
       ],
@@ -4294,7 +5270,7 @@
       ]
     },
     {
-      "id": "e129",
+      "id": "e156",
       "sources": [
         "fanout_control_pins.leg.1"
       ],
@@ -4307,7 +5283,7 @@
       ]
     },
     {
-      "id": "e130",
+      "id": "e157",
       "sources": [
         "fanout_control_pins.leg.2"
       ],
@@ -4320,7 +5296,7 @@
       ]
     },
     {
-      "id": "e131",
+      "id": "e158",
       "sources": [
         "fanout_control_pins.leg.3"
       ],
@@ -4333,7 +5309,7 @@
       ]
     },
     {
-      "id": "e132",
+      "id": "e159",
       "sources": [
         "fanout_control_pins.leg.4"
       ],
@@ -4346,7 +5322,7 @@
       ]
     },
     {
-      "id": "e133",
+      "id": "e160",
       "sources": [
         "fanout_control_pins.leg.5"
       ],
@@ -4359,7 +5335,7 @@
       ]
     },
     {
-      "id": "e134",
+      "id": "e161",
       "sources": [
         "fanout_control_pins.leg.6"
       ],
@@ -4372,7 +5348,7 @@
       ]
     },
     {
-      "id": "e135",
+      "id": "e162",
       "sources": [
         "fanout_control_pins.leg.7"
       ],
@@ -4385,7 +5361,7 @@
       ]
     },
     {
-      "id": "e136",
+      "id": "e163",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -4398,7 +5374,7 @@
       ]
     },
     {
-      "id": "e137",
+      "id": "e164",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -4411,7 +5387,7 @@
       ]
     },
     {
-      "id": "e138",
+      "id": "e165",
       "sources": [
         "fanout_control_pins.leg.9"
       ],
@@ -4424,7 +5400,7 @@
       ]
     },
     {
-      "id": "e139",
+      "id": "e166",
       "sources": [
         "fanout_control_pins.leg.10"
       ],
@@ -4437,7 +5413,7 @@
       ]
     },
     {
-      "id": "e140",
+      "id": "e167",
       "sources": [
         "fanout_control_pins.leg.11"
       ],
@@ -4450,7 +5426,7 @@
       ]
     },
     {
-      "id": "e141",
+      "id": "e168",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.clk"
       ],
@@ -4463,7 +5439,7 @@
       ]
     },
     {
-      "id": "e142",
+      "id": "e169",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.rst_n"
       ],
@@ -4476,7 +5452,7 @@
       ]
     },
     {
-      "id": "e143",
+      "id": "e170",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.we"
       ],
@@ -4489,7 +5465,7 @@
       ]
     },
     {
-      "id": "e144",
+      "id": "e171",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.z_f_in"
       ],
@@ -4502,7 +5478,7 @@
       ]
     },
     {
-      "id": "e145",
+      "id": "e172",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.n_f_in"
       ],
@@ -4515,7 +5491,7 @@
       ]
     },
     {
-      "id": "e146",
+      "id": "e173",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.c_f_in"
       ],
@@ -4528,7 +5504,7 @@
       ]
     },
     {
-      "id": "e147",
+      "id": "e174",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.v_f_in"
       ],
@@ -4541,7 +5517,7 @@
       ]
     },
     {
-      "id": "e148",
+      "id": "e175",
       "sources": [
         "child_arnicomp_top_flag_reg_i_flag_register.out.out"
       ],
@@ -4554,7 +5530,7 @@
       ]
     },
     {
-      "id": "e149",
+      "id": "e176",
       "sources": [
         "tie_arnicomp_top_flag_reg_i__const__1\u0027h1__w1.out"
       ],
@@ -4567,7 +5543,7 @@
       ]
     },
     {
-      "id": "e150",
+      "id": "e177",
       "sources": [
         "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.out"
       ],
@@ -4580,7 +5556,7 @@
       ]
     },
     {
-      "id": "e151",
+      "id": "e178",
       "sources": [
         "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.0"
       ],
@@ -4593,7 +5569,7 @@
       ]
     },
     {
-      "id": "e152",
+      "id": "e179",
       "sources": [
         "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.1"
       ],
@@ -4606,7 +5582,7 @@
       ]
     },
     {
-      "id": "e153",
+      "id": "e180",
       "sources": [
         "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.2"
       ],
@@ -4619,7 +5595,7 @@
       ]
     },
     {
-      "id": "e154",
+      "id": "e181",
       "sources": [
         "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.3"
       ],

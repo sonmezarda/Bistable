@@ -24,13 +24,6 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         ArgumentNullException.ThrowIfNull(metadata);
         ArgumentException.ThrowIfNullOrWhiteSpace(projectDirectory);
 
-        IReadOnlyList<SignalPort> unsupportedPorts = metadata.Ports.Where(static port => port.Width > 64).ToArray();
-        if (unsupportedPorts.Count > 0)
-        {
-            string names = string.Join(", ", unsupportedPorts.Select(static port => $"{port.Name}[{port.Width}]"));
-            throw new NotSupportedException($"Native worker currently supports ports up to 64 bits. Unsupported ports: {names}");
-        }
-
         string buildDirectory = Path.Combine(projectDirectory, ".bistable", "worker", configuration.TopModule);
         SemaphoreSlim buildLock = BuildLocks.GetOrAdd(buildDirectory, static _ => new SemaphoreSlim(1, 1));
         await buildLock.WaitAsync(cancellationToken);
@@ -181,13 +174,16 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         StringBuilder builder = new();
         builder.AppendLine("#include <cstdint>");
         builder.AppendLine("#include <cstdlib>");
+        builder.AppendLine("#include <cctype>");
         builder.AppendLine("#include <cstdio>");
         builder.AppendLine("#include <functional>");
+        builder.AppendLine("#include <iomanip>");
         builder.AppendLine("#include <iostream>");
         builder.AppendLine("#include <map>");
         builder.AppendLine("#include <memory>");
         builder.AppendLine("#include <regex>");
         builder.AppendLine("#include <sstream>");
+        builder.AppendLine("#include <stdexcept>");
         builder.AppendLine("#include <string>");
         builder.AppendLine("#include <tuple>");
         builder.AppendLine("#include <unordered_map>");
@@ -238,6 +234,8 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("    return std::to_string(static_cast<unsigned long long>(value));");
         builder.AppendLine("}");
         builder.AppendLine();
+        AppendWideValueHelpers(builder);
+        builder.AppendLine();
         builder.AppendLine("std::string json_escape(const std::string& value) {");
         builder.AppendLine("    std::ostringstream out;");
         builder.AppendLine("    for (char c : value) {");
@@ -266,7 +264,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("void append_output_trace(const " + modelType + "& model, std::uint64_t time, trace_buffer& trace) {");
         foreach (SignalPort port in metadata.Outputs)
         {
-            builder.AppendLine($"    append_trace(trace, \"{port.Name}\", to_decimal_string(static_cast<std::uint64_t>(model.{port.Name})), time);");
+            builder.AppendLine($"    append_trace(trace, \"{port.Name}\", {FormatPortValueExpression($"model.{port.Name}", port)}, time);");
         }
         builder.AppendLine("}");
         builder.AppendLine();
@@ -276,7 +274,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         {
             string separator = first ? string.Empty : ",";
             first = false;
-            builder.AppendLine($"    std::cout << \"{separator}{{\\\"signal\\\":\\\"{port.Name}\\\",\\\"value\\\":\\\"\" << static_cast<unsigned long long>(model.{port.Name}) << \"\\\",\\\"time\\\":0}}\";");
+            builder.AppendLine($"    std::cout << \"{separator}{{\\\"signal\\\":\\\"{port.Name}\\\",\\\"value\\\":\\\"\" << {FormatPortValueExpression($"model.{port.Name}", port)} << \"\\\",\\\"time\\\":0}}\";");
         }
         builder.AppendLine("}");
         builder.AppendLine();
@@ -337,10 +335,9 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("            if (type == \"setInput\") {");
         builder.AppendLine("                const std::string signal = get_string(line, \"signal\");");
         builder.AppendLine("                const std::string raw_value = get_string(line, \"value\");");
-        builder.AppendLine("                const std::uint64_t value = parse_u64(raw_value);");
         foreach (SignalPort port in metadata.Inputs)
         {
-            builder.AppendLine($"                if (signal == \"{port.Name}\") model->{port.Name} = value;");
+            builder.AppendLine($"                if (signal == \"{port.Name}\") {SetInputStatement($"model->{port.Name}", port)}");
         }
 
         builder.AppendLine("                append_trace(trace, signal, raw_value, time);");
@@ -471,6 +468,123 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
 
         return builder.ToString();
     }
+
+    private static void AppendWideValueHelpers(StringBuilder builder)
+    {
+        builder.AppendLine("int hex_digit(char ch) {");
+        builder.AppendLine("    if (ch >= '0' && ch <= '9') return ch - '0';");
+        builder.AppendLine("    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;");
+        builder.AppendLine("    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;");
+        builder.AppendLine("    return -1;");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("void mask_words(std::vector<std::uint32_t>& words, int width) {");
+        builder.AppendLine("    if (words.empty()) return;");
+        builder.AppendLine("    const int used = width % 32;");
+        builder.AppendLine("    if (used != 0) words.back() &= ((std::uint32_t{1} << used) - 1U);");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("void shift_words_left(std::vector<std::uint32_t>& words, unsigned bits) {");
+        builder.AppendLine("    std::uint64_t carry = 0;");
+        builder.AppendLine("    for (std::uint32_t& word : words) {");
+        builder.AppendLine("        std::uint64_t next = (static_cast<std::uint64_t>(word) << bits) | carry;");
+        builder.AppendLine("        word = static_cast<std::uint32_t>(next);");
+        builder.AppendLine("        carry = next >> 32U;");
+        builder.AppendLine("    }");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("void multiply_words(std::vector<std::uint32_t>& words, std::uint32_t factor) {");
+        builder.AppendLine("    std::uint64_t carry = 0;");
+        builder.AppendLine("    for (std::uint32_t& word : words) {");
+        builder.AppendLine("        std::uint64_t next = static_cast<std::uint64_t>(word) * factor + carry;");
+        builder.AppendLine("        word = static_cast<std::uint32_t>(next);");
+        builder.AppendLine("        carry = next >> 32U;");
+        builder.AppendLine("    }");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("void add_word(std::vector<std::uint32_t>& words, std::uint32_t value) {");
+        builder.AppendLine("    std::uint64_t carry = value;");
+        builder.AppendLine("    for (std::uint32_t& word : words) {");
+        builder.AppendLine("        if (carry == 0) return;");
+        builder.AppendLine("        std::uint64_t next = static_cast<std::uint64_t>(word) + carry;");
+        builder.AppendLine("        word = static_cast<std::uint32_t>(next);");
+        builder.AppendLine("        carry = next >> 32U;");
+        builder.AppendLine("    }");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("std::vector<std::uint32_t> parse_words(const std::string& text, int width, int word_count) {");
+        builder.AppendLine("    std::vector<std::uint32_t> words(static_cast<std::size_t>(word_count), 0U);");
+        builder.AppendLine("    std::size_t index = 0;");
+        builder.AppendLine("    while (index < text.size() && std::isspace(static_cast<unsigned char>(text[index]))) ++index;");
+        builder.AppendLine("    if (index + 2 <= text.size() && text[index] == '0' && (text[index + 1] == 'x' || text[index + 1] == 'X')) {");
+        builder.AppendLine("        std::size_t nibble = 0;");
+        builder.AppendLine("        for (std::size_t pos = text.size(); pos-- > index + 2;) {");
+        builder.AppendLine("            if (std::isspace(static_cast<unsigned char>(text[pos])) || text[pos] == '_') continue;");
+        builder.AppendLine("            int digit = hex_digit(text[pos]);");
+        builder.AppendLine("            if (digit < 0) throw std::invalid_argument(\"invalid hex value\");");
+        builder.AppendLine("            std::size_t word_index = nibble / 8U;");
+        builder.AppendLine("            if (word_index < words.size()) words[word_index] |= static_cast<std::uint32_t>(digit) << ((nibble % 8U) * 4U);");
+        builder.AppendLine("            ++nibble;");
+        builder.AppendLine("        }");
+        builder.AppendLine("    } else if (index + 2 <= text.size() && text[index] == '0' && (text[index + 1] == 'b' || text[index + 1] == 'B')) {");
+        builder.AppendLine("        for (std::size_t pos = index + 2; pos < text.size(); ++pos) {");
+        builder.AppendLine("            if (std::isspace(static_cast<unsigned char>(text[pos])) || text[pos] == '_') continue;");
+        builder.AppendLine("            if (text[pos] != '0' && text[pos] != '1') throw std::invalid_argument(\"invalid binary value\");");
+        builder.AppendLine("            shift_words_left(words, 1U);");
+        builder.AppendLine("            if (text[pos] == '1') add_word(words, 1U);");
+        builder.AppendLine("        }");
+        builder.AppendLine("    } else {");
+        builder.AppendLine("        for (std::size_t pos = index; pos < text.size(); ++pos) {");
+        builder.AppendLine("            if (std::isspace(static_cast<unsigned char>(text[pos])) || text[pos] == '_') continue;");
+        builder.AppendLine("            if (text[pos] < '0' || text[pos] > '9') throw std::invalid_argument(\"invalid decimal value\");");
+        builder.AppendLine("            multiply_words(words, 10U);");
+        builder.AppendLine("            add_word(words, static_cast<std::uint32_t>(text[pos] - '0'));");
+        builder.AppendLine("        }");
+        builder.AppendLine("    }");
+        builder.AppendLine("    mask_words(words, width);");
+        builder.AppendLine("    return words;");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("template <typename T>");
+        builder.AppendLine("void assign_wide(T& target, const std::string& text, int width, int word_count) {");
+        builder.AppendLine("    std::vector<std::uint32_t> words = parse_words(text, width, word_count);");
+        builder.AppendLine("    for (int i = 0; i < word_count; ++i) target[i] = words[static_cast<std::size_t>(i)];");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("template <typename T>");
+        builder.AppendLine("std::string format_wide(const T& source, int width, int word_count) {");
+        builder.AppendLine("    std::vector<std::uint32_t> words(static_cast<std::size_t>(word_count), 0U);");
+        builder.AppendLine("    for (int i = 0; i < word_count; ++i) words[static_cast<std::size_t>(i)] = static_cast<std::uint32_t>(source[i]);");
+        builder.AppendLine("    mask_words(words, width);");
+        builder.AppendLine("    std::ostringstream out;");
+        builder.AppendLine("    out << \"0x\" << std::hex;");
+        builder.AppendLine("    bool emitted = false;");
+        builder.AppendLine("    for (int i = word_count - 1; i >= 0; --i) {");
+        builder.AppendLine("        std::uint32_t word = words[static_cast<std::size_t>(i)];");
+        builder.AppendLine("        if (!emitted) {");
+        builder.AppendLine("            if (word == 0U) continue;");
+        builder.AppendLine("            out << word;");
+        builder.AppendLine("            emitted = true;");
+        builder.AppendLine("        } else {");
+        builder.AppendLine("            out << std::setw(8) << std::setfill('0') << word;");
+        builder.AppendLine("        }");
+        builder.AppendLine("    }");
+        builder.AppendLine("    if (!emitted) out << '0';");
+        builder.AppendLine("    return out.str();");
+        builder.AppendLine("}");
+    }
+
+    private static string FormatPortValueExpression(string accessExpression, SignalPort port) =>
+        port.Width <= 64
+            ? $"to_decimal_string(static_cast<std::uint64_t>({accessExpression}))"
+            : $"format_wide({accessExpression}, {port.Width.ToString(CultureInfo.InvariantCulture)}, {WideWordCount(port.Width).ToString(CultureInfo.InvariantCulture)})";
+
+    private static string SetInputStatement(string accessExpression, SignalPort port) =>
+        port.Width <= 64
+            ? $"{accessExpression} = parse_u64(raw_value);"
+            : $"assign_wide({accessExpression}, raw_value, {port.Width.ToString(CultureInfo.InvariantCulture)}, {WideWordCount(port.Width).ToString(CultureInfo.InvariantCulture)});";
+
+    private static int WideWordCount(int width) => Math.Max(1, (width + 31) / 32);
 
     private static void AppendTraceSupport(StringBuilder builder, string modelType, WorkerGenerationOptions options)
     {

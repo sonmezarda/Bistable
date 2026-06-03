@@ -1,3 +1,4 @@
+using System.Numerics;
 using Bistable.Core.Design.Ast;
 
 namespace Bistable.Core.Design.Schematic;
@@ -27,6 +28,9 @@ public static class SchematicDecoder
             .Where(static s => !IsVerilatorInternalSignal(s.Name))
             .Select(s => new SignalPrimitive($"sig_{s.Name}", s.Name, s.Width, s.IsRegistered))
             .ToList();
+        Dictionary<string, SignalDecl> memorySignals = module.LocalSignals
+            .Where(static s => s.ArrayDims.Count > 0)
+            .ToDictionary(static s => s.Name, StringComparer.OrdinalIgnoreCase);
 
         List<InstancePrimitive> instances = module.Instances
             .Select(DecodeInstance)
@@ -47,7 +51,7 @@ public static class SchematicDecoder
         int seqIndex = 0;
         foreach (SequentialBlockAst block in module.SequentialBlocks)
         {
-            SchematicPrimitive? primitive = DecodeSequentialBlock(block, seqIndex++);
+            SchematicPrimitive? primitive = DecodeSequentialBlock(block, seqIndex++, logic, memorySignals);
             if (primitive is not null && !IsPrimitiveOnInternalSignal(primitive))
                 logic.Add(primitive);
         }
@@ -69,7 +73,7 @@ public static class SchematicDecoder
             string target = LValueName(ca.Target);
             if (fanOutSplitterTargets.Contains(target)) { caIndex++; continue; }
             if (IsVerilatorInternalSignal(target))       { caIndex++; continue; }
-            SchematicPrimitive? primitive = DecodeContAssign(ca, caIndex++);
+            SchematicPrimitive? primitive = DecodeContAssign(ca, caIndex++, logic, memorySignals);
             if (primitive is not null) logic.Add(primitive);
         }
 
@@ -178,6 +182,7 @@ public static class SchematicDecoder
         SplitterPrimitive spl  => IsVerilatorInternalSignal(spl.OutputSignal),
         JoinerPrimitive join   => IsVerilatorInternalSignal(join.OutputSignal),
         MemoryPrimitive mem    => IsVerilatorInternalSignal(mem.SignalName),
+        MemoryReadPrimitive rd => IsVerilatorInternalSignal(rd.OutputSignal),
         _ => false
     };
 
@@ -319,7 +324,11 @@ public static class SchematicDecoder
 
     // ── Sequential block decoding ───────────────────────────────────────────
 
-    private static SchematicPrimitive? DecodeSequentialBlock(SequentialBlockAst block, int index)
+    private static SchematicPrimitive? DecodeSequentialBlock(
+        SequentialBlockAst block,
+        int index,
+        List<SchematicPrimitive> logic,
+        IReadOnlyDictionary<string, SignalDecl> memorySignals)
     {
         // Identify clock and (optional) async reset triggers
         EdgeTrigger? clock = block.Triggers.FirstOrDefault(static t => t.Edge == EdgeKind.Rising);
@@ -340,6 +349,18 @@ public static class SchematicDecoder
 
         string qSignal = LValueName(assign.Target);
         if (string.IsNullOrEmpty(qSignal)) return null;
+        if (IsVerilatorInternalSignal(qSignal))
+        {
+            return new FlipFlopPrimitive(
+                Id: $"ff_{qSignal}_{index}",
+                QSignal: qSignal,
+                ClockSignal: clock.SignalName,
+                ClockEdge: clock.Edge,
+                AsyncResetSignal: null,
+                AsyncResetEdge: null,
+                DSignal: "?",
+                Width: 1);
+        }
 
         // Determine D signal (RHS) — peel off async reset mux if present
         ExpressionAst source = assign.Source;
@@ -353,7 +374,8 @@ public static class SchematicDecoder
             source = cond.IfTrue;
         }
 
-        string dSignal = ExpressionToSignalName(source) ?? "?";
+        ExpressionMaterializationContext context = new(qSignal, index, logic, memorySignals);
+        string dSignal = MaterializeExpression(source, context, "ff_d") ?? "?";
         int width = 1; // Width is not in the AST at this level; resolved by signal lookup in the renderer.
 
         return new FlipFlopPrimitive(
@@ -392,25 +414,49 @@ public static class SchematicDecoder
 
     // ── ContAssign decoding ─────────────────────────────────────────────────
 
-    private static SchematicPrimitive? DecodeContAssign(ContAssignAst ca, int index)
+    private static SchematicPrimitive? DecodeContAssign(
+        ContAssignAst ca,
+        int index,
+        List<SchematicPrimitive> logic,
+        IReadOnlyDictionary<string, SignalDecl> memorySignals)
     {
         string target = LValueName(ca.Target);
         if (string.IsNullOrEmpty(target)) return null;
 
-        return ca.Source switch
+        ExpressionMaterializationContext context = new(target, index, logic, memorySignals);
+        return DecodeExpressionToPrimitive(target, ca.Source, index, context);
+    }
+
+    private static SchematicPrimitive? DecodeExpressionToPrimitive(
+        string target,
+        ExpressionAst source,
+        int index,
+        ExpressionMaterializationContext context)
+    {
+        return source switch
         {
             // P2.6-8: constant-only contassign → tie primitive instead of a
             // buffer with a dangling input. The literal carries its formatted
             // textual form so the symbol can render "8'h00" / "1'b1" verbatim.
             ConstExpr c             => new ConstantTiePrimitive($"tie_{target}_{index}", target, FormatConstLiteral(c), c.Width),
             SignalRef s             => new BufferPrimitive($"buf_{target}_{index}", target, s.Name, 1),
-            BitSelectExpr bs        => DecodeSplitter(target, bs, index),
-            ConcatExpr cc           => DecodeJoiner(target, cc, index),
-            CondExpr cond           => DecodeTriStateOrMux(target, cond, index),
-            UnaryExpr u when u.Op == UnaryOp.Not => new InverterPrimitive($"inv_{target}_{index}", target, ExpressionToSignalName(u.Operand) ?? "?", 1),
-            UnaryExpr u             => DecodeUnaryGate(target, u, index),
-            BinaryExpr b            => DecodeBinary(target, b, index),
-            ExtendExpr ex           => new BufferPrimitive($"buf_{target}_{index}", target, ExpressionToSignalName(ex.Inner) ?? "?", 1),
+            BitSelectExpr bs        => DecodeSplitter(target, bs, index, context),
+            ArraySelectExpr arr     => DecodeMemoryRead(target, arr, index, context),
+            ConcatExpr cc           => DecodeJoiner(target, cc, index, context),
+            ReplicateExpr rep       => DecodeReplicate(target, rep, index, context),
+            CondExpr cond           => DecodeTriStateOrMux(target, cond, index, context),
+            UnaryExpr u when u.Op == UnaryOp.Not => new InverterPrimitive(
+                $"inv_{target}_{index}",
+                target,
+                MaterializeExpression(u.Operand, context, "not_in") ?? "?",
+                1),
+            UnaryExpr u             => DecodeUnaryGate(target, u, index, context),
+            BinaryExpr b            => DecodeBinary(target, b, index, context),
+            ExtendExpr ex           => new BufferPrimitive(
+                $"buf_{target}_{index}",
+                target,
+                MaterializeExpression(ex.Inner, context, "extend_in") ?? "?",
+                1),
             _ => null
         };
     }
@@ -428,9 +474,13 @@ public static class SchematicDecoder
         return $"{c.Width}'h{hex}";
     }
 
-    private static SplitterPrimitive DecodeSplitter(string target, BitSelectExpr bs, int index)
+    private static SplitterPrimitive DecodeSplitter(
+        string target,
+        BitSelectExpr bs,
+        int index,
+        ExpressionMaterializationContext context)
     {
-        string inputName = ExpressionToSignalName(bs.Base) ?? "?";
+        string inputName = MaterializeExpression(bs.Base, context, "split_in") ?? "?";
         return new SplitterPrimitive(
             Id: $"split_{target}_{index}",
             OutputSignal: target,
@@ -440,13 +490,80 @@ public static class SchematicDecoder
             OutputWidth: bs.Range.Width);
     }
 
-    private static JoinerPrimitive DecodeJoiner(string target, ConcatExpr cc, int index)
+    private static JoinerPrimitive DecodeJoiner(
+        string target,
+        ConcatExpr cc,
+        int index,
+        ExpressionMaterializationContext context)
     {
-        List<string> inputs = cc.Parts.Select(p => ExpressionToSignalName(p) ?? "?").ToList();
+        List<string> inputs = cc.Parts
+            .Select((p, i) => MaterializeExpression(p, context, $"join_in_{i}") ?? "?")
+            .ToList();
         return new JoinerPrimitive(
             Id: $"join_{target}_{index}",
             OutputSignal: target,
             InputSignals: inputs,
+            OutputWidth: 0);
+    }
+
+    private static MemoryReadPrimitive? DecodeMemoryRead(
+        string target,
+        ArraySelectExpr arr,
+        int index,
+        ExpressionMaterializationContext context)
+    {
+        string? memorySignal = ExpressionToSignalName(arr.Base);
+        if (string.IsNullOrWhiteSpace(memorySignal))
+            return null;
+
+        string addressSignal = MaterializeExpression(arr.Index, context, "mem_addr") ?? "?";
+        int cellWidth = context.TryGetMemory(memorySignal, out SignalDecl memory)
+            ? memory.Width
+            : 0;
+
+        return new MemoryReadPrimitive(
+            Id: $"memrd_{target}_{index}",
+            MemorySignal: memorySignal,
+            AddressSignal: addressSignal,
+            OutputSignal: target,
+            CellWidth: cellWidth);
+    }
+
+    private static SchematicPrimitive? DecodeReplicate(
+        string target,
+        ReplicateExpr rep,
+        int index,
+        ExpressionMaterializationContext context)
+    {
+        if (rep.Count <= 0)
+            return null;
+
+        if (rep.Pattern is ConstExpr c && !c.IsHighImpedance)
+        {
+            int patternWidth = Math.Max(1, c.Width);
+            BigInteger mask = (BigInteger.One << patternWidth) - BigInteger.One;
+            BigInteger patternValue = c.Value & mask;
+            BigInteger value = BigInteger.Zero;
+            for (int i = 0; i < rep.Count; i++)
+            {
+                value = (value << patternWidth) | patternValue;
+            }
+
+            return new ConstantTiePrimitive(
+                $"tie_{target}_{index}",
+                target,
+                FormatConstLiteral(new ConstExpr(value, patternWidth * rep.Count, c.IsSigned)),
+                patternWidth * rep.Count);
+        }
+
+        string? patternSignal = MaterializeExpression(rep.Pattern, context, "rep_pattern");
+        if (string.IsNullOrWhiteSpace(patternSignal))
+            return null;
+
+        return new JoinerPrimitive(
+            Id: $"join_{target}_{index}",
+            OutputSignal: target,
+            InputSignals: Enumerable.Repeat(patternSignal, rep.Count).ToList(),
             OutputWidth: 0);
     }
 
@@ -467,29 +584,37 @@ public static class SchematicDecoder
     /// (with high-impedance literal on one branch) become a TriStatePrimitive;
     /// everything else falls through to the regular mux decoder.
     /// </summary>
-    private static SchematicPrimitive DecodeTriStateOrMux(string target, CondExpr root, int index)
+    private static SchematicPrimitive DecodeTriStateOrMux(
+        string target,
+        CondExpr root,
+        int index,
+        ExpressionMaterializationContext context)
     {
-        if (TryExtractTriState(target, root, index) is { } tri) return tri;
-        return DecodeMux(target, root, index);
+        if (TryExtractTriState(target, root, index, context) is { } tri) return tri;
+        return DecodeMux(target, root, index, context);
     }
 
-    private static TriStatePrimitive? TryExtractTriState(string target, CondExpr cond, int index)
+    private static TriStatePrimitive? TryExtractTriState(
+        string target,
+        CondExpr cond,
+        int index,
+        ExpressionMaterializationContext context)
     {
         // Pattern A: en ? data : 'z (active-high enable, data on the true side)
         if (cond.IfFalse is ConstExpr { IsHighImpedance: true } && cond.IfTrue is { } trueExpr
-            && ExpressionToSignalName(trueExpr) is { } dataA
-            && cond.Condition is SignalRef enA)
+            && MaterializeExpression(trueExpr, context, "tristate_data") is { } dataA
+            && MaterializeExpression(cond.Condition, context, "tristate_en") is { } enA)
         {
             int width = WidthOf(trueExpr) ?? 1;
-            return new TriStatePrimitive($"tristate_{target}_{index}", target, dataA, enA.Name, EnableActiveHigh: true, Width: width);
+            return new TriStatePrimitive($"tristate_{target}_{index}", target, dataA, enA, EnableActiveHigh: true, Width: width);
         }
         // Pattern B: en ? 'z : data (active-low enable, data on the false side)
         if (cond.IfTrue is ConstExpr { IsHighImpedance: true } && cond.IfFalse is { } falseExpr
-            && ExpressionToSignalName(falseExpr) is { } dataB
-            && cond.Condition is SignalRef enB)
+            && MaterializeExpression(falseExpr, context, "tristate_data") is { } dataB
+            && MaterializeExpression(cond.Condition, context, "tristate_en") is { } enB)
         {
             int width = WidthOf(falseExpr) ?? 1;
-            return new TriStatePrimitive($"tristate_{target}_{index}", target, dataB, enB.Name, EnableActiveHigh: false, Width: width);
+            return new TriStatePrimitive($"tristate_{target}_{index}", target, dataB, enB, EnableActiveHigh: false, Width: width);
         }
         return null;
     }
@@ -501,7 +626,11 @@ public static class SchematicDecoder
         _ => null
     };
 
-    private static MuxPrimitive DecodeMux(string target, CondExpr root, int index)
+    private static MuxPrimitive DecodeMux(
+        string target,
+        CondExpr root,
+        int index,
+        ExpressionMaterializationContext context)
     {
         // Walk the chain iteratively to collect (selector, ifTrue) pairs + the final else.
         // We track BOTH the wire-up name and the display label separately:
@@ -518,7 +647,7 @@ public static class SchematicDecoder
         ExpressionAst current = root;
         while (current is CondExpr c)
         {
-            selectors.Add(ExpressionToSignalName(c.Condition) ?? "?");
+            selectors.Add(MaterializeExpression(c.Condition, context, $"mux_sel_{selectors.Count}") ?? "?");
             selectorLabels.Add(ExpressionToReadableLabel(c.Condition) ?? "?");
             branches.Add(c.IfTrue);
             current = c.IfFalse;
@@ -530,7 +659,7 @@ public static class SchematicDecoder
         bool simpleTernary = selectors.Count == 1;
         for (int i = 0; i < branches.Count; i++)
         {
-            MuxSource source = ToMuxSource(branches[i]);
+            MuxSource source = ToMuxSource(branches[i], context, $"mux_in_{i}");
             string label;
             if (simpleTernary)
             {
@@ -580,13 +709,16 @@ public static class SchematicDecoder
     /// expectation. P2.6-1 (tmp fold) will replace this with the actual folded
     /// expression once it lands.
     /// </summary>
-    private static MuxSource ToMuxSource(ExpressionAst expr)
+    private static MuxSource ToMuxSource(
+        ExpressionAst expr,
+        ExpressionMaterializationContext context,
+        string role)
     {
         MuxSource result = expr switch
         {
             SignalRef s => new MuxSignalSource(s.Name),
             ConstExpr c => new MuxConstantSource(c.Value.ToString(), c.Width),
-            _ => ExpressionToSignalName(expr) is { Length: > 0 } name
+            _ => MaterializeExpression(expr, context, role) is { Length: > 0 } name
                     ? new MuxSignalSource(name)
                     : new MuxConstantSource("X", 1)
         };
@@ -597,7 +729,11 @@ public static class SchematicDecoder
         return result;
     }
 
-    private static SchematicPrimitive? DecodeUnaryGate(string target, UnaryExpr u, int index)
+    private static SchematicPrimitive? DecodeUnaryGate(
+        string target,
+        UnaryExpr u,
+        int index,
+        ExpressionMaterializationContext context)
     {
         GateKind? gateKind = u.Op switch
         {
@@ -609,14 +745,18 @@ public static class SchematicDecoder
 
         if (gateKind is null) return null;
 
-        string input = ExpressionToSignalName(u.Operand) ?? "?";
+        string input = MaterializeExpression(u.Operand, context, "unary_in") ?? "?";
         return new GatePrimitive($"op_{target}_{index}", target, gateKind.Value, [input], 1);
     }
 
-    private static SchematicPrimitive? DecodeBinary(string target, BinaryExpr b, int index)
+    private static SchematicPrimitive? DecodeBinary(
+        string target,
+        BinaryExpr b,
+        int index,
+        ExpressionMaterializationContext context)
     {
-        string left = ExpressionToSignalName(b.Left) ?? "?";
-        string right = ExpressionToSignalName(b.Right) ?? "?";
+        string left = MaterializeExpression(b.Left, context, "left") ?? "?";
+        string right = MaterializeExpression(b.Right, context, "right") ?? "?";
 
         // Logic gates
         GateKind? gateKind = b.Op switch
@@ -680,6 +820,27 @@ public static class SchematicDecoder
         _ => null
     };
 
+    private static string? MaterializeExpression(
+        ExpressionAst expr,
+        ExpressionMaterializationContext context,
+        string role)
+    {
+        if (ExpressionToSignalName(expr) is { Length: > 0 } name)
+            return name;
+
+        if (expr is FunctionCallExpr)
+            return null;
+
+        string signalName = context.CreateSignalName(role);
+        int primitiveIndex = context.NextPrimitiveIndex();
+        SchematicPrimitive? primitive = DecodeExpressionToPrimitive(signalName, expr, primitiveIndex, context);
+        if (primitive is null)
+            return null;
+
+        context.Logic.Add(primitive);
+        return signalName;
+    }
+
     /// <summary>
     /// Like <see cref="ExpressionToSignalName"/> but preserves bit-select range info
     /// in the returned string (e.g. <c>"control_pins[3:2]"</c>) so chained-mux
@@ -696,4 +857,36 @@ public static class SchematicDecoder
         ExtendExpr ex      => ExpressionToReadableLabel(ex.Inner),
         _ => null
     };
+
+    private sealed class ExpressionMaterializationContext(
+        string ownerSignal,
+        int ownerIndex,
+        List<SchematicPrimitive> logic,
+        IReadOnlyDictionary<string, SignalDecl> memorySignals)
+    {
+        private int _signalIndex;
+        private int _primitiveIndex;
+
+        public List<SchematicPrimitive> Logic { get; } = logic;
+
+        public bool TryGetMemory(string signalName, out SignalDecl memory)
+        {
+            if (memorySignals.TryGetValue(signalName, out SignalDecl? resolved))
+            {
+                memory = resolved;
+                return true;
+            }
+
+            memory = null!;
+            return false;
+        }
+
+        public string CreateSignalName(string role)
+        {
+            string safeRole = new(role.Select(static c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+            return $"__schematic_expr_{ownerSignal}_{ownerIndex}_{safeRole}_{_signalIndex++}";
+        }
+
+        public int NextPrimitiveIndex() => 10_000 + (ownerIndex * 100) + _primitiveIndex++;
+    }
 }

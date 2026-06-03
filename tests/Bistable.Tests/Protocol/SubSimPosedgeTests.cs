@@ -64,6 +64,25 @@ public sealed class SubSimPosedgeTests
         Assert.Equal("0", @out.Value);   // we=0 → FF holds reset value
     }
 
+    [Fact]
+    public async Task ParameterizedElaboratedModule_BuildsWithSourceTopAndInstanceParameters()
+    {
+        string workerPath = await BuildElaboratedSubSimWorkerAsync("arnicomp", "reg_cell__W4");
+        await using SimulationWorkerClient client = new(workerPath);
+
+        await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "rst_n", "1"), CancellationToken.None);
+        await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "we", "1"), CancellationToken.None);
+        await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "oe", "1"), CancellationToken.None);
+        await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "d", "0xA"), CancellationToken.None);
+
+        SimulationFrame frame = await client.StepAsync(
+            new SimulationCommand(SimulationCommandType.SetInput, "clk", "1"),
+            CancellationToken.None);
+
+        SignalSample @out = Assert.Single(frame.Signals, s => s.Signal == "out");
+        Assert.Equal("10", @out.Value);
+    }
+
     private static async Task<string> BuildSubSimWorkerAsync(string sampleName, string subModule, string parameter, string value)
     {
         string root = FindRepositoryRoot();
@@ -96,6 +115,42 @@ public sealed class SubSimPosedgeTests
         finally
         {
             File.Delete(xmlPath);
+        }
+    }
+
+    private static async Task<string> BuildElaboratedSubSimWorkerAsync(string sampleName, string elaboratedModuleName)
+    {
+        string root = FindRepositoryRoot();
+        string sampleDirectory = Path.Combine(root, "samples", sampleName);
+        ProjectConfiguration baseConfig = await ProjectConfiguration.LoadAsync(
+            Path.Combine(sampleDirectory, $"{sampleName}.bistable.json"),
+            CancellationToken.None);
+
+        string topXmlPath = Path.Combine(Path.GetTempPath(), $"bistable-top-{Guid.NewGuid():N}.xml");
+        string subXmlPath = Path.Combine(Path.GetTempPath(), $"bistable-elab-subsim-{Guid.NewGuid():N}.xml");
+        VerilatorTool tool = new();
+        try
+        {
+            await tool.GenerateXmlAsync(baseConfig, sampleDirectory, topXmlPath, CancellationToken.None);
+            DesignAst topAst = new VerilatorXmlAstReader().Read(topXmlPath);
+            ElaboratedDesign topDesign = LegacyDesignFlattener.Flatten(topAst, baseConfig.TopModule);
+            ModuleMetadata metadata = topDesign.ModuleCatalog[elaboratedModuleName];
+
+            SubSimulationConfiguration resolved =
+                SubSimulationConfigurationResolver.Resolve(baseConfig, metadata);
+
+            await tool.GenerateXmlAsync(resolved.Project, sampleDirectory, subXmlPath, CancellationToken.None);
+            DesignAst isolatedAst = new VerilatorXmlAstReader().Read(subXmlPath);
+
+            SimulationWorkerBuildResult build = await new SimulationWorkerBuilder().BuildAsync(
+                resolved.Project, metadata, sampleDirectory, CancellationToken.None,
+                progress: null, designAst: isolatedAst);
+            return build.ExecutablePath;
+        }
+        finally
+        {
+            if (File.Exists(topXmlPath)) File.Delete(topXmlPath);
+            if (File.Exists(subXmlPath)) File.Delete(subXmlPath);
         }
     }
 

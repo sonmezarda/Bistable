@@ -19,11 +19,11 @@ namespace Bistable.Tests.Schematic;
 ///         non-existent multi-bit selector.</item>
 /// </list>
 ///
-/// <para><b>Orphan handling:</b> Complex sub-expressions that can't reduce to a
-/// signal name (e.g. <c>a &amp; b</c>, <c>{c, d}</c>) become
-/// <see cref="MuxConstantSource"/> with literal "X" (don't-care) — previously
-/// they emitted <see cref="MuxSignalSource"/>("?") which produced floating
-/// unconnected ports in the renderer.</para>
+/// <para><b>Nested source handling:</b> Complex sub-expressions that can be
+/// decoded structurally (e.g. <c>a &amp; b</c>, <c>{c, d}</c>) are materialized
+/// as intermediate primitives and feed the mux through synthetic wires. Truly
+/// unsupported expressions still become <see cref="MuxConstantSource"/> with
+/// literal "X" so the port is intentionally labelled instead of floating.</para>
 /// </summary>
 public sealed class MuxLabelClarityTests
 {
@@ -97,11 +97,10 @@ public sealed class MuxLabelClarityTests
     // ── Orphan source: complex sub-expression → constant X ────────────────
 
     [Fact]
-    public void OrphanInput_ComplexExpression_BecomesConstantX()
+    public void NestedInput_ComplexExpression_MaterializesGateSource()
     {
-        // assign y = sel ? (a & b) : c;  — the (a & b) is a BinaryExpr, can't reduce
-        // to a single signal name. Pre-fix: MuxSignalSource("?") + empty port.
-        // Post-fix: MuxConstantSource("X", 1) + label suffix "·X".
+        // assign y = sel ? (a & b) : c;  — the (a & b) is a BinaryExpr, so the
+        // decoder must materialize it as a real gate feeding the mux input.
         ContAssignAst ca = new(
             new VarRefLValue("y"),
             new CondExpr(
@@ -109,22 +108,25 @@ public sealed class MuxLabelClarityTests
                 new BinaryExpr(BinaryOp.And, new SignalRef("a"), new SignalRef("b")),
                 new SignalRef("c")));
 
-        MuxPrimitive mux = Assert.Single(SchematicDecoder.Decode(Wrap(ca)).Logic.OfType<MuxPrimitive>());
+        SchematicPrimitiveList decoded = SchematicDecoder.Decode(Wrap(ca));
+        MuxPrimitive mux = Assert.Single(decoded.Logic.OfType<MuxPrimitive>());
         Assert.Equal(2, mux.Inputs.Count);
 
-        // First input was a BinaryExpr — should be don't-care constant
-        MuxConstantSource constSrc = Assert.IsType<MuxConstantSource>(mux.Inputs[0].Source);
-        Assert.Equal("X", constSrc.Literal);
+        MuxSignalSource source = Assert.IsType<MuxSignalSource>(mux.Inputs[0].Source);
+        GatePrimitive gate = Assert.Single(decoded.Logic.OfType<GatePrimitive>());
+        Assert.Equal(source.SignalName, gate.OutputSignal);
+        Assert.Equal(GateKind.And, gate.Kind);
+        Assert.Equal(new[] { "a", "b" }, gate.InputSignals);
 
         // Second input was a plain signal — unaffected
         Assert.IsType<MuxSignalSource>(mux.Inputs[1].Source);
     }
 
     [Fact]
-    public void OrphanInput_LabelHasXSuffix_ToFlagUnconnectedDontCare()
+    public void MaterializedInput_LabelKeepsBranchMeaning()
     {
-        // The label suffix "·X" tells the user the port has no wire BY DESIGN
-        // (don't-care from an unresolvable sub-expression) — not a renderer bug.
+        // Once the complex branch has a real wire, the label should stay focused
+        // on the branch condition instead of showing the older X suffix.
         ContAssignAst ca = new(
             new VarRefLValue("y"),
             new CondExpr(
@@ -134,19 +136,16 @@ public sealed class MuxLabelClarityTests
 
         MuxPrimitive mux = Assert.Single(SchematicDecoder.Decode(Wrap(ca)).Logic.OfType<MuxPrimitive>());
 
-        // For a 2-input mux, the IfTrue branch normally gets label "1".
-        // When its source is an X don't-care, we append "·X" → "1·X".
-        Assert.Equal("1·X", mux.Inputs[0].Label);
-        // Non-orphan branch keeps its plain label
+        Assert.Equal("1", mux.Inputs[0].Label);
         Assert.Equal("0", mux.Inputs[1].Label);
     }
 
     [Fact]
-    public void OrphanInput_LabelHasXSuffix_InChainedTernary()
+    public void MaterializedInput_LabelKeepsBranchMeaning_InChainedTernary()
     {
         // Chained: s1 ? (a & b) : s0 ? c : d
         // Selector labels: s1, s0; "else" for final default.
-        // First branch source is orphan → label "s1·X".
+        // First branch source is materialized → label remains "s1".
         ContAssignAst ca = new(
             new VarRefLValue("y"),
             new CondExpr(
@@ -155,7 +154,7 @@ public sealed class MuxLabelClarityTests
                 new CondExpr(new SignalRef("s0"), new SignalRef("c"), new SignalRef("d"))));
 
         MuxPrimitive mux = Assert.Single(SchematicDecoder.Decode(Wrap(ca)).Logic.OfType<MuxPrimitive>());
-        Assert.Equal("s1·X", mux.Inputs[0].Label);
+        Assert.Equal("s1", mux.Inputs[0].Label);
         Assert.Equal("s0",   mux.Inputs[1].Label);
         Assert.Equal("else", mux.Inputs[2].Label);
     }
@@ -260,13 +259,13 @@ public sealed class MuxLabelClarityTests
         // suffix ("·X" for orphan/internal-tmp, "·<value>" for constants) so the
         // user can tell at a glance that the empty port is intentional, not a bug.
         // Tested cases:
-        //   1. orphan (BinaryExpr)   → "1·X"
-        //   2. internal-tmp source   → label of original SOURCE replaced with "·X"
-        //   3. literal constant      → "0·<value>"
-        ContAssignAst orphan = new(
+        //   1. unmaterializable source → "1·X"
+        //   2. internal-tmp source     → label of original SOURCE replaced with "·X"
+        //   3. literal constant        → "0·<value>"
+        ContAssignAst unsupported = new(
             new VarRefLValue("y1"),
             new CondExpr(new SignalRef("s"),
-                new BinaryExpr(BinaryOp.And, new SignalRef("a"), new SignalRef("b")),
+                new FunctionCallExpr("user_func", [new SignalRef("a")]),
                 new SignalRef("c")));
         ContAssignAst tmp = new(
             new VarRefLValue("y2"),
@@ -282,20 +281,20 @@ public sealed class MuxLabelClarityTests
         ModuleAst module = new(
             Name: "top", IsTop: true,
             Ports: [], Parameters: [], LocalSignals: [], Instances: [],
-            ContAssigns: [orphan, tmp, constAst],
+            ContAssigns: [unsupported, tmp, constAst],
             SequentialBlocks: [], CombinationalBlocks: []);
 
         var muxes = SchematicDecoder.Decode(module).Logic.OfType<MuxPrimitive>().ToList();
         Assert.Equal(3, muxes.Count);
 
-        Assert.Equal("1·X", muxes[0].Inputs[0].Label);   // orphan
+        Assert.Equal("1·X", muxes[0].Inputs[0].Label);   // unsupported expression
         Assert.Equal("1·X", muxes[1].Inputs[0].Label);   // tmp source
         Assert.Equal("0·1", muxes[2].Inputs[1].Label);   // constant
     }
 
     /// <summary>SV equivalent: <c>assign y = sel ? {a, b} : c;</c></summary>
     [Fact]
-    public void OrphanInput_ConcatExpression_BecomesConstantX()
+    public void NestedInput_ConcatExpression_MaterializesJoinerSource()
     {
         ContAssignAst ca = new(
             new VarRefLValue("y"),
@@ -304,8 +303,12 @@ public sealed class MuxLabelClarityTests
                 new ConcatExpr([new SignalRef("a"), new SignalRef("b")]),
                 new SignalRef("c")));
 
-        MuxPrimitive mux = Assert.Single(SchematicDecoder.Decode(Wrap(ca)).Logic.OfType<MuxPrimitive>());
-        Assert.IsType<MuxConstantSource>(mux.Inputs[0].Source);
+        SchematicPrimitiveList decoded = SchematicDecoder.Decode(Wrap(ca));
+        MuxPrimitive mux = Assert.Single(decoded.Logic.OfType<MuxPrimitive>());
+        MuxSignalSource source = Assert.IsType<MuxSignalSource>(mux.Inputs[0].Source);
+        JoinerPrimitive joiner = Assert.Single(decoded.Logic.OfType<JoinerPrimitive>());
+        Assert.Equal(source.SignalName, joiner.OutputSignal);
+        Assert.Equal(new[] { "a", "b" }, joiner.InputSignals);
     }
 
     [Fact]

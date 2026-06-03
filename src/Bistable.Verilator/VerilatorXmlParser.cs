@@ -59,7 +59,18 @@ public sealed class VerilatorXmlParser
             .Select(ParseParameter)
             .ToList();
 
-        return new ModuleMetadata((string?)module.Attribute("name") ?? "unknown", ports, parameters);
+        string name = (string?)module.Attribute("name") ?? "unknown";
+        string? originalName = ReadOriginalName(module, name);
+        return new ModuleMetadata(name, ports, parameters, originalName);
+    }
+
+    private static string? ReadOriginalName(XElement module, string moduleName)
+    {
+        string? originalName = (string?)module.Attribute("origName");
+        return string.IsNullOrWhiteSpace(originalName)
+            || string.Equals(originalName, moduleName, StringComparison.Ordinal)
+                ? null
+                : originalName;
     }
 
     private static DesignModuleDefinition ParseModuleDefinition(

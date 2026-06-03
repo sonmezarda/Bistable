@@ -159,6 +159,9 @@ public static class SchematicCoverageAnalyzer
                 case MemoryPrimitive memory:
                     Add(memory.SignalName);
                     break;
+                case MemoryReadPrimitive read:
+                    Add(read.OutputSignal);
+                    break;
                 case StructFanOutPrimitive fanOut:
                     Add(fanOut.StructSignal);
                     foreach (StructFanOutLeg leg in fanOut.Legs)
@@ -325,6 +328,11 @@ public static class SchematicCoverageAnalyzer
                     break;
                 case MemoryPrimitive memory:
                     endpoints.Add(ClassifySignal(moduleName, $"primitive:{primitive.Id}:mem", memory.SignalName, EndpointKind.Memory, unsupported));
+                    break;
+                case MemoryReadPrimitive read:
+                    AddInput(primitive.Id, "addr", read.AddressSignal, EndpointKind.PrimitiveInput);
+                    AddOutput(primitive.Id, "data", read.OutputSignal);
+                    endpoints.Add(ClassifySignal(moduleName, $"primitive:{primitive.Id}:mem", read.MemorySignal, EndpointKind.Memory, unsupported));
                     break;
                 case StructFanOutPrimitive fanOut:
                     AddInput(primitive.Id, "struct", fanOut.StructSignal, EndpointKind.PrimitiveInput);

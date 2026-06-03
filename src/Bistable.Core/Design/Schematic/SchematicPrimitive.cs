@@ -19,6 +19,7 @@ namespace Bistable.Core.Design.Schematic;
 [JsonDerivedType(typeof(SplitterPrimitive),  "Splitter")]
 [JsonDerivedType(typeof(JoinerPrimitive),    "Joiner")]
 [JsonDerivedType(typeof(MemoryPrimitive),    "Memory")]
+[JsonDerivedType(typeof(MemoryReadPrimitive), "MemoryRead")]
 [JsonDerivedType(typeof(InstancePrimitive),  "Instance")]
 [JsonDerivedType(typeof(PortPrimitive),      "Port")]
 [JsonDerivedType(typeof(SignalPrimitive),    "Signal")]
@@ -171,6 +172,17 @@ public sealed record MemoryPrimitive(
 {
     public int Depth => DepthHi - DepthLo + 1;
 }
+
+/// <summary>
+/// Dynamic read of an unpacked array / memory. Source: <c>mem[index]</c> expression.
+/// Rendered as a RAM read-port symbol with address input and data output.
+/// </summary>
+public sealed record MemoryReadPrimitive(
+    string Id,
+    string MemorySignal,
+    string AddressSignal,
+    string OutputSignal,
+    int CellWidth) : SchematicPrimitive(Id);
 
 // ── Topology ──────────────────────────────────────────────────────────────────
 

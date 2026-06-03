@@ -231,6 +231,44 @@ public sealed partial class SchematicPreviewControl
         }
     }
 
+    // ── Memory read port ───────────────────────────────────────────────────
+    //
+    // Compact RAM-read symbol for dynamic array accesses (`mem[addr]`). Unlike
+    // the inventory-style memory tile above, this is a routed datapath primitive:
+    // west address input, east data output.
+    private void DrawElkMemoryReadNode(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double scale,
+        SchematicLabelPlacementContext labelPlacement)
+    {
+        Pen stroke = new(Palette.ModuleStroke, 1.5);
+        Rect body = rect.Deflate(1);
+        context.DrawRectangle(Palette.NodeFill, stroke, body);
+
+        Pen lightStroke = new(Palette.PinStroke, 0.6);
+        for (int i = 1; i < 3; i++)
+        {
+            double y = body.Y + body.Height * i / 3;
+            context.DrawLine(lightStroke, new Point(body.X, y), new Point(body.Right, y));
+        }
+
+        if (node.Labels is { Count: > 0 })
+        {
+            string title = node.Labels[0].Text;
+            double fontSize = Math.Clamp(body.Height * 0.17, 7, 10);
+            double textW = MeasureLabelWidth(title, fontSize);
+            DrawText(context, title,
+                body.X + (body.Width - textW) / 2,
+                body.Y + 5,
+                Palette.Text, fontSize);
+        }
+
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
+        DrawPrimitiveLiveOutput(context, node, rect);
+    }
+
     // ── Buffer (right-pointing triangle, no bubble) ──────────────────────
     //
     // Classic non-inverting buffer symbol: triangle pointing east, output coming

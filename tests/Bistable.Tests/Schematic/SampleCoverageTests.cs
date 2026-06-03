@@ -9,9 +9,8 @@ public sealed class SampleCoverageTests
     [Fact]
     public void Arnicomp_MetadataXml_HasNoSilentSchematicCoverageMisses()
     {
-        string xmlPath = ResolveRepoFile("samples/arnicomp/.bistable/metadata/arnicomp_top.xml");
         VerilatorXmlAstReader reader = new();
-        DesignAst design = reader.Read(xmlPath);
+        DesignAst design = ReadArnicompMetadataXml(reader);
 
         SchematicCoverageReport report = SchematicCoverageAnalyzer.Analyze(design);
 
@@ -22,24 +21,41 @@ public sealed class SampleCoverageTests
     }
 
     [Fact]
-    public void Arnicomp_MetadataXml_ReportsCurrentUnsupportedConstructsExplicitly()
+    public void Arnicomp_MetadataXml_HasNoUnsupportedSchematicConstructs()
     {
-        string xmlPath = ResolveRepoFile("samples/arnicomp/.bistable/metadata/arnicomp_top.xml");
-        DesignAst design = new VerilatorXmlAstReader().Read(xmlPath);
+        DesignAst design = ReadArnicompMetadataXml(new VerilatorXmlAstReader());
 
         SchematicCoverageReport report = SchematicCoverageAnalyzer.Analyze(design);
 
         Assert.All(report.Modules, module => Assert.True(module.ExpectedEndpointCount > 0));
-        Assert.Equal(9, report.UnsupportedCount);
-        Assert.Contains(report.UnsupportedConstructs, static d => d.ConstructId == "primitive:ff_flush_next_instr_0:d");
-        Assert.Contains(report.UnsupportedConstructs, static d => d.ConstructId == "primitive:mux_mem_addr_1:in.0");
-        Assert.Contains(report.UnsupportedConstructs, static d => d.ConstructId == "primitive:mux_mem_addr_1:in.1");
-        Assert.Contains(report.UnsupportedConstructs, static d => d.ConstructId == "primitive:mux_mem_wdata_2:in.0");
-        Assert.Contains(report.UnsupportedConstructs, static d => d.ConstructId == "primitive:op_mem_ren_3:in.1");
-        Assert.Contains(report.UnsupportedConstructs, static d => d.ConstructId == "primitive:mux_bus_4:in.2");
-        Assert.Contains(report.UnsupportedConstructs, static d => d.ConstructId == "primitive:op_is_push_instr_7:left");
-        Assert.Contains(report.UnsupportedConstructs, static d => d.ConstructId == "primitive:op_is_push_instr_7:right");
-        Assert.Contains(report.UnsupportedConstructs, static d => d.ConstructId == "primitive:op_zero_flag_1:left");
+        Assert.Equal(0, report.UnsupportedCount);
+    }
+
+    private static DesignAst ReadArnicompMetadataXml(VerilatorXmlAstReader reader)
+    {
+        string sourcePath = ResolveRepoFile("samples/arnicomp/.bistable/metadata/arnicomp_top.xml");
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            string tempPath = Path.Combine(Path.GetTempPath(), $"bistable-arnicomp-{Guid.NewGuid():N}.xml");
+            try
+            {
+                File.Copy(sourcePath, tempPath);
+                return reader.Read(tempPath);
+            }
+            catch (System.Xml.XmlException) when (attempt < 9)
+            {
+                Thread.Sleep(50);
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
+        }
+
+        throw new InvalidOperationException("Unreachable arnicomp metadata read retry state.");
     }
 
     private static string FormatEndpoints(SchematicCoverageReport report, EndpointCoverageStatus status)
@@ -56,12 +72,6 @@ public sealed class SampleCoverageTests
                 endpoints.Select(static endpoint =>
                     $"{endpoint.ModuleName} {endpoint.EndpointId} {endpoint.SignalName}: {endpoint.Reason}"));
     }
-
-    private static string FormatUnsupported(SchematicCoverageReport report) =>
-        string.Join(
-            Environment.NewLine,
-            report.UnsupportedConstructs.Select(static diagnostic =>
-                $"{diagnostic.ModuleName} {diagnostic.ConstructId} {diagnostic.ConstructKind}: {diagnostic.Reason}"));
 
     private static string ResolveRepoFile(string relativePath)
     {

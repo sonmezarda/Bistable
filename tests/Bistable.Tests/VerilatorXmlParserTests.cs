@@ -49,6 +49,42 @@ public sealed class VerilatorXmlParserTests
     }
 
     [Fact]
+    public void ParsesOriginalModuleNameForParameterizedElaboratedModules()
+    {
+        string xmlPath = Path.Combine(Path.GetTempPath(), $"bistable-orig-{Guid.NewGuid():N}.xml");
+        File.WriteAllText(xmlPath, """
+        <verilator_xml>
+          <netlist>
+            <module name="reg_cell__W4" origName="reg_cell" topModule="1">
+              <var name="W" dtype_id="1" param="true">
+                <const name="32&apos;sh4" dtype_id="1" />
+              </var>
+              <var name="d" dtype_id="2" dir="input" pinIndex="1" vartype="logic" />
+            </module>
+            <typetable>
+              <basicdtype id="1" name="int" left="31" right="0" signed="true" />
+              <basicdtype id="2" name="logic" left="3" right="0" />
+            </typetable>
+          </netlist>
+        </verilator_xml>
+        """);
+
+        try
+        {
+            ModuleMetadata metadata = VerilatorXmlParser.Parse(xmlPath);
+
+            Assert.Equal("reg_cell__W4", metadata.Name);
+            Assert.Equal("reg_cell", metadata.OriginalName);
+            Assert.Equal("reg_cell", metadata.SourceName);
+            Assert.Equal("32'sh4", metadata.Parameters.Single().Value);
+        }
+        finally
+        {
+            File.Delete(xmlPath);
+        }
+    }
+
+    [Fact]
     public void ParsesHierarchyTreeFromCells()
     {
         string xmlPath = Path.Combine(Path.GetTempPath(), $"bistable-hier-{Guid.NewGuid():N}.xml");

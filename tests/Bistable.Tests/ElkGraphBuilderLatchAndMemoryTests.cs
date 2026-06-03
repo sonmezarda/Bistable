@@ -129,4 +129,47 @@ public sealed class ElkGraphBuilderLatchAndMemoryTests
         Assert.Equal(1, mem.Depth);
         Assert.Contains("[0:0]", node.Labels![0].Text);
     }
+
+    [Fact]
+    public void MemoryRead_EmitsReadNodeWithAddressAndDataPorts()
+    {
+        MemoryReadPrimitive read = new(
+            "memrd_data_0",
+            MemorySignal: "mem",
+            AddressSignal: "addr",
+            OutputSignal: "data",
+            CellWidth: 8);
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData([In("addr", 4), Out("data", 8)], [], [], [], Primitives: [read]),
+            compactLayout: true);
+
+        ElkNode node = Assert.Single(result.Graph.Children, n => ElkNodeIds.IsMemoryRead(n.Id));
+        Assert.NotNull(node.Ports);
+        Assert.Contains(node.Ports!, p => p.Id.EndsWith(".addr"));
+        Assert.Contains(node.Ports!, p => p.Id.EndsWith(".data"));
+        Assert.Contains("RD mem", node.Labels![0].Text);
+    }
+
+    [Fact]
+    public void MemoryRead_WiresAddressAndData()
+    {
+        MemoryReadPrimitive read = new(
+            "memrd_data_0",
+            MemorySignal: "mem",
+            AddressSignal: "addr",
+            OutputSignal: "data",
+            CellWidth: 8);
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData([In("addr", 4), Out("data", 8)], [], [], [], Primitives: [read]),
+            compactLayout: true);
+
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Sources.Contains("boundary_in.addr") &&
+            e.Targets.Any(t => t.EndsWith(".addr")));
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Sources.Any(s => s.EndsWith(".data")) &&
+            e.Targets.Contains("boundary_out.data"));
+    }
 }

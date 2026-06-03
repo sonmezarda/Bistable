@@ -191,6 +191,10 @@ public sealed partial class SchematicPreviewControl
             {
                 DrawElkMemoryNode(context, node, rect, transform.Scale, labelPlacement);
             }
+            else if (ElkNodeIds.IsMemoryRead(node.Id))
+            {
+                DrawElkMemoryReadNode(context, node, rect, transform.Scale, labelPlacement);
+            }
             else if (ElkNodeIds.IsBuffer(node.Id))
             {
                 DrawElkBufferNode(context, node, rect, transform.Scale, labelPlacement);
@@ -242,6 +246,7 @@ public sealed partial class SchematicPreviewControl
         && !ElkNodeIds.IsMux(node.Id)
         && !ElkNodeIds.IsLatch(node.Id)
         && !ElkNodeIds.IsMemory(node.Id)
+        && !ElkNodeIds.IsMemoryRead(node.Id)
         && !ElkNodeIds.IsBuffer(node.Id)
         && !ElkNodeIds.IsConstantTie(node.Id)
         && !ElkNodeIds.IsTriState(node.Id)

@@ -29,6 +29,33 @@ public sealed class ModuleAstTests
     }
 
     [Fact]
+    public void ModuleAst_OriginalName_ParsedFromModuleOrigName()
+    {
+        string xml = """
+            <?xml version="1.0"?>
+            <verilator_xml>
+              <netlist>
+                <module name="reg_cell__W4" origName="reg_cell" topModule="1" />
+              </netlist>
+            </verilator_xml>
+            """;
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, xml);
+            DesignAst ast = new Bistable.Verilator.VerilatorXmlAstReader().Read(path);
+
+            Assert.Equal("reg_cell__W4", ast.TopModule!.Name);
+            Assert.Equal("reg_cell", ast.TopModule.OriginalName);
+            Assert.Equal("reg_cell", ast.TopModule.SourceName);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void ModuleAst_LocalSignals_ExcludePortsAndParameters()
     {
         DesignAst ast = AstReaderTestHelper.ParseInline("""

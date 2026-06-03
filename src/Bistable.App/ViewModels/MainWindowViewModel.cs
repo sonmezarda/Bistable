@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Bistable.App.Infrastructure;
 using Bistable.App.Services;
 using Bistable.Core.Design;
+using Bistable.Core.Design.Ast;
 using Bistable.Core.Projects;
 using Bistable.Protocol;
 using Bistable.Verilator;
@@ -1595,8 +1596,14 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        ProjectConfiguration subConfig = _currentProject! with { TopModule = moduleName };
-        Status = $"Building isolated simulation for {moduleName}…";
+        SubSimulationConfiguration subSimulation =
+            SubSimulationConfigurationResolver.Resolve(_currentProject!, subMeta);
+        ProjectConfiguration subConfig = subSimulation.Project;
+        DesignAst? subProbeAst = BuildSubSimulationProbeAst(_currentAst, moduleName, subSimulation.BuildTopModule);
+        string buildLabel = string.Equals(moduleName, subSimulation.BuildTopModule, StringComparison.Ordinal)
+            ? moduleName
+            : $"{moduleName} as {subSimulation.BuildTopModule}";
+        Status = $"Building isolated simulation for {buildLabel}…";
 
         SimulationWorkerBuildResult subBuild;
         try
@@ -1607,7 +1614,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                     Status = $"Build {report.Stage}: {TrimBuildStatus(report.Message)}";
             });
             subBuild = await _workspace.WorkerBuilder.BuildAsync(
-                subConfig, subMeta, _currentProjectDirectory!, cancellationToken, progress, _currentAst);
+                subConfig, subMeta, _currentProjectDirectory!, cancellationToken, progress, subProbeAst);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1686,7 +1693,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         SelectedHierarchyNode = HierarchyRoot;
 
         SelectedSignal = null;
-        TopModule = moduleName;
+        TopModule = subElab.Metadata.Name;
         IsSubSimActive = true;
 
         SimulationFrame frame = await _worker.StepAsync(
@@ -1694,7 +1701,35 @@ public sealed class MainWindowViewModel : ViewModelBase
         ApplyFrame(frame);
         RefreshTraceState();
 
-        Status = $"Isolated simulation active: {moduleName}. Drive inputs, then Eval / Tick.";
+        Status = $"Isolated simulation active: {buildLabel}. Drive inputs, then Eval / Tick.";
+    }
+
+    private static DesignAst? BuildSubSimulationProbeAst(
+        DesignAst? designAst,
+        string selectedModuleName,
+        string buildTopModule)
+    {
+        if (designAst is null) return null;
+
+        ModuleAst? selected = designAst.Modules.FirstOrDefault(m =>
+            string.Equals(m.Name, selectedModuleName, StringComparison.OrdinalIgnoreCase));
+        if (selected is null) return designAst;
+
+        List<ModuleAst> modules =
+        [
+            selected with
+            {
+                Name = buildTopModule,
+                IsTop = true,
+                OriginalName = null
+            }
+        ];
+
+        modules.AddRange(designAst.Modules
+            .Where(m => !ReferenceEquals(m, selected))
+            .Select(static m => m with { IsTop = false }));
+
+        return new DesignAst(modules);
     }
 
     private void ExitSubSimulation()

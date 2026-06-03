@@ -79,6 +79,7 @@ internal sealed class ElkGraphBuilder
                     {
                         GatePrimitive g       => g.OutputSignal,
                         ArithPrimitive a      => a.OutputSignal,
+                        MemoryReadPrimitive rd => rd.OutputSignal,
                         MuxPrimitive mux      => mux.OutputSignal,
                         BufferPrimitive buf   => buf.OutputSignal,
                         InverterPrimitive inv => inv.OutputSignal,
@@ -154,6 +155,7 @@ internal sealed class ElkGraphBuilder
                 case MuxPrimitive mux:      AddMuxNode(graph.Children, mux, portRefs); break;
                 case LatchPrimitive lt:     AddLatchNode(graph.Children, lt, portRefs); break;
                 case MemoryPrimitive mem:   AddMemoryNode(graph.Children, mem); break;
+                case MemoryReadPrimitive rd: AddMemoryReadNode(graph.Children, rd, portRefs); break;
                 case BufferPrimitive buf:   AddBufferNode(graph.Children, buf, portRefs); break;
                 case InverterPrimitive inv: AddInverterNode(graph.Children, inv, portRefs); break;
                 case GatePrimitive gate:    AddGateNode(graph.Children, gate, portRefs); break;
@@ -570,6 +572,11 @@ internal sealed class ElkGraphBuilder
             case MemoryPrimitive mem:
                 AddMemoryNode(target, mem,
                     nodeIdOverride: ElkNodeIds.ForInnerMemory(compoundPath, mem.SignalName));
+                break;
+            case MemoryReadPrimitive rd:
+                AddMemoryReadNode(target, rd, portRefs,
+                    nodeIdOverride: ElkNodeIds.ForInnerMemoryRead(compoundPath, rd.OutputSignal),
+                    portRefKeyPrefix: keyPrefix);
                 break;
             case ConstantTiePrimitive tie:
                 AddConstantTieNode(target, tie, portRefs,
@@ -1008,6 +1015,55 @@ internal sealed class ElkGraphBuilder
             Labels = [new ElkLabel { Text = $"MEM {mem.SignalName} [{mem.DepthHi}:{mem.DepthLo}]×{mem.CellWidth}" }],
             Ports = []
         };
+
+        target.Add(node);
+    }
+
+    private static void AddMemoryReadNode(
+        IList<ElkNode> target,
+        MemoryReadPrimitive read,
+        Dictionary<string, ElkPortRef> portRefs,
+        string? nodeIdOverride = null,
+        string? portRefKeyPrefix = null)
+    {
+        string nodeId = nodeIdOverride ?? ElkNodeIds.ForMemoryRead(read.OutputSignal);
+        string kp = portRefKeyPrefix ?? string.Empty;
+        string widthSuffix = read.CellWidth > 0 ? WidthSuffix(read.CellWidth) : string.Empty;
+
+        ElkNode node = new()
+        {
+            Id = nodeId,
+            Width = 92,
+            Height = 56,
+            LayoutOptions = FixedOrderPortConstraints(),
+            Labels =
+            [
+                new ElkLabel { Text = $"RD {read.MemorySignal}{widthSuffix}" },
+                new ElkLabel { Text = read.OutputSignal },
+                new ElkLabel { Text = read.MemorySignal }
+            ],
+            Ports = []
+        };
+
+        string addrPortId = $"{nodeId}.addr";
+        node.Ports!.Add(new ElkPort
+        {
+            Id = addrPortId,
+            LayoutOptions = PortLayout(PortSideWest, 0),
+            Labels = [new ElkLabel { Text = "A" }]
+        });
+        portRefs[kp + ElkSignalKey.MemoryReadAddress(read.OutputSignal)] =
+            new ElkPortRef(nodeId, addrPortId, ElkPortRole.MemoryReadAddress, 1);
+
+        string dataPortId = $"{nodeId}.data";
+        node.Ports.Add(new ElkPort
+        {
+            Id = dataPortId,
+            LayoutOptions = PortLayout(PortSideEast, 0),
+            Labels = [new ElkLabel { Text = "D" }]
+        });
+        portRefs[kp + ElkSignalKey.MemoryReadData(read.OutputSignal)] =
+            new ElkPortRef(nodeId, dataPortId, ElkPortRole.MemoryReadData, Math.Max(1, read.CellWidth));
 
         target.Add(node);
     }
@@ -1744,6 +1800,7 @@ internal sealed class ElkGraphBuilder
         CollectTriStateEndpoints(scope, portRefs, producers, consumers);
         CollectGateEndpoints(scope, portRefs, producers, consumers);
         CollectArithEndpoints(scope, portRefs, producers, consumers);
+        CollectMemoryReadEndpoints(scope, portRefs, producers, consumers);
         CollectStructFanOutEndpoints(scope, portRefs, producers, consumers);
         CollectExpandedCompoundEndpoints(scope, portRefs, producers, consumers);
         ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers);
@@ -1908,6 +1965,12 @@ internal sealed class ElkGraphBuilder
                         AddTo(consumers, ScopedSignalKey(compoundPath, arith.LeftSignal), arithL);
                     if (TryRef(ElkSignalKey.ArithRight(arith.OutputSignal), out var arithR))
                         AddTo(consumers, ScopedSignalKey(compoundPath, arith.RightSignal), arithR);
+                    break;
+                case MemoryReadPrimitive read:
+                    if (TryRef(ElkSignalKey.MemoryReadData(read.OutputSignal), out var readData))
+                        AddTo(producers, ScopedSignalKey(compoundPath, read.OutputSignal), readData);
+                    if (TryRef(ElkSignalKey.MemoryReadAddress(read.OutputSignal), out var readAddr))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, read.AddressSignal), readAddr);
                     break;
                 // P4.5-2: four primitive types that were silently dropped from
                 // inner wiring — joiner / splitter / tri-state / struct fan-out.
@@ -2281,6 +2344,22 @@ internal sealed class ElkGraphBuilder
                 AddTo(consumers, arith.LeftSignal, lRef);
             if (portRefs.TryGetValue(ElkSignalKey.ArithRight(arith.OutputSignal), out ElkPortRef? rRef))
                 AddTo(consumers, arith.RightSignal, rRef);
+        }
+    }
+
+    private static void CollectMemoryReadEndpoints(
+        ElkScopeData scope,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        if (scope.Primitives is null) return;
+        foreach (MemoryReadPrimitive read in scope.Primitives.OfType<MemoryReadPrimitive>())
+        {
+            if (portRefs.TryGetValue(ElkSignalKey.MemoryReadData(read.OutputSignal), out ElkPortRef? dataRef))
+                AddTo(producers, read.OutputSignal, dataRef);
+            if (portRefs.TryGetValue(ElkSignalKey.MemoryReadAddress(read.OutputSignal), out ElkPortRef? addrRef))
+                AddTo(consumers, read.AddressSignal, addrRef);
         }
     }
 
@@ -2952,6 +3031,8 @@ public enum ElkPortRole
     ArithLeft,
     ArithRight,
     ArithOutput,
+    MemoryReadAddress,
+    MemoryReadData,
     StructFanOutInput,
     StructFanOutLeg,
     TriStateEnable
@@ -2971,6 +3052,7 @@ internal static class ElkNodeIds
     public static string ForMux(string outputSignal) => "mux_" + SanitizeId(outputSignal);
     public static string ForLatch(string qSignal) => "latch_" + SanitizeId(qSignal);
     public static string ForMemory(string signalName) => "mem_" + SanitizeId(signalName);
+    public static string ForMemoryRead(string outputSignal) => "memrd_" + SanitizeId(outputSignal);
     public static string ForBuffer(string outputSignal) => "buf_" + SanitizeId(outputSignal);
     public static string ForInverter(string outputSignal) => "inv_" + SanitizeId(outputSignal);
     public static string ForGate(string outputSignal) => "gate_" + SanitizeId(outputSignal);
@@ -2984,6 +3066,7 @@ internal static class ElkNodeIds
     public static string ForInnerMux(string scopePath, string outputSignal)        => "mux_"   + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
     public static string ForInnerLatch(string scopePath, string qSignal)           => "latch_" + SanitizeId(scopePath) + "__" + SanitizeId(qSignal);
     public static string ForInnerMemory(string scopePath, string signalName)       => "mem_"   + SanitizeId(scopePath) + "__" + SanitizeId(signalName);
+    public static string ForInnerMemoryRead(string scopePath, string outputSignal) => "memrd_" + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
     public static string ForInnerBuffer(string scopePath, string outputSignal)     => "buf_"   + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
     public static string ForInnerInverter(string scopePath, string outputSignal)   => "inv_"   + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
     public static string ForInnerGate(string scopePath, string outputSignal)       => "gate_"  + SanitizeId(scopePath) + "__" + SanitizeId(outputSignal);
@@ -3016,6 +3099,9 @@ internal static class ElkNodeIds
 
     public static bool IsMemory(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("mem_", StringComparison.Ordinal);
+
+    public static bool IsMemoryRead(string? nodeId) =>
+        nodeId is not null && nodeId.StartsWith("memrd_", StringComparison.Ordinal);
 
     public static bool IsBuffer(string? nodeId) =>
         nodeId is not null && nodeId.StartsWith("buf_", StringComparison.Ordinal);
@@ -3078,6 +3164,8 @@ internal static class ElkSignalKey
     public static string ArithLeft(string output) => $"::arith_l::{output}";
     public static string ArithRight(string output) => $"::arith_r::{output}";
     public static string ArithOutput(string output) => $"::arith_out::{output}";
+    public static string MemoryReadAddress(string output) => $"::memrd_addr::{output}";
+    public static string MemoryReadData(string output) => $"::memrd_data::{output}";
     public static string StructFanOutInput(string structSignal) => $"::fanout_in::{structSignal}";
     public static string StructFanOutLeg(string structSignal, string fieldName) => $"::fanout_leg::{structSignal}::{fieldName}";
     public static string TriStateEnable(string output) => $"::tristate_en::{output}";

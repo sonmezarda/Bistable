@@ -39,7 +39,7 @@ public static class LegacyDesignFlattener
         List<SignalPort> ports = m.Ports
             .Select(static p => new SignalPort(p.Name, p.Direction, p.Width, p.IsSigned, p.PinIndex))
             .ToList();
-        return new ModuleMetadata(m.Name, ports, m.Parameters);
+        return new ModuleMetadata(m.Name, ports, m.Parameters, m.OriginalName);
     }
 
     private static DesignModuleDefinition FlattenModuleDefinition(

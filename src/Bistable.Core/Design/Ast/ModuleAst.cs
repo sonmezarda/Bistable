@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Bistable.Core.Design.Ast;
 
 public sealed record ModuleAst(
@@ -9,4 +11,9 @@ public sealed record ModuleAst(
     IReadOnlyList<InstanceDecl> Instances,
     IReadOnlyList<ContAssignAst> ContAssigns,
     IReadOnlyList<SequentialBlockAst> SequentialBlocks,
-    IReadOnlyList<CombinationalBlockAst> CombinationalBlocks);
+    IReadOnlyList<CombinationalBlockAst> CombinationalBlocks,
+    string? OriginalName = null)
+{
+    [JsonIgnore]
+    public string SourceName => string.IsNullOrWhiteSpace(OriginalName) ? Name : OriginalName;
+}

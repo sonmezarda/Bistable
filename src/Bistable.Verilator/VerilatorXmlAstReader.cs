@@ -219,6 +219,7 @@ public sealed class VerilatorXmlAstReader
     private ModuleAst ParseModule(XElement e, Dictionary<string, DType> dtypes, Dictionary<string, StructTypeDecl> structTypes)
     {
         string name = (string?)e.Attribute("name") ?? "unknown";
+        string? originalName = ReadOriginalName(e, name);
         bool isTop = string.Equals((string?)e.Attribute("topModule"), "1", StringComparison.Ordinal);
         string? previousModuleName = _currentModuleName;
         _currentModuleName = name;
@@ -263,12 +264,21 @@ public sealed class VerilatorXmlAstReader
             }
 
             return new ModuleAst(name, isTop, ports, parameters, locals,
-                                 instances, contAssigns, sequential, combinational);
+                                 instances, contAssigns, sequential, combinational, originalName);
         }
         finally
         {
             _currentModuleName = previousModuleName;
         }
+    }
+
+    private static string? ReadOriginalName(XElement module, string moduleName)
+    {
+        string? originalName = (string?)module.Attribute("origName");
+        return string.IsNullOrWhiteSpace(originalName)
+            || string.Equals(originalName, moduleName, StringComparison.Ordinal)
+                ? null
+                : originalName;
     }
 
     // ── Port / Signal / Parameter ────────────────────────────────────────────

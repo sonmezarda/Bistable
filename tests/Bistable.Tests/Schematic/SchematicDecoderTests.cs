@@ -73,6 +73,63 @@ public sealed class SchematicDecoderTests
         Assert.Equal(new[] { "hi", "lo" }, join.InputSignals);
     }
 
+    [Fact]
+    public void Joiner_ReplicateSignal_EmitsJoinerWithRepeatedPattern()
+    {
+        ModuleAst module = new(
+            Name: "top",
+            IsTop: true,
+            Ports:
+            [
+                new PortDecl("a", SignalDirection.Input, 1, false, 0),
+                new PortDecl("y", SignalDirection.Output, 4, false, 1)
+            ],
+            Parameters: [],
+            LocalSignals: [],
+            Instances: [],
+            ContAssigns:
+            [
+                new ContAssignAst(
+                    new VarRefLValue("y"),
+                    new ReplicateExpr(4, new SignalRef("a")))
+            ],
+            SequentialBlocks: [],
+            CombinationalBlocks: []);
+
+        SchematicPrimitiveList result = SchematicDecoder.Decode(module);
+
+        JoinerPrimitive join = Assert.Single(result.Logic.OfType<JoinerPrimitive>());
+        Assert.Equal("y", join.OutputSignal);
+        Assert.Equal(new[] { "a", "a", "a", "a" }, join.InputSignals);
+    }
+
+    [Fact]
+    public void ConstantTie_ReplicateConstant_FoldsToSingleLiteral()
+    {
+        ModuleAst module = new(
+            Name: "top",
+            IsTop: true,
+            Ports: [new PortDecl("y", SignalDirection.Output, 4, false, 0)],
+            Parameters: [],
+            LocalSignals: [],
+            Instances: [],
+            ContAssigns:
+            [
+                new ContAssignAst(
+                    new VarRefLValue("y"),
+                    new ReplicateExpr(4, new ConstExpr(System.Numerics.BigInteger.One, 1, false)))
+            ],
+            SequentialBlocks: [],
+            CombinationalBlocks: []);
+
+        SchematicPrimitiveList result = SchematicDecoder.Decode(module);
+
+        ConstantTiePrimitive tie = Assert.Single(result.Logic.OfType<ConstantTiePrimitive>());
+        Assert.Equal("y", tie.OutputSignal);
+        Assert.Equal("4'hF", tie.Literal);
+        Assert.Equal(4, tie.Width);
+    }
+
     // ── InverterPrimitive ────────────────────────────────────────────────────
 
     [Fact]
@@ -233,6 +290,125 @@ public sealed class SchematicDecoderTests
         Assert.Equal(8, constSrc.Width);
     }
 
+    [Fact]
+    public void Mux_ComplexBranch_MaterializesIntermediateGate()
+    {
+        SchematicPrimitiveList result = SchematicDecoder.Decode(DecodeFirstModule("""
+            <contassign dtype_id="1">
+              <cond dtype_id="1">
+                <varref name="sel"/>
+                <and dtype_id="1">
+                  <varref name="a"/>
+                  <varref name="b"/>
+                </and>
+                <varref name="c"/>
+              </cond>
+              <varref name="out"/>
+            </contassign>
+            """));
+
+        MuxPrimitive mux = Assert.Single(result.Logic.OfType<MuxPrimitive>());
+        GatePrimitive gate = Assert.Single(result.Logic.OfType<GatePrimitive>());
+        MuxSignalSource branchSource = Assert.IsType<MuxSignalSource>(mux.Inputs[0].Source);
+
+        Assert.Equal(gate.OutputSignal, branchSource.SignalName);
+        Assert.Equal(new[] { "a", "b" }, gate.InputSignals);
+        Assert.Equal("1", mux.Inputs[0].Label);
+    }
+
+    [Fact]
+    public void Arith_ComplexOperand_MaterializesIntermediateGate()
+    {
+        SchematicPrimitiveList result = SchematicDecoder.Decode(DecodeFirstModule("""
+            <contassign dtype_id="8">
+              <add dtype_id="8">
+                <and dtype_id="1">
+                  <varref name="a"/>
+                  <varref name="b"/>
+                </and>
+                <varref name="c"/>
+              </add>
+              <varref name="sum"/>
+            </contassign>
+            """));
+
+        ArithPrimitive arith = Assert.Single(result.Logic.OfType<ArithPrimitive>());
+        GatePrimitive gate = Assert.Single(result.Logic.OfType<GatePrimitive>());
+
+        Assert.Equal(gate.OutputSignal, arith.LeftSignal);
+        Assert.Equal("c", arith.RightSignal);
+        Assert.Equal(new[] { "a", "b" }, gate.InputSignals);
+    }
+
+    [Fact]
+    public void MemoryRead_ArraySelect_EmitsMemoryReadPrimitive()
+    {
+        ModuleAst module = new(
+            Name: "top",
+            IsTop: true,
+            Ports:
+            [
+                new PortDecl("addr", SignalDirection.Input, 4, false, 0),
+                new PortDecl("data", SignalDirection.Output, 8, false, 1)
+            ],
+            Parameters: [],
+            LocalSignals: [new SignalDecl("mem", 8, false, [new BitRange(15, 0)])],
+            Instances: [],
+            ContAssigns:
+            [
+                new ContAssignAst(
+                    new VarRefLValue("data"),
+                    new ArraySelectExpr(new SignalRef("mem"), new SignalRef("addr")))
+            ],
+            SequentialBlocks: [],
+            CombinationalBlocks: []);
+
+        SchematicPrimitiveList result = SchematicDecoder.Decode(module);
+
+        MemoryReadPrimitive read = Assert.Single(result.Logic.OfType<MemoryReadPrimitive>());
+        Assert.Equal("mem", read.MemorySignal);
+        Assert.Equal("addr", read.AddressSignal);
+        Assert.Equal("data", read.OutputSignal);
+        Assert.Equal(8, read.CellWidth);
+    }
+
+    [Fact]
+    public void Mux_ArraySelectBranch_MaterializesIntermediateMemoryRead()
+    {
+        ModuleAst module = new(
+            Name: "top",
+            IsTop: true,
+            Ports:
+            [
+                new PortDecl("sel", SignalDirection.Input, 1, false, 0),
+                new PortDecl("addr", SignalDirection.Input, 4, false, 1),
+                new PortDecl("fallback", SignalDirection.Input, 8, false, 2),
+                new PortDecl("data", SignalDirection.Output, 8, false, 3)
+            ],
+            Parameters: [],
+            LocalSignals: [new SignalDecl("mem", 8, false, [new BitRange(15, 0)])],
+            Instances: [],
+            ContAssigns:
+            [
+                new ContAssignAst(
+                    new VarRefLValue("data"),
+                    new CondExpr(
+                        new SignalRef("sel"),
+                        new ArraySelectExpr(new SignalRef("mem"), new SignalRef("addr")),
+                        new SignalRef("fallback")))
+            ],
+            SequentialBlocks: [],
+            CombinationalBlocks: []);
+
+        SchematicPrimitiveList result = SchematicDecoder.Decode(module);
+
+        MuxPrimitive mux = Assert.Single(result.Logic.OfType<MuxPrimitive>());
+        MemoryReadPrimitive read = Assert.Single(result.Logic.OfType<MemoryReadPrimitive>());
+        MuxSignalSource source = Assert.IsType<MuxSignalSource>(mux.Inputs[0].Source);
+        Assert.Equal(read.OutputSignal, source.SignalName);
+        Assert.Equal("addr", read.AddressSignal);
+    }
+
     // ── FlipFlopPrimitive ───────────────────────────────────────────────────
 
     [Fact]
@@ -306,6 +482,31 @@ public sealed class SchematicDecoderTests
 
         FlipFlopPrimitive ff = Assert.Single(result.Logic.OfType<FlipFlopPrimitive>());
         Assert.Equal("q", ff.QSignal);
+    }
+
+    [Fact]
+    public void FlipFlop_ComplexDInput_MaterializesIntermediateGate()
+    {
+        SchematicPrimitiveList result = SchematicDecoder.Decode(DecodeFirstModule("""
+            <always>
+              <sentree>
+                <senitem edgeType="POS"><varref name="clk"/></senitem>
+              </sentree>
+              <assigndly dtype_id="1">
+                <and dtype_id="1">
+                  <varref name="a"/>
+                  <varref name="b"/>
+                </and>
+                <varref name="q"/>
+              </assigndly>
+            </always>
+            """));
+
+        FlipFlopPrimitive ff = Assert.Single(result.Logic.OfType<FlipFlopPrimitive>());
+        GatePrimitive gate = Assert.Single(result.Logic.OfType<GatePrimitive>());
+
+        Assert.Equal(gate.OutputSignal, ff.DSignal);
+        Assert.Equal(new[] { "a", "b" }, gate.InputSignals);
     }
 
     // ── MemoryPrimitive ──────────────────────────────────────────────────────

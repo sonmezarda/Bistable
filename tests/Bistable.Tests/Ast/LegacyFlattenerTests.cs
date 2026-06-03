@@ -27,6 +27,28 @@ public sealed class LegacyFlattenerTests
     }
 
     [Fact]
+    public void Flatten_MetadataPreservesOriginalModuleName()
+    {
+        ModuleAst module = new(
+            "reg_cell__W4",
+            true,
+            [],
+            [new DesignParameter("W", "32'sh4")],
+            [],
+            [],
+            [],
+            [],
+            [],
+            OriginalName: "reg_cell");
+
+        ElaboratedDesign design = LegacyDesignFlattener.Flatten(new DesignAst([module]));
+
+        Assert.True(design.ModuleCatalog.TryGetValue("reg_cell__W4", out ModuleMetadata? metadata));
+        Assert.Equal("reg_cell", metadata.OriginalName);
+        Assert.Equal("reg_cell", metadata.SourceName);
+    }
+
+    [Fact]
     public void Flatten_LocalSignal_AppearsInModuleDefinition()
     {
         ElaboratedDesign design = Flatten("""

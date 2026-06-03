@@ -142,6 +142,61 @@ public sealed class VerilatorIntegrationTests
     }
 
     [Fact]
+    public async Task NativeWorkerDrivesAndReadsWideTopLevelPorts()
+    {
+        string projectDirectory = Path.Combine(Path.GetTempPath(), $"bistable-wide-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectDirectory);
+        string sourcePath = Path.Combine(projectDirectory, "wide_top.sv");
+        await File.WriteAllTextAsync(sourcePath, """
+            module wide_top(
+                input  logic [95:0] a,
+                output logic [95:0] y
+            );
+                assign y = a;
+            endmodule
+            """);
+
+        ProjectConfiguration configuration = new()
+        {
+            TopModule = "wide_top",
+            Sources = ["wide_top.sv"],
+            EnableInternalProbes = false
+        };
+
+        string outputXml = Path.Combine(projectDirectory, "wide_top.xml");
+        try
+        {
+            VerilatorTool tool = new();
+            await tool.GenerateXmlAsync(configuration, projectDirectory, outputXml, CancellationToken.None);
+
+            Bistable.Core.Design.ModuleMetadata metadata = VerilatorXmlParser.Parse(outputXml);
+            Assert.Equal(96, Assert.Single(metadata.Inputs).Width);
+            Assert.Equal(96, Assert.Single(metadata.Outputs).Width);
+
+            SimulationWorkerBuildResult result = await new SimulationWorkerBuilder().BuildAsync(
+                configuration,
+                metadata,
+                projectDirectory,
+                CancellationToken.None);
+
+            await using SimulationWorkerClient client = new(result.ExecutablePath);
+            const string value = "0x123456789ABCDEF001234567";
+            await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "a", value), CancellationToken.None);
+
+            SimulationFrame frame = await client.StepAsync(
+                new SimulationCommand(SimulationCommandType.Eval),
+                CancellationToken.None);
+
+            SignalSample y = Assert.Single(frame.Signals, static sample => sample.Signal == "y");
+            Assert.Equal("0x123456789abcdef001234567", y.Value);
+        }
+        finally
+        {
+            Directory.Delete(projectDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task NativeWorkerTicksSequentialCounter()
     {
         string root = FindRepositoryRoot();

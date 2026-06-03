@@ -107,7 +107,7 @@ public sealed class SchematicCoverageAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_MuxInputRenderedAsX_ReportsUnsupportedDiagnostic()
+    public void Analyze_UnmaterializableMuxInputRenderedAsX_ReportsUnsupportedDiagnostic()
     {
         ModuleAst module = Module(contAssigns:
         [
@@ -115,7 +115,7 @@ public sealed class SchematicCoverageAnalyzerTests
                 new VarRefLValue("y"),
                 new CondExpr(
                     new SignalRef("sel"),
-                    new BinaryExpr(BinaryOp.And, new SignalRef("a"), new SignalRef("b")),
+                    new FunctionCallExpr("user_func", [new SignalRef("a")]),
                     new SignalRef("c")))
         ]);
 
@@ -154,6 +154,65 @@ public sealed class SchematicCoverageAnalyzerTests
             endpoint => endpoint.SignalName == "1'b1"
                      && endpoint.Kind == EndpointKind.PrimitiveInput
                      && endpoint.Status == EndpointCoverageStatus.IntentionalOmission);
+    }
+
+    [Fact]
+    public void Analyze_ArraySelectMemoryRead_IsRouted()
+    {
+        ModuleAst module = new(
+            Name: "top",
+            IsTop: true,
+            Ports:
+            [
+                new PortDecl("addr", SignalDirection.Input, 4, false, 0),
+                new PortDecl("data", SignalDirection.Output, 8, false, 1)
+            ],
+            Parameters: [],
+            LocalSignals: [new SignalDecl("mem", 8, false, [new BitRange(15, 0)])],
+            Instances: [],
+            ContAssigns:
+            [
+                new ContAssignAst(
+                    new VarRefLValue("data"),
+                    new ArraySelectExpr(new SignalRef("mem"), new SignalRef("addr")))
+            ],
+            SequentialBlocks: [],
+            CombinationalBlocks: []);
+
+        SchematicCoverageReport report = SchematicCoverageAnalyzer.Analyze(module);
+
+        Assert.Equal(0, report.SilentMissCount);
+        Assert.Equal(0, report.UnsupportedCount);
+        Assert.Contains(report.Modules.Single().Endpoints,
+            endpoint => endpoint.SignalName == "data"
+                     && endpoint.Kind == EndpointKind.ContAssignTarget
+                     && endpoint.Status == EndpointCoverageStatus.Routed);
+    }
+
+    [Fact]
+    public void Analyze_ReplicateExpression_IsRouted()
+    {
+        ModuleAst module = Module(
+            ports:
+            [
+                new PortDecl("a", SignalDirection.Input, 1, false, 0),
+                new PortDecl("y", SignalDirection.Output, 4, false, 1)
+            ],
+            contAssigns:
+            [
+                new ContAssignAst(
+                    new VarRefLValue("y"),
+                    new ReplicateExpr(4, new SignalRef("a")))
+            ]);
+
+        SchematicCoverageReport report = SchematicCoverageAnalyzer.Analyze(module);
+
+        Assert.Equal(0, report.SilentMissCount);
+        Assert.Equal(0, report.UnsupportedCount);
+        Assert.Contains(report.Modules.Single().Endpoints,
+            endpoint => endpoint.SignalName == "y"
+                     && endpoint.Kind == EndpointKind.ContAssignTarget
+                     && endpoint.Status == EndpointCoverageStatus.Routed);
     }
 
     private static ModuleAst Module(
