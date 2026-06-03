@@ -85,6 +85,43 @@ public sealed class VerilatorXmlParserTests
     }
 
     [Fact]
+    public void ParseDesign_Localparams_AreNotRuntimeLocalSignals()
+    {
+        string xmlPath = Path.Combine(Path.GetTempPath(), $"bistable-localparam-{Guid.NewGuid():N}.xml");
+        File.WriteAllText(xmlPath, """
+        <verilator_xml>
+          <netlist>
+            <module name="top" topModule="1">
+              <var name="clk" dtype_id="1" dir="input" pinIndex="1" vartype="logic" />
+              <var name="OPCODE_LOAD" dtype_id="2" localparam="true" vartype="logic">
+                <const name="7'h03" dtype_id="2" />
+              </var>
+              <var name="state" dtype_id="3" vartype="logic" />
+            </module>
+            <typetable>
+              <basicdtype id="1" name="logic" />
+              <basicdtype id="2" name="logic" left="6" right="0" />
+              <basicdtype id="3" name="logic" left="31" right="0" />
+            </typetable>
+          </netlist>
+        </verilator_xml>
+        """);
+
+        try
+        {
+            ElaboratedDesign design = VerilatorXmlParser.ParseDesign(xmlPath);
+            DesignModuleDefinition definition = design.ModuleDefinitions["top"];
+
+            Assert.DoesNotContain(definition.LocalSignals, signal => signal.Name == "OPCODE_LOAD");
+            Assert.Contains(definition.LocalSignals, signal => signal.Name == "state");
+        }
+        finally
+        {
+            File.Delete(xmlPath);
+        }
+    }
+
+    [Fact]
     public void ParsesHierarchyTreeFromCells()
     {
         string xmlPath = Path.Combine(Path.GetTempPath(), $"bistable-hier-{Guid.NewGuid():N}.xml");

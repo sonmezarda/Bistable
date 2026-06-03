@@ -239,7 +239,7 @@ public sealed class VerilatorXmlAstReader
 
             List<SignalDecl> locals = e.Elements("var")
                 .Where(static v => v.Attribute("dir") is null &&
-                                   !string.Equals((string?)v.Attribute("param"), "true", StringComparison.Ordinal))
+                                   !IsParameterLike(v))
                 .Select(v => ParseSignalDecl(v, dtypes, structTypes))
                 .ToList();
 
@@ -310,6 +310,10 @@ public sealed class VerilatorXmlAstReader
         string value = (string?)e.Element("const")?.Attribute("name") ?? string.Empty;
         return new DesignParameter(name, value);
     }
+
+    private static bool IsParameterLike(XElement e) =>
+        string.Equals((string?)e.Attribute("param"), "true", StringComparison.Ordinal)
+        || string.Equals((string?)e.Attribute("localparam"), "true", StringComparison.Ordinal);
 
     // ── Instance ────────────────────────────────────────────────────────────
 

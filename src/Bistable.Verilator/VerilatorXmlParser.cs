@@ -85,7 +85,7 @@ public sealed class VerilatorXmlParser
 
         List<DesignLocalSignal> locals = module
             .Elements("var")
-            .Where(static e => e.Attribute("dir") is null && !string.Equals((string?)e.Attribute("param"), "true", StringComparison.Ordinal))
+            .Where(static e => e.Attribute("dir") is null && !IsParameterLike(e))
             .Select(e => ParseLocalSignal(e, dtypes))
             .ToList();
 
@@ -209,6 +209,10 @@ public sealed class VerilatorXmlParser
         string value = (string?)constant?.Attribute("name") ?? string.Empty;
         return new DesignParameter(name, value);
     }
+
+    private static bool IsParameterLike(XElement element) =>
+        string.Equals((string?)element.Attribute("param"), "true", StringComparison.Ordinal)
+        || string.Equals((string?)element.Attribute("localparam"), "true", StringComparison.Ordinal);
 
     private static DesignLocalSignal ParseLocalSignal(XElement element, IReadOnlyDictionary<string, DType> dtypes)
     {

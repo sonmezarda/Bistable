@@ -197,6 +197,66 @@ public sealed class VerilatorIntegrationTests
     }
 
     [Fact]
+    public async Task NativeWorkerExecutesRiscvSingleCycleSampleProgram()
+    {
+        string root = FindRepositoryRoot();
+        string sampleDirectory = Path.Combine(root, "samples", "riscv_single_cycle");
+
+        ProjectConfiguration configuration = await ProjectConfiguration.LoadAsync(
+            Path.Combine(sampleDirectory, "riscv_single_cycle.bistable.json"),
+            CancellationToken.None);
+
+        string outputXml = Path.Combine(Path.GetTempPath(), $"bistable-riscv-single-cycle-{Guid.NewGuid():N}.xml");
+        VerilatorTool tool = new();
+        await tool.GenerateXmlAsync(configuration, sampleDirectory, outputXml, CancellationToken.None);
+
+        try
+        {
+            Bistable.Core.Design.ModuleMetadata metadata = VerilatorXmlParser.Parse(outputXml);
+            Bistable.Core.Design.Ast.DesignAst ast = new VerilatorXmlAstReader().Read(outputXml);
+            SimulationWorkerBuildResult result = await new SimulationWorkerBuilder().BuildAsync(
+                configuration,
+                metadata,
+                sampleDirectory,
+                CancellationToken.None,
+                progress: null,
+                designAst: ast);
+
+            await using SimulationWorkerClient client = new(result.ExecutablePath);
+            await client.StepAsync(new SimulationCommand(SimulationCommandType.Reset), CancellationToken.None);
+            await client.StepAsync(new SimulationCommand(SimulationCommandType.SetInput, "enable", "1"), CancellationToken.None);
+
+            SimulationFrame frame = null!;
+            for (int cycle = 0; cycle < 9; cycle++)
+            {
+                frame = await client.StepAsync(
+                    new SimulationCommand(SimulationCommandType.Tick, Signal: "clk"),
+                    CancellationToken.None);
+            }
+
+            Assert.Equal("40", Sample(frame, "pc"));
+            Assert.Equal("5", Sample(frame, "debug_x1"));
+            Assert.Equal("7", Sample(frame, "debug_x2"));
+            Assert.Equal("12", Sample(frame, "debug_x3"));
+            Assert.Equal("12", Sample(frame, "debug_x4"));
+            Assert.Equal("42", Sample(frame, "debug_x5"));
+            Assert.Equal("36", Sample(frame, "debug_x6"));
+            Assert.Equal("12", Sample(frame, "debug_dmem0"));
+            Assert.Equal("1", Sample(frame, "halted"));
+            Assert.Equal("1048691", Sample(frame, "instruction")); // 0x00100073 ebreak
+
+            MemoryReadResult regs = await client.ReadMemoryAsync(
+                "riscv_single_cycle_top.regs", address: 1, count: 6, CancellationToken.None);
+            Assert.Equal(32, regs.CellWidth);
+            Assert.Equal(["0x5", "0x7", "0xc", "0xc", "0x2a", "0x24"], regs.Cells);
+        }
+        finally
+        {
+            File.Delete(outputXml);
+        }
+    }
+
+    [Fact]
     public async Task NativeWorkerTicksSequentialCounter()
     {
         string root = FindRepositoryRoot();
@@ -345,6 +405,9 @@ public sealed class VerilatorIntegrationTests
             File.Delete(outputXml);
         }
     }
+
+    private static string Sample(SimulationFrame frame, string signal) =>
+        Assert.Single(frame.Signals, sample => sample.Signal == signal).Value;
 
     private static string FindRepositoryRoot()
     {

@@ -61,6 +61,7 @@ public sealed class ModuleAstTests
         DesignAst ast = AstReaderTestHelper.ParseInline("""
             <var name="clk"  dtype_id="1" dir="input" pinIndex="1" vartype="logic"/>
             <var name="WIDTH" dtype_id="32" param="true" vartype="parameter"/>
+            <var name="OPCODE" dtype_id="8" localparam="true" vartype="logic"/>
             <var name="local_w" dtype_id="8" vartype="logic"/>
             """);
 

@@ -1,0 +1,23 @@
+{
+  "topModule": "riscv_single_cycle_top",
+  "sources": [
+    "riscv_single_cycle_top.sv"
+  ],
+  "clocks": [
+    {
+      "name": "clk",
+      "defaultPeriodNs": 10
+    }
+  ],
+  "resets": [
+    {
+      "name": "rst_n",
+      "activeLevel": 0
+    }
+  ],
+  "trace": {
+    "enabled": true,
+    "format": "vcd",
+    "depth": 3
+  }
+}
