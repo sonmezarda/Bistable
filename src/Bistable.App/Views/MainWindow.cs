@@ -51,6 +51,7 @@ public sealed class MainWindow : Window
     private TabControl? _centerWorkspaceTabs;
     private SchematicStudioWindow? _schematicStudioWindow;
     private PreferencesWindow? _preferencesWindow;
+    private SynthesisSettingsWindow? _synthesisSettingsWindow;
     private DiagnosticsWindow? _diagnosticsWindow;
     private GateLevelSchematicWindow? _gateLevelWindow;
     private WaveformStudioWindow? _waveformStudioWindow;
@@ -470,6 +471,23 @@ public sealed class MainWindow : Window
                         Header = "Reset Tool Layout",
                         Command = new RelayCommand(ResetToolLayout)
                     }
+                }),
+                // Tools hosts global build/synthesis configuration. Settings used
+                // to live inside the Project panel where they competed with the
+                // signal lists; menu placement matches VS Code / Vivado.
+                TopMenu("Tools", new Control[]
+                {
+                    new MenuItem
+                    {
+                        Header = "Synthesis Settings…",
+                        Command = new RelayCommand(OpenSynthesisSettingsWindow)
+                    },
+                    new Separator(),
+                    new MenuItem
+                    {
+                        Header = "Synthesize",
+                        [!MenuItem.CommandProperty] = new Binding("SynthesizeCommand"),
+                    },
                 })
             }
         };
@@ -641,7 +659,6 @@ public sealed class MainWindow : Window
         panel.Children.Add(BoundLabel("ProjectName", 15, TextBrush));
         panel.Children.Add(MetadataLine("Top", "TopModule"));
         panel.Children.Add(MetadataLine("Tool", "VerilatorVersion"));
-        panel.Children.Add(BuildSynthesisSettingsPanel());
         panel.Children.Add(SectionTitle("Signals"));
         panel.Children.Add(new StackPanel
         {
@@ -677,102 +694,6 @@ public sealed class MainWindow : Window
         });
 
         return panel;
-    }
-
-    private static Control BuildSynthesisSettingsPanel()
-    {
-        Border border = PanelBorder();
-        border.Padding = new Thickness(10);
-
-        Grid grid = new()
-        {
-            RowDefinitions =
-            {
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto),
-            },
-            RowSpacing = 8,
-        };
-
-        grid.Children.Add(new TextBlock
-        {
-            Text = "Synthesis",
-            Foreground = AccentBrush,
-            FontSize = 12,
-            FontWeight = FontWeight.SemiBold,
-        });
-
-        StackPanel flags = new()
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 10,
-            Margin = new Thickness(0, 4, 0, 0),
-            Children =
-            {
-                ToolbarCheckBox("Enabled", "SynthesisEnabled"),
-                ToolbarCheckBox("Generic cells", "SynthesisGenericCells"),
-                ToolbarCheckBox("Flatten", "SynthesisFlatten"),
-            },
-            [Grid.RowProperty] = 1,
-        };
-        grid.Children.Add(flags);
-
-        grid.Children.Add(SettingsTextBox("Top module", "SynthesisTopModule", row: 2));
-        grid.Children.Add(SettingsTextBox("JSON output", "SynthesisOutputJson", row: 3));
-        grid.Children.Add(SettingsTextBox("Verilog output", "SynthesisOutputVerilog", row: 4));
-
-        StackPanel actions = new()
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            Children =
-            {
-                SmallButton("Save", "SaveSynthesisSettingsCommand"),
-                SmallButton("Synthesize", "SynthesizeCommand"),
-            },
-            [Grid.RowProperty] = 5,
-        };
-        grid.Children.Add(actions);
-
-        border.Child = grid;
-        return border;
-    }
-
-    private static Control SettingsTextBox(string label, string bindingPath, int row)
-    {
-        Grid rowGrid = new()
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(new GridLength(92)),
-                new ColumnDefinition(GridLength.Star),
-            },
-            ColumnSpacing = 8,
-            [Grid.RowProperty] = row,
-        };
-        rowGrid.Children.Add(new TextBlock
-        {
-            Text = label,
-            Foreground = MutedBrush,
-            FontSize = 11,
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-        rowGrid.Children.Add(new TextBox
-        {
-            MinHeight = 28,
-            FontSize = 11,
-            Background = SurfaceAltBrush,
-            Foreground = TextBrush,
-            BorderBrush = StrokeBrush,
-            FontFamily = FontFamily.Parse("monospace"),
-            [!TextBox.TextProperty] = new Binding(bindingPath, BindingMode.TwoWay),
-            [Grid.ColumnProperty] = 1,
-        });
-        return rowGrid;
     }
 
     private Control BuildWaveformPanelContent(bool showHeader = true)
@@ -2613,6 +2534,25 @@ public sealed class MainWindow : Window
         _preferencesWindow = new PreferencesWindow { DataContext = viewModel };
         _preferencesWindow.Closed += (_, _) => _preferencesWindow = null;
         _preferencesWindow.Show(this);
+    }
+
+    // Tools menu entry. Single-instance like the Preferences window — re-opening
+    // just activates the existing window so the user can't get two divergent
+    // copies of the synthesis form bound to the same VM.
+    private void OpenSynthesisSettingsWindow()
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        if (_synthesisSettingsWindow is { IsVisible: true } existing)
+        {
+            existing.Activate();
+            return;
+        }
+        _synthesisSettingsWindow = new SynthesisSettingsWindow { DataContext = viewModel };
+        _synthesisSettingsWindow.Closed += (_, _) => _synthesisSettingsWindow = null;
+        _synthesisSettingsWindow.Show(this);
     }
 
     private void OpenWaveformStudio()

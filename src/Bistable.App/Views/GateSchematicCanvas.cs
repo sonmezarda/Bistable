@@ -153,8 +153,13 @@ public sealed class GateSchematicCanvas : Control
         using (context.PushTransform(Matrix.CreateTranslation(_pan.X, _pan.Y)))
         using (context.PushTransform(Matrix.CreateScale(_zoom, _zoom)))
         {
+            // Render order matters: cell bodies first (so leaf gate symbols
+            // erase anything beneath them), then wires (so they sit on top of
+            // any compound/group backgrounds and aren't hidden by them), then
+            // port dots + selection highlight on the very top.
+            DrawNodes(context, _graph, _module, _selectedCellName, RenderPass.Bodies);
             DrawEdges(context, _graph);
-            DrawNodes(context, _graph, _module, _selectedCellName);
+            DrawNodes(context, _graph, _module, _selectedCellName, RenderPass.Overlays);
         }
 
         // Overlay HUD with zoom percentage.
@@ -220,12 +225,17 @@ public sealed class GateSchematicCanvas : Control
 
     // ── Nodes ─────────────────────────────────────────────────────────────
 
+    // GateNetlistElkBuilder tags sub-module instance nodes with this id prefix.
+    private const string SubModuleIdPrefix = "inst_";
+
     private static readonly IBrush NodeStroke = SolidColorBrush.Parse("#5dbcff");
     private static readonly IBrush NodeFill   = SolidColorBrush.Parse("#1b2230");
     private static readonly IBrush MutedBrush = SolidColorBrush.Parse("#8f9aad");
     private static readonly Pen NodePen = new(NodeStroke, 1.2);
 
-    private static void DrawNodes(DrawingContext context, ElkGraph graph, GateModule module, string? selectedCellName)
+    private enum RenderPass { Bodies, Overlays }
+
+    private static void DrawNodes(DrawingContext context, ElkGraph graph, GateModule module, string? selectedCellName, RenderPass pass)
     {
         if (graph.Children is null) return;
 
@@ -237,7 +247,7 @@ public sealed class GateSchematicCanvas : Control
             cellByPrefixedName[cell.Name] = cell;
         }
 
-        DrawNodesRecursive(context, graph.Children, selectedCellName, cellByPrefixedName, baseX: 0, baseY: 0);
+        DrawNodesRecursive(context, graph.Children, selectedCellName, cellByPrefixedName, baseX: 0, baseY: 0, pass);
     }
 
     private static void DrawNodesRecursive(
@@ -246,30 +256,37 @@ public sealed class GateSchematicCanvas : Control
         string? selectedCellName,
         IReadOnlyDictionary<string, GateCell> cellByPrefixedName,
         double baseX,
-        double baseY)
+        double baseY,
+        RenderPass pass)
     {
         foreach (ElkNode node in nodes)
         {
             double absX = baseX + node.X;
             double absY = baseY + node.Y;
             Rect rect = new(absX, absY, node.Width, node.Height);
-            DrawNodeBackground(context, node, rect);
-            DrawNodeForeground(context, node, rect, cellByPrefixedName);
-            if (selectedCellName is not null && NodeRepresentsCell(node, selectedCellName))
+            if (pass == RenderPass.Bodies)
             {
-                context.DrawRectangle(null, new Pen(HighlightWireBrush, 2.2), rect.Inflate(4), 4, 4);
+                DrawNodeBackground(context, node, rect);
+                DrawNodeForeground(context, node, rect, cellByPrefixedName);
             }
-            DrawPorts(context, node, absX, absY);
+            else
+            {
+                if (selectedCellName is not null && NodeRepresentsCell(node, selectedCellName))
+                {
+                    context.DrawRectangle(null, new Pen(HighlightWireBrush, 2.2), rect.Inflate(4), 4, 4);
+                }
+                DrawPorts(context, node, absX, absY);
+            }
             if (node.Children is { Count: > 0 })
             {
-                DrawNodesRecursive(context, node.Children, selectedCellName, cellByPrefixedName, absX, absY);
+                DrawNodesRecursive(context, node.Children, selectedCellName, cellByPrefixedName, absX, absY, pass);
             }
         }
     }
 
     private static bool NodeRepresentsCell(ElkNode node, string cellName)
     {
-        if (node.Id.StartsWith("inst_", StringComparison.Ordinal))
+        if (node.Id.StartsWith(SubModuleIdPrefix, StringComparison.Ordinal))
         {
             return node.Labels is { Count: > 0 }
                    && string.Equals(node.Labels[0].Text, cellName, StringComparison.Ordinal);
@@ -283,6 +300,16 @@ public sealed class GateSchematicCanvas : Control
         {
             // Boundary anchors get a faint surround so the user can see them.
             ctx.DrawRectangle(NodeFill, new Pen(MutedBrush, 0.6) { DashStyle = DashStyle.Dash }, rect, 2, 2);
+            return;
+        }
+
+        // Expanded sub-module compounds (inst_ with children) deliberately
+        // skip the body fill: child cells live inside, and the inter-cell
+        // wires routed through this rect would otherwise be hidden under it.
+        // DrawSubModuleInstance still draws the border + header in
+        // DrawNodeForeground.
+        if (node.Id.StartsWith(SubModuleIdPrefix, StringComparison.Ordinal) && node.Children is { Count: > 0 })
+        {
             return;
         }
 
@@ -307,7 +334,7 @@ public sealed class GateSchematicCanvas : Control
 
         // Phase 6.5 Wave 2: sub-module instance — draw as Vivado-style
         // expandable block with instance name + module-type chip + "+" hint.
-        if (node.Id.StartsWith("inst_", System.StringComparison.Ordinal))
+        if (node.Id.StartsWith(SubModuleIdPrefix, StringComparison.Ordinal))
         {
             DrawSubModuleInstance(ctx, node, rect);
             return;
@@ -536,9 +563,12 @@ public sealed class GateSchematicCanvas : Control
 
     private static void DrawSubModuleInstance(DrawingContext ctx, ElkNode node, Rect rect)
     {
-        // Outer body — Vivado uses a flat block; we add the accent border so
-        // the user immediately spots "this can be expanded".
-        ctx.DrawRectangle(InstanceFill, InstancePen, rect, 4, 4);
+        // Collapsed: filled block so it reads as a closed unit.
+        // Expanded (has children): border-only so the interior reads as a
+        // group container and child cells / wires stay visible underneath.
+        bool expanded = node.Children is { Count: > 0 };
+        IBrush? fill = expanded ? null : InstanceFill;
+        ctx.DrawRectangle(fill, InstancePen, rect, 4, 4);
 
         string instanceName = node.Labels is { Count: > 0 } ? node.Labels[0].Text : node.Id;
         string moduleType   = node.Labels is { Count: > 1 } ? node.Labels[1].Text : string.Empty;
@@ -549,10 +579,10 @@ public sealed class GateSchematicCanvas : Control
             DrawLabel(ctx, rect.X + 8, rect.Y + 20, moduleType, MutedBrush, 9);
         }
 
-        // "+" affordance in the top-right corner — same idea as the RTL viewer.
+        // Expand affordance in the top-right corner — same idea as the RTL viewer.
         Rect btn = SubModuleButtonRect(rect);
         ctx.DrawRectangle(null, new Pen(InstanceStroke, 1), btn, 3, 3);
-        string glyph = node.Children is not null ? "-" : "+";
+        string glyph = expanded ? "-" : "+";
         DrawLabel(ctx, btn.X + 3, btn.Y - 1, glyph, InstanceStroke, 11);
     }
 
@@ -680,7 +710,7 @@ public sealed class GateSchematicCanvas : Control
                 return childHit;
             }
 
-            if (!node.Id.StartsWith("inst_", System.StringComparison.Ordinal)) continue;
+            if (!node.Id.StartsWith(SubModuleIdPrefix, StringComparison.Ordinal)) continue;
             Rect rect = new(absX, absY, node.Width, node.Height);
             if (rect.Contains(world))
             {
@@ -709,7 +739,7 @@ public sealed class GateSchematicCanvas : Control
                 return childHit;
             }
 
-            if (!node.Id.StartsWith("inst_", System.StringComparison.Ordinal)) continue;
+            if (!node.Id.StartsWith(SubModuleIdPrefix, StringComparison.Ordinal)) continue;
             Rect rect = new(absX, absY, node.Width, node.Height);
             if (SubModuleButtonRect(rect).Contains(world))
             {
@@ -785,7 +815,7 @@ public sealed class GateSchematicCanvas : Control
             Rect rect = new(absX, absY, node.Width, node.Height);
             if (!rect.Contains(world)) continue;
 
-            if (node.Id.StartsWith("inst_", StringComparison.Ordinal)
+            if (node.Id.StartsWith(SubModuleIdPrefix, StringComparison.Ordinal)
                 && node.Labels is { Count: > 0 })
             {
                 string instanceName = node.Labels[0].Text;
@@ -812,7 +842,7 @@ public sealed class GateSchematicCanvas : Control
     {
         if (node.Labels is not { Count: > 2 }) return null;
         string type = node.Labels[1].Text;
-        string name = node.Id.StartsWith("inst_", StringComparison.Ordinal)
+        string name = node.Id.StartsWith(SubModuleIdPrefix, StringComparison.Ordinal)
             ? node.Labels[0].Text
             : node.Labels[2].Text;
         if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(name)) return null;

@@ -197,6 +197,47 @@ public sealed class ProbeTableEnumeratorTests
         Assert.Empty(entries);
     }
 
+    // ── Escaped identifiers (Yosys-flattened gate netlists) ─────────────────
+
+    [Fact]
+    public void Enumerate_SignalWithOrigName_UsesOrigNameForFieldMangling()
+    {
+        // Yosys flatten emits escaped identifiers like `\u_alu.carry`. Verilator
+        // reports them with Name="u_alu.carry" (the user-facing path) AND
+        // origName="u_alu__02ecarry" — the latter is the actual C++ field on
+        // the model. Probe table addressing must use origName, not split Name
+        // on "." (which would look up a member that doesn't exist).
+        DesignAst ast = new(Modules: [
+            MakeModule("tiny_cpu_top", isTop: true,
+                locals: [new SignalDecl("u_alu.carry", 1, false, [], OrigName: "u_alu__02ecarry")])
+        ]);
+
+        List<ProbeEntry> entries = ProbeTableEnumerator.Enumerate(ast, "tiny_cpu_top").ToList();
+
+        ProbeEntry entry = Assert.Single(entries);
+        // User-facing path keeps the dotted form so the GUI can address it.
+        Assert.Equal("tiny_cpu_top.u_alu.carry", entry.Path);
+        // C++ field uses the Verilator-mangled origName, NOT a Name split on ".".
+        Assert.Equal("tiny_cpu_top__DOT__u_alu__02ecarry", entry.FieldName);
+    }
+
+    [Fact]
+    public void Enumerate_SignalWithoutOrigName_FallsBackToDotMangling()
+    {
+        // Plain RTL signals have no escape characters and no origName attribute;
+        // the legacy "every dot becomes __DOT__" path must still apply.
+        DesignAst ast = new(Modules: [
+            MakeModule("top", isTop: true,
+                locals: [new SignalDecl("internal_reg", 8, false, [])])
+        ]);
+
+        List<ProbeEntry> entries = ProbeTableEnumerator.Enumerate(ast, "top").ToList();
+
+        ProbeEntry entry = Assert.Single(entries);
+        Assert.Equal("top.internal_reg", entry.Path);
+        Assert.Equal("top__DOT__internal_reg", entry.FieldName);
+    }
+
     [Fact]
     public void Enumerate_InstanceReferencingUnknownModule_SkipsSilently()
     {

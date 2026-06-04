@@ -295,13 +295,14 @@ public sealed class VerilatorXmlAstReader
     private static SignalDecl ParseSignalDecl(XElement e, Dictionary<string, DType> dtypes, Dictionary<string, StructTypeDecl> structTypes)
     {
         string name = Attr(e, "name");
+        string? origName = (string?)e.Attribute("origName");
         string? dtypeId = (string?)e.Attribute("dtype_id");
         DType dtype = LookupDType(dtypes, dtypeId);
         // P2-11: when the signal's dtype is a packed struct, attach the resolved
         // metadata so the schematic decoder can emit per-field fan-out.
         StructTypeDecl? structType = dtypeId is not null && structTypes.TryGetValue(dtypeId, out StructTypeDecl? s) ? s : null;
         int width = structType?.TotalWidth ?? dtype.Width;
-        return new SignalDecl(name, width, dtype.IsSigned, dtype.ArrayDims, IsRegistered: false, StructType: structType);
+        return new SignalDecl(name, width, dtype.IsSigned, dtype.ArrayDims, IsRegistered: false, StructType: structType, OrigName: origName);
     }
 
     private static DesignParameter ParseParameter(XElement e)

@@ -3,6 +3,12 @@
   "sources": [
     "riscv_single_cycle_top.sv"
   ],
+  "includeDirs": [],
+  "defines": {},
+  "parameters": {},
+  "verilatorOptions": [],
+  "workerBuildName": null,
+  "enableInternalProbes": true,
   "clocks": [
     {
       "name": "clk",
@@ -38,7 +44,8 @@
       {
         "name": "Run sample program",
         "clock": "clk",
-        "maxCycles": 256
+        "maxCycles": 256,
+        "stopWhen": null
       }
     ],
     "state": {
@@ -46,14 +53,19 @@
       "instruction": "riscv_single_cycle_top.instruction",
       "halted": "riscv_single_cycle_top.halted",
       "registerFile": "riscv_single_cycle_top.u_registers.regs",
-      "dataMemory": "riscv_single_cycle_top.u_dmem.mem"
+      "dataMemory": "riscv_single_cycle_top.u_dmem.mem",
+      "pass": null,
+      "fail": null
     }
   },
   "synthesis": {
     "enabled": true,
     "backend": "yosys",
+    "script": null,
+    "topModule": null,
     "outputJson": ".bistable/synthesis/riscv_single_cycle_top.json",
+    "outputVerilog": ".bistable/synthesis/netlist.sv",
     "genericCells": true,
-    "flatten": false
+    "flatten": true
   }
 }

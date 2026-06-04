@@ -95,7 +95,7 @@ Status legend: `todo`, `in_progress`, `done`, `blocked`
 | P6.5-8 | Ctrl+F search across cells + nets | done | 1 d | Right-side search filters current-scope cells and named nets; result click centers canvas and selects/highlights the target. |
 | P6.5-9 | Tabbed scope dock — multiple schematic tabs in one window | todo | 2 d | Use the existing Dock.Avalonia infrastructure the RTL viewer already lives in. RTL tab + gate-level tab(s) side by side. |
 | P6.5-10 | Gate-level worker build path (Yosys → Verilog → Verilator) | done | 4 d | Yosys emits synthesized SV via `write_verilog`; `GateLevelWorkerBuildService` feeds it through Verilator XML + `SimulationWorkerBuilder` with separate `top__gate` worker artifacts. |
-| P6.5-11 | RTL vs gate-level smoke comparison | todo | 4 d | Run the RISC-V CPU on RTL worker + gate-level worker with the same program; assert same `pc` / `halted` / `debug_xN` per cycle. New `Bistable.Tests` integration test. |
+| P6.5-11 | RTL vs gate-level smoke comparison | done | 4 d | `RtlVsGateLevelComparator` drives both workers in lockstep and diffs frames per cycle; `RtlVsGateLevelComparatorTests` pins the diff semantics with synthetic frames; `RtlVsGateLevelIntegrationTests` runs a real RTL ↔ Yosys-synthesized worker pair through 20 cycles and asserts every top-level port agrees. |
 | P6.5-12 | Performance regression test (RV32I 2k-cell render < 2 s, pan stays > 30 fps) | todo | 1 d | Headless `Bistable.UiTests` measurement against the RISC-V sample. |
 
 **Total estimate: ~27 days serial, ~16 days with 2-agent parallelism.**
@@ -179,3 +179,9 @@ Each wave produces something the user can drive on the RISC-V sample. Wave 1 alo
   - Added a Project-panel Synthesis settings section with enable, top module, JSON output, synthesized Verilog output, generic-cell, and flatten controls.
   - Added Save support so GUI edits persist back to the project's `.bistable.json`; JSON is now storage, not the only configuration surface.
   - Added ViewModel regression tests for default synthesis settings, in-memory edits, JSON persistence, and disabled-command behavior.
+
+- **2026-06-04 — Wave 4 P6.5-11 RTL vs gate-level smoke comparator landed.**
+  - Added `RtlVsGateLevelComparator` (App layer): drives a paired RTL and gate-level `SimulationWorkerClient` through Reset → setup → Eval → N×Tick in lockstep and produces a `CompareReport` with per-cycle `SignalDiff` records. Intersection-by-default signal set so RTL-only `--public-flat-rw` probes don't false-positive; explicit `SignalsToCompare` whitelist forces missing-side surfacing.
+  - `CompareReport.FormatSummary(maxLines)` prints the first divergent cycles in a fixed-width table with a `… and N more mismatches` tail, so test assertions surface the actionable signal/cycle without dumping the full timeline.
+  - `RtlVsGateLevelComparatorTests` pins diff semantics with synthetic `SimulationFrame` data (no toolchain): identical frames, single divergence, RTL-only signal dropped by default, explicit whitelist surfaces missing side, `FormatSummary` truncation, all-match single-line output.
+  - `RtlVsGateLevelIntegrationTests` (Integration trait, skipped without yosys+verilator) builds a tiny `toggle_counter` (clk + async reset + enable + 4-bit count + msb) through the full RTL pipeline AND the Yosys → `GateLevelWorkerBuildService` gate path, runs both workers for 20 cycles, and asserts every top-level port matches every cycle.

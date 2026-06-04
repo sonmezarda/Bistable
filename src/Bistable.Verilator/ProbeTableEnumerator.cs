@@ -67,36 +67,8 @@ public static class ProbeTableEnumerator
         // internal tmps still filtered.
         foreach (SignalDecl signal in module.LocalSignals)
         {
-            if (IsVerilatorInternalSignal(signal.Name)) continue;
-            if (signal.Width > MaxScalarWidth) continue;   // TODO: wide-signal hex path
-
-            string path = pathPrefix + "." + signal.Name;
-            if (signal.ArrayDims.Count == 0)
-            {
-                yield return new ProbeEntry(
-                    Path: path,
-                    FieldName: MangleFieldName(path),
-                    Width: signal.Width,
-                    IsSigned: signal.IsSigned,
-                    IsRegistered: signal.IsRegistered,
-                    IsMemory: false,
-                    MemoryDepth: null);
-            }
-            else
-            {
-                // P3-6: a single unpacked dimension is the common case
-                // (registers/RAM). Multi-dim arrays still not handled.
-                if (signal.ArrayDims.Count != 1) continue;
-                BitRange dim = signal.ArrayDims[0];
-                yield return new ProbeEntry(
-                    Path: path,
-                    FieldName: MangleFieldName(path),
-                    Width: signal.Width,
-                    IsSigned: signal.IsSigned,
-                    IsRegistered: false,
-                    IsMemory: true,
-                    MemoryDepth: dim.Width);
-            }
+            ProbeEntry? entry = TryBuildLocalSignalProbe(signal, pathPrefix);
+            if (entry is not null) yield return entry;
         }
 
         // Recurse into sub-instances
@@ -107,6 +79,48 @@ public static class ProbeTableEnumerator
             foreach (ProbeEntry inner in EnumerateModule(subModule, subPrefix, catalog, depth + 1))
                 yield return inner;
         }
+    }
+
+    private static ProbeEntry? TryBuildLocalSignalProbe(SignalDecl signal, string pathPrefix)
+    {
+        if (IsVerilatorInternalSignal(signal.Name)) return null;
+        if (signal.Width > MaxScalarWidth) return null;   // TODO: wide-signal hex path
+
+        string path = pathPrefix + "." + signal.Name;
+        // Yosys-flattened netlists produce escaped wires (`\u_alu.carry`)
+        // whose AST Name contains a "." that is part of the identifier, not a
+        // hierarchy separator. Verilator mangles those characters ("." →
+        // "__02e") and exposes the result as `origName`. When present that's
+        // the only correct way to spell the C++ field — splitting Name on "."
+        // would point at a member that doesn't exist.
+        string fieldName = signal.OrigName is { Length: > 0 } orig
+            ? pathPrefix.Replace(".", "__DOT__", StringComparison.Ordinal) + "__DOT__" + orig
+            : MangleFieldName(path);
+
+        if (signal.ArrayDims.Count == 0)
+        {
+            return new ProbeEntry(
+                Path: path,
+                FieldName: fieldName,
+                Width: signal.Width,
+                IsSigned: signal.IsSigned,
+                IsRegistered: signal.IsRegistered,
+                IsMemory: false,
+                MemoryDepth: null);
+        }
+
+        // P3-6: a single unpacked dimension is the common case (registers/RAM).
+        // Multi-dim arrays still not handled.
+        if (signal.ArrayDims.Count != 1) return null;
+        BitRange dim = signal.ArrayDims[0];
+        return new ProbeEntry(
+            Path: path,
+            FieldName: fieldName,
+            Width: signal.Width,
+            IsSigned: signal.IsSigned,
+            IsRegistered: false,
+            IsMemory: true,
+            MemoryDepth: dim.Width);
     }
 
     /// <summary>
