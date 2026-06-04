@@ -12,7 +12,7 @@ namespace Bistable.Yosys;
 /// Output stages: <c>read_verilog</c> → <c>hierarchy -top</c> → <c>proc</c>
 /// → <c>opt</c> → <c>fsm</c> → <c>opt</c> → <c>memory</c> → <c>opt</c> →
 /// (optional <c>flatten</c>) → (<c>techmap</c> when <c>genericCells</c> is true)
-/// → <c>opt</c> → <c>write_json</c>.
+/// → <c>opt</c> → <c>write_json</c> + <c>write_verilog</c>.
 ///
 /// `techmap` is what lowers high-level cells into the generic `$_AND_`,
 /// `$_OR_`, `$_DFF_*` etc. that the gate-level renderer expects.
@@ -75,6 +75,12 @@ public static class YosysScriptBuilder
             : Path.Combine(projectDirectory, synthesis.OutputJson);
         Directory.CreateDirectory(Path.GetDirectoryName(outputJson) ?? projectDirectory);
         sb.AppendLine($"write_json {EscapePath(outputJson)}");
+
+        string outputVerilog = Path.IsPathRooted(synthesis.OutputVerilog)
+            ? synthesis.OutputVerilog
+            : Path.Combine(projectDirectory, synthesis.OutputVerilog);
+        Directory.CreateDirectory(Path.GetDirectoryName(outputVerilog) ?? projectDirectory);
+        sb.AppendLine($"write_verilog -noattr {EscapePath(outputVerilog)}");
 
         return sb.ToString();
     }

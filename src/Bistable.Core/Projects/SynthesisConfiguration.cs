@@ -14,5 +14,6 @@ public sealed record SynthesisConfiguration(
     string? Script = null,
     string? TopModule = null,
     string OutputJson = ".bistable/synthesis/netlist.json",
+    string OutputVerilog = ".bistable/synthesis/netlist.sv",
     bool GenericCells = true,
     bool Flatten = false);

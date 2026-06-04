@@ -89,6 +89,126 @@ public sealed class GateNetlistHierarchyTests
     }
 
     [Fact]
+    public void SubModuleInstance_SizeScalesWithBusBitRowsNotPortCount()
+    {
+        GateBit[] inputBits = Bits(2, 32);
+        GateBit[] outputBits = Bits(100, 32);
+        GateModule child = new(
+            "child_bus",
+            [
+                new GatePort("d", GatePortDirection.Input, inputBits),
+                new GatePort("q", GatePortDirection.Output, outputBits),
+            ],
+            [],
+            []);
+        GateCell instance = new(
+            "u_regs",
+            "child_bus",
+            new Dictionary<string, GateConnection>
+            {
+                ["d"] = new("d", inputBits),
+                ["q"] = new("q", outputBits),
+            },
+            new Dictionary<string, GatePortDirection>
+            {
+                ["d"] = GatePortDirection.Input,
+                ["q"] = GatePortDirection.Output,
+            },
+            new Dictionary<string, string>(),
+            new Dictionary<string, string>());
+        GateModule top = new(
+            "top",
+            [
+                new GatePort("d", GatePortDirection.Input, inputBits),
+                new GatePort("q", GatePortDirection.Output, outputBits),
+            ],
+            [instance],
+            []);
+        GateNetlist netlist = new(
+            "top",
+            new Dictionary<string, GateModule>
+            {
+                ["top"] = top,
+                ["child_bus"] = child,
+            });
+
+        GateNetlistElkBuildResult result = GateNetlistElkBuilder.Build(netlist);
+
+        ElkNode inst = Assert.Single(result.Graph.Children!,
+            node => node.Id.StartsWith("inst_", StringComparison.Ordinal));
+        Assert.True(inst.Height >= 36 + 32 * 18,
+            $"Expected bus-width-height node, got {inst.Height}");
+        Assert.Equal(64, inst.Ports!.Count);
+    }
+
+    [Fact]
+    public void BoundaryNodes_SizeAndIndexByBitRowsNotDeclaredPorts()
+    {
+        GateBit[] bus = Bits(2, 8);
+        GateModule top = new(
+            "top",
+            [
+                new GatePort("bus", GatePortDirection.Input, bus),
+                new GatePort("en", GatePortDirection.Input, [GateBit.Net(20)]),
+                new GatePort("out_bus", GatePortDirection.Output, bus),
+                new GatePort("done", GatePortDirection.Output, [GateBit.Net(21)]),
+            ],
+            [],
+            []);
+        GateNetlist netlist = new("top", new Dictionary<string, GateModule> { ["top"] = top });
+
+        GateNetlistElkBuildResult result = GateNetlistElkBuilder.Build(netlist);
+
+        ElkNode boundaryIn = Assert.Single(result.Graph.Children!, n => n.Id == "boundary_in");
+        ElkNode boundaryOut = Assert.Single(result.Graph.Children!, n => n.Id == "boundary_out");
+        Assert.True(boundaryIn.Height >= 28 + 9 * 18, $"Expected input boundary to fit 9 pin rows, got {boundaryIn.Height}");
+        Assert.True(boundaryOut.Height >= 28 + 9 * 18, $"Expected output boundary to fit 9 pin rows, got {boundaryOut.Height}");
+        AssertPortIndicesAreUnique(boundaryIn);
+        AssertPortIndicesAreUnique(boundaryOut);
+    }
+
+    [Fact]
+    public void BuildScope_WithExpandedInstance_RendersChildCellsInsideCompound()
+    {
+        GateNetlist netlist = YosysJsonReader.Read(LoadFixture("hierarchy.json"));
+
+        GateNetlistElkBuildResult result = GateNetlistElkBuilder.BuildScope(
+            netlist,
+            ["top"],
+            new HashSet<string>(StringComparer.Ordinal) { "u_middle" });
+
+        ElkNode middle = Assert.Single(result.Graph.Children!,
+            n => n.Id.StartsWith("inst_", StringComparison.Ordinal)
+              && n.Labels is { Count: > 0 } && n.Labels[0].Text == "u_middle");
+        Assert.NotNull(middle.Children);
+        Assert.Contains(middle.Children!, n => n.Id.StartsWith("inst_", StringComparison.Ordinal)
+            && n.Labels is { Count: > 0 } && n.Labels[0].Text == "u_inner");
+        Assert.Contains(middle.Children!, n => n.Id.StartsWith("gate_", StringComparison.Ordinal));
+        Assert.Contains(result.Graph.Edges!, e =>
+            e.Sources.Concat(e.Targets).Any(endpoint => endpoint.Contains("u_middle__", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void BuildScope_WithNestedExpandedInstance_RendersGrandchildCellsInsideNestedCompound()
+    {
+        GateNetlist netlist = YosysJsonReader.Read(LoadFixture("hierarchy.json"));
+
+        GateNetlistElkBuildResult result = GateNetlistElkBuilder.BuildScope(
+            netlist,
+            ["top"],
+            new HashSet<string>(StringComparer.Ordinal) { "u_middle", "u_middle/u_inner" });
+
+        ElkNode middle = Assert.Single(result.Graph.Children!,
+            n => n.Id.StartsWith("inst_", StringComparison.Ordinal)
+              && n.Labels is { Count: > 0 } && n.Labels[0].Text == "u_middle");
+        ElkNode inner = Assert.Single(middle.Children!,
+            n => n.Id.StartsWith("inst_", StringComparison.Ordinal)
+              && n.Labels is { Count: > 0 } && n.Labels[0].Text == "u_inner");
+        Assert.NotNull(inner.Children);
+        Assert.Contains(inner.Children!, n => n.Id.StartsWith("gate_", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void BuildScope_TopOnly_EqualsBuild()
     {
         // Passing [top] explicitly must produce the same shape as Build()
@@ -142,5 +262,20 @@ public sealed class GateNetlistHierarchyTests
         GateNetlist netlist = YosysJsonReader.Read(LoadFixture("hierarchy.json"));
         Assert.Throws<InvalidOperationException>(() =>
             GateNetlistElkBuilder.BuildScope(netlist, ["fictional_top"]));
+    }
+
+    private static GateBit[] Bits(int firstNetId, int count) =>
+        [.. Enumerable.Range(firstNetId, count).Select(GateBit.Net)];
+
+    private static void AssertPortIndicesAreUnique(ElkNode node)
+    {
+        string[] indices = [.. node.Ports!.Select(p =>
+        {
+            Assert.NotNull(p.LayoutOptions);
+            Assert.True(p.LayoutOptions!.TryGetValue("elk.port.index", out string? index),
+                $"Port {p.Id} is missing elk.port.index.");
+            return index!;
+        })];
+        Assert.Equal(indices.Length, indices.Distinct(StringComparer.Ordinal).Count());
     }
 }

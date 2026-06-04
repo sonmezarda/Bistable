@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Bistable.App.Services;
@@ -24,6 +25,7 @@ public sealed class GateLevelSchematicWindow : Window
     private readonly GateNetlist _netlist;
     private readonly GateSchematicCanvas _canvas = new();
     private readonly List<string> _scopePath = new();
+    private readonly HashSet<string> _expandedInstancePaths = new(StringComparer.Ordinal);
     private readonly StackPanel _breadcrumbStrip = new()
     {
         Orientation = Orientation.Horizontal,
@@ -36,6 +38,29 @@ public sealed class GateLevelSchematicWindow : Window
         FontSize = 11,
         VerticalAlignment = VerticalAlignment.Center,
     };
+    private readonly TextBlock _selectionStatus = new()
+    {
+        Foreground = BreadcrumbActive,
+        FontSize = 11,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+    private readonly StackPanel _propertiesStack = new()
+    {
+        Orientation = Orientation.Vertical,
+        Spacing = 6,
+    };
+    private readonly TextBox _searchBox = new()
+    {
+        Watermark = "Ctrl+F search cells/nets",
+        FontSize = 11,
+    };
+    private readonly ListBox _searchResults = new()
+    {
+        Height = 170,
+        Background = SolidColorBrush.Parse("#10141b"),
+        Foreground = TextBrush,
+    };
+    private GateModule? _currentScopeModule;
 
     public GateLevelSchematicWindow(GateNetlist netlist)
     {
@@ -47,6 +72,11 @@ public sealed class GateLevelSchematicWindow : Window
         Content = BuildLayout();
         _scopePath.Add(netlist.TopModule);
         _canvas.SubModuleActivated += OnSubModuleActivated;
+        _canvas.SubModuleExpansionToggled += OnSubModuleExpansionToggled;
+        _canvas.NetSelected += OnNetSelected;
+        _canvas.CellSelected += OnCellSelected;
+        _searchBox.TextChanged += (_, _) => RefreshSearchResults();
+        _searchResults.SelectionChanged += OnSearchResultSelected;
         Opened += (_, _) =>
         {
             LoadCurrentScope();
@@ -60,6 +90,7 @@ public sealed class GateLevelSchematicWindow : Window
         root.Children.Add(BuildHeader());
         root.Children.Add(BuildBreadcrumb());
         root.Children.Add(BuildToolbar());
+        root.Children.Add(BuildPropertiesPanel());
         root.Children.Add(_canvas);
         return root;
     }
@@ -112,6 +143,43 @@ public sealed class GateLevelSchematicWindow : Window
         return bar;
     }
 
+    private Control BuildPropertiesPanel()
+    {
+        Border panel = new()
+        {
+            Width = 280,
+            Background = SurfaceBrush,
+            BorderBrush = StrokeBrush,
+            BorderThickness = new Thickness(1, 0, 0, 0),
+            Padding = new Thickness(12, 10),
+        };
+        DockPanel.SetDock(panel, Avalonia.Controls.Dock.Right);
+
+        DockPanel body = new() { LastChildFill = true };
+        StackPanel search = new() { Orientation = Orientation.Vertical, Spacing = 6 };
+        search.Children.Add(new TextBlock
+        {
+            Text = "Search",
+            Foreground = AccentBrush,
+            FontSize = 12,
+            FontWeight = FontWeight.SemiBold,
+        });
+        search.Children.Add(_searchBox);
+        search.Children.Add(_searchResults);
+        DockPanel.SetDock(search, Avalonia.Controls.Dock.Top);
+        body.Children.Add(search);
+
+        ScrollViewer scroll = new()
+        {
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            Content = _propertiesStack,
+        };
+        body.Children.Add(scroll);
+        panel.Child = body;
+        RenderNoSelection();
+        return panel;
+    }
+
     private Control BuildToolbar()
     {
         Border bar = new()
@@ -127,9 +195,10 @@ public sealed class GateLevelSchematicWindow : Window
         row.Children.Add(MiniButton("Fit (F)",   () => _canvas.FitToView()));
         row.Children.Add(MiniButton("Reset (R)", () => _canvas.ResetView()));
         row.Children.Add(MiniButton("Up",        PopScope));
+        row.Children.Add(_selectionStatus);
         row.Children.Add(new TextBlock
         {
-            Text = "  · middle-drag pan · Ctrl+wheel zoom · double-click instance to drill in",
+            Text = "  · + expands in place · double-click drills in · click wire to highlight · middle-drag pan · Ctrl+wheel zoom",
             Foreground = MutedBrush,
             FontSize = 10,
             VerticalAlignment = VerticalAlignment.Center,
@@ -159,14 +228,59 @@ public sealed class GateLevelSchematicWindow : Window
 
     private void OnSubModuleActivated(object? sender, string instanceName)
     {
-        _scopePath.Add(instanceName);
+        foreach (string segment in instanceName.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            _scopePath.Add(segment);
+        }
+        _expandedInstancePaths.Clear();
         LoadCurrentScope();
+    }
+
+    private void OnSubModuleExpansionToggled(object? sender, string instancePath)
+    {
+        if (!_expandedInstancePaths.Add(instancePath))
+        {
+            _expandedInstancePaths.Remove(instancePath);
+            RemoveDescendantExpansions(instancePath);
+        }
+        LoadCurrentScope();
+    }
+
+    private void RemoveDescendantExpansions(string instancePath)
+    {
+        string prefix = instancePath + "/";
+        _expandedInstancePaths.RemoveWhere(path => path.StartsWith(prefix, StringComparison.Ordinal));
+    }
+
+    private void OnNetSelected(object? sender, GateNetSelection? selection)
+    {
+        _selectionStatus.Text = selection is null
+            ? string.Empty
+            : $"Selected net: {(string.IsNullOrWhiteSpace(selection.NetName) ? "net" + selection.NetId : selection.NetName)} (net{selection.NetId})";
+        if (selection is not null)
+        {
+            RenderNetSelection(selection);
+        }
+    }
+
+    private void OnCellSelected(object? sender, GateCellSelection? selection)
+    {
+        if (selection is null)
+        {
+            RenderNoSelection();
+            return;
+        }
+
+        GateCell cell = selection.Cell;
+        _selectionStatus.Text = $"Selected cell: {cell.Name}";
+        RenderCellProperties(cell);
     }
 
     private void PopScope()
     {
         if (_scopePath.Count <= 1) return;
         _scopePath.RemoveAt(_scopePath.Count - 1);
+        _expandedInstancePaths.Clear();
         LoadCurrentScope();
     }
 
@@ -177,6 +291,7 @@ public sealed class GateLevelSchematicWindow : Window
         {
             _scopePath.RemoveAt(_scopePath.Count - 1);
         }
+        _expandedInstancePaths.Clear();
         LoadCurrentScope();
     }
 
@@ -218,10 +333,14 @@ public sealed class GateLevelSchematicWindow : Window
     {
         try
         {
-            GateNetlistElkBuildResult build = GateNetlistElkBuilder.BuildScope(_netlist, _scopePath);
+            GateNetlistElkBuildResult build = GateNetlistElkBuilder.BuildScope(_netlist, _scopePath, _expandedInstancePaths);
             ElkGraph laid = new ElkRunner().Layout(build.Graph);
             GateModule scopeModule = ResolveScopeModule();
+            _currentScopeModule = scopeModule;
             _canvas.SetGraph(laid, scopeModule);
+            _selectionStatus.Text = string.Empty;
+            RenderNoSelection();
+            RefreshSearchResults();
             _headerStats.Text = $"{scopeModule.Cells.Count} cells · {scopeModule.Nets.Count} named nets · {scopeModule.Ports.Count} ports";
             Title = $"Gate-Level — {string.Join(" / ", _scopePath)}";
             RebuildBreadcrumb();
@@ -234,6 +353,172 @@ public sealed class GateLevelSchematicWindow : Window
         {
             Content = BuildErrorBanner("Scope resolve failed: " + ex.Message);
         }
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            _searchBox.Focus();
+            _searchBox.SelectAll();
+            e.Handled = true;
+        }
+    }
+
+    private void RefreshSearchResults()
+    {
+        string query = (_searchBox.Text ?? string.Empty).Trim();
+        if (_currentScopeModule is null || query.Length == 0)
+        {
+            _searchResults.ItemsSource = Array.Empty<GateSearchResult>();
+            return;
+        }
+
+        List<GateSearchResult> results = [];
+        foreach (GateCell cell in _currentScopeModule.Cells)
+        {
+            if (cell.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || cell.Type.Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(GateSearchResult.ForCell(cell));
+            }
+        }
+
+        foreach (GateNet net in _currentScopeModule.Nets)
+        {
+            if (!net.Name.Contains(query, StringComparison.OrdinalIgnoreCase)) continue;
+            GateBit[] netBits = [.. net.Bits.Where(static bit => bit.Kind == BitKind.Net)];
+            if (netBits.Length > 0)
+            {
+                results.Add(GateSearchResult.ForNet(net.Name, netBits[0].NetId));
+            }
+        }
+
+        _searchResults.ItemsSource = results
+            .OrderBy(static r => r.Kind)
+            .ThenBy(static r => r.Label, StringComparer.OrdinalIgnoreCase)
+            .Take(80)
+            .ToList();
+    }
+
+    private void OnSearchResultSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_searchResults.SelectedItem is not GateSearchResult result) return;
+
+        if (result.Cell is { } cell)
+        {
+            _canvas.HighlightNet(null);
+            _canvas.SelectCell(cell.Name);
+            _canvas.CenterOnCell(cell.Name);
+            RenderCellProperties(cell);
+            _selectionStatus.Text = $"Selected cell: {cell.Name}";
+            return;
+        }
+
+        if (result.NetId is { } netId)
+        {
+            _canvas.SelectCell(null);
+            _canvas.HighlightNet(netId);
+            _canvas.CenterOnNet(netId);
+            GateNetSelection selection = new(netId, result.Label);
+            RenderNetSelection(selection);
+            _selectionStatus.Text = $"Selected net: {result.Label} (net{netId})";
+        }
+    }
+
+    private void RenderNoSelection()
+    {
+        _propertiesStack.Children.Clear();
+        _propertiesStack.Children.Add(PanelTitle("Properties"));
+        _propertiesStack.Children.Add(MutedText("Click a gate, sub-module, or wire to inspect it."));
+    }
+
+    private void RenderNetSelection(GateNetSelection selection)
+    {
+        _propertiesStack.Children.Clear();
+        _propertiesStack.Children.Add(PanelTitle("Net"));
+        AddProperty("ID", "net" + selection.NetId);
+        AddProperty("Name", string.IsNullOrWhiteSpace(selection.NetName) ? "(anonymous)" : selection.NetName!);
+    }
+
+    private void RenderCellProperties(GateCell cell)
+    {
+        _propertiesStack.Children.Clear();
+        _propertiesStack.Children.Add(PanelTitle("Cell"));
+        AddProperty("Name", cell.Name);
+        AddProperty("Type", cell.Type);
+
+        if (cell.Attributes.TryGetValue("src", out string? src) && !string.IsNullOrWhiteSpace(src))
+        {
+            AddProperty("Source", src);
+        }
+
+        AddMapSection("Parameters", cell.Parameters);
+        AddMapSection("Attributes", cell.Attributes.Where(kv => !string.Equals(kv.Key, "src", StringComparison.Ordinal)));
+    }
+
+    private TextBlock PanelTitle(string text) => new()
+    {
+        Text = text,
+        Foreground = AccentBrush,
+        FontSize = 13,
+        FontWeight = FontWeight.SemiBold,
+    };
+
+    private TextBlock MutedText(string text) => new()
+    {
+        Text = text,
+        Foreground = MutedBrush,
+        FontSize = 11,
+        TextWrapping = TextWrapping.Wrap,
+    };
+
+    private void AddProperty(string name, string value)
+    {
+        _propertiesStack.Children.Add(new TextBlock
+        {
+            Text = name,
+            Foreground = MutedBrush,
+            FontSize = 10,
+        });
+        _propertiesStack.Children.Add(new TextBlock
+        {
+            Text = value,
+            Foreground = TextBrush,
+            FontSize = 11,
+            FontFamily = FontFamily.Parse("monospace"),
+            TextWrapping = TextWrapping.Wrap,
+        });
+    }
+
+    private void AddMapSection(string title, IEnumerable<KeyValuePair<string, string>> values)
+    {
+        var rows = values.ToList();
+        if (rows.Count == 0) return;
+        _propertiesStack.Children.Add(new TextBlock
+        {
+            Text = title,
+            Foreground = AccentBrush,
+            FontWeight = FontWeight.SemiBold,
+            FontSize = 11,
+            Margin = new Thickness(0, 8, 0, 0),
+        });
+        foreach ((string key, string value) in rows)
+        {
+            AddProperty(key, value);
+        }
+    }
+
+    private sealed record GateSearchResult(string Kind, string Label, string Detail, GateCell? Cell, int? NetId)
+    {
+        public static GateSearchResult ForCell(GateCell cell) =>
+            new("cell", cell.Name, cell.Type, cell, null);
+
+        public static GateSearchResult ForNet(string name, int netId) =>
+            new("net", name, "net" + netId, null, netId);
+
+        public override string ToString() => $"{Kind}: {Label}  {Detail}";
     }
 
     private GateModule ResolveScopeModule()

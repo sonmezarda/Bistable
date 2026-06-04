@@ -56,7 +56,10 @@ public sealed class YosysRoundTripIntegrationTests
             {
                 TopModule = "tiny_and",
                 Sources = ["tiny_and.sv"],
-                Synthesis = new SynthesisConfiguration(Enabled: true, OutputJson: "tiny_and.json"),
+                Synthesis = new SynthesisConfiguration(
+                    Enabled: true,
+                    OutputJson: "tiny_and.json",
+                    OutputVerilog: "tiny_and_synth.sv"),
             };
 
             string script = YosysScriptBuilder.Build(project, project.Synthesis!, workDir);
@@ -68,6 +71,8 @@ public sealed class YosysRoundTripIntegrationTests
 
             string outputJson = Path.Combine(workDir, "tiny_and.json");
             Assert.True(File.Exists(outputJson), "Yosys should have produced the configured output JSON.");
+            string outputVerilog = Path.Combine(workDir, "tiny_and_synth.sv");
+            Assert.True(File.Exists(outputVerilog), "Yosys should have produced the configured synthesized Verilog.");
 
             GateNetlist netlist = await YosysJsonReader.ReadFileAsync(outputJson, CancellationToken.None);
             Assert.Equal("tiny_and", netlist.TopModule);

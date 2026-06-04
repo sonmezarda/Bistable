@@ -17,6 +17,14 @@ public sealed record ProjectConfiguration
     public IReadOnlyList<string> VerilatorOptions { get; init; } = Array.Empty<string>();
 
     /// <summary>
+    /// Optional physical build-directory label for generated native workers.
+    /// The Verilator top module remains <see cref="TopModule"/>; this only
+    /// separates artifacts for alternate builds of the same logical design
+    /// such as RTL vs gate-level workers.
+    /// </summary>
+    public string? WorkerBuildName { get; init; }
+
+    /// <summary>
     /// Phase 3 (P3-2): when true, the worker is built with Verilator's
     /// <c>--public-flat-rw</c> flag so every hierarchical signal becomes a
     /// publicly addressable field on the compiled model. The GUI then probes

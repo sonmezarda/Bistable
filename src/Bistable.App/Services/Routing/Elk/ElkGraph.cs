@@ -56,6 +56,9 @@ public sealed class ElkNode
     [JsonPropertyName("children")]
     public List<ElkNode>? Children { get; set; }
 
+    [JsonPropertyName("edges")]
+    public List<ElkEdge>? Edges { get; set; }
+
     [JsonPropertyName("x")]
     public double X { get; set; }
 

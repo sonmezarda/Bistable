@@ -40,6 +40,7 @@ public sealed class YosysJsonReaderTests
         GateBit yBit = Assert.Single(y.Bits);
         Assert.Equal(BitKind.Net, yBit.Kind);
         Assert.True(yBit.NetId >= 2, "Yosys net ids are >= 2 (0/1 reserved for constants).");
+        Assert.Equal("/tmp/yosys-ref/and2.sv:2.16-2.21", andCell.Attributes["src"]);
     }
 
     [Fact]

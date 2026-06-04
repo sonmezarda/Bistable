@@ -62,6 +62,21 @@ public sealed class GateNetlistElkBuilderTests
     }
 
     [Fact]
+    public void Build_And2_EdgesCarryNetLabelsForHighlighting()
+    {
+        GateNetlist netlist = YosysJsonReader.Read(LoadFixture("and2.json"));
+        GateNetlistElkBuildResult result = GateNetlistElkBuilder.Build(netlist);
+
+        Assert.All(result.Graph.Edges!, edge =>
+        {
+            string label = Assert.Single(edge.Labels!).Text;
+            Assert.StartsWith("net", label, StringComparison.Ordinal);
+            Assert.True(int.TryParse(label[3..], out int netId));
+            Assert.True(netId >= 2);
+        });
+    }
+
+    [Fact]
     public void Build_DffBus_ProducesFourFlipFlopNodes()
     {
         GateNetlist netlist = YosysJsonReader.Read(LoadFixture("dff_bus.json"));

@@ -36,6 +36,8 @@ public sealed class GateSchematicCanvas : Control
     private Point _lastPointerPos;
     private bool _isPanning;
     private bool _fitPending = true;
+    private int? _highlightedNetId;
+    private string? _selectedCellName;
 
     /// <summary>
     /// Phase 6.5 Wave 2: raised when the user double-clicks (or single-clicks
@@ -43,6 +45,17 @@ public sealed class GateSchematicCanvas : Control
     /// instance name; the window translates it into a breadcrumb push.
     /// </summary>
     public event EventHandler<string>? SubModuleActivated;
+
+    public event EventHandler<string>? SubModuleExpansionToggled;
+
+    /// <summary>
+    /// Phase 6.5 Wave 3: raised when the user clicks a gate-level wire or pin.
+    /// The payload identifies the Yosys net id and, when available, a user
+    /// netname from the current module's netname table.
+    /// </summary>
+    public event EventHandler<GateNetSelection?>? NetSelected;
+
+    public event EventHandler<GateCellSelection?>? CellSelected;
 
     public GateSchematicCanvas()
     {
@@ -55,7 +68,61 @@ public sealed class GateSchematicCanvas : Control
     {
         _graph = graph;
         _module = module;
+        _highlightedNetId = null;
+        _selectedCellName = null;
         _fitPending = true;
+        InvalidateVisual();
+    }
+
+    public void HighlightNet(int? netId)
+    {
+        _highlightedNetId = netId;
+        InvalidateVisual();
+    }
+
+    public void SelectCell(string? cellName)
+    {
+        _selectedCellName = cellName;
+        InvalidateVisual();
+    }
+
+    public void CenterOnCell(string cellName)
+    {
+        if (_graph?.Children is null) return;
+        foreach ((ElkNode node, double absX, double absY) in EnumerateNodes(_graph.Children))
+        {
+            if (NodeRepresentsCell(node, cellName))
+            {
+                CenterOnWorldPoint(new Point(absX + node.Width / 2, absY + node.Height / 2));
+                return;
+            }
+        }
+    }
+
+    public void CenterOnNet(int netId)
+    {
+        if (_graph?.Edges is null) return;
+        ElkEdgeCoordinateContext coordinateContext = BuildEdgeCoordinateContext(_graph);
+        foreach (ElkEdge edge in _graph.Edges)
+        {
+            if (TryGetEdgeNetId(edge) != netId || edge.Sections is not { Count: > 0 }) continue;
+            ElkEdgeSection section = edge.Sections[0];
+            Point offset = ResolveEdgeCoordinateOffset(edge, coordinateContext);
+            Point start = OffsetPoint(section.StartPoint, offset);
+            Point end = section.BendPoints is { Count: > 0 } bends
+                ? OffsetPoint(bends[0], offset)
+                : OffsetPoint(section.EndPoint, offset);
+            CenterOnWorldPoint(new Point((start.X + end.X) / 2, (start.Y + end.Y) / 2));
+            return;
+        }
+    }
+
+    private void CenterOnWorldPoint(Point world)
+    {
+        _fitPending = false;
+        _pan = new Point(
+            Bounds.Width / 2 - world.X * _zoom,
+            Bounds.Height / 2 - world.Y * _zoom);
         InvalidateVisual();
     }
 
@@ -87,7 +154,7 @@ public sealed class GateSchematicCanvas : Control
         using (context.PushTransform(Matrix.CreateScale(_zoom, _zoom)))
         {
             DrawEdges(context, _graph);
-            DrawNodes(context, _graph, _module);
+            DrawNodes(context, _graph, _module, _selectedCellName);
         }
 
         // Overlay HUD with zoom percentage.
@@ -120,27 +187,33 @@ public sealed class GateSchematicCanvas : Control
     // ── Edges ─────────────────────────────────────────────────────────────
 
     private static readonly IBrush WireBrush = SolidColorBrush.Parse("#65d889");
+    private static readonly IBrush HighlightWireBrush = SolidColorBrush.Parse("#ffd166");
     private static readonly Pen WirePen = new(WireBrush, 1.0);
+    private static readonly Pen HighlightWirePen = new(HighlightWireBrush, 2.6);
 
-    private static void DrawEdges(DrawingContext context, ElkGraph graph)
+    private void DrawEdges(DrawingContext context, ElkGraph graph)
     {
         if (graph.Edges is null) return;
+        ElkEdgeCoordinateContext coordinateContext = BuildEdgeCoordinateContext(graph);
         foreach (ElkEdge edge in graph.Edges)
         {
+            bool highlighted = _highlightedNetId is { } netId && TryGetEdgeNetId(edge) == netId;
+            Pen pen = highlighted ? HighlightWirePen : WirePen;
             if (edge.Sections is null) continue;
+            Point offset = ResolveEdgeCoordinateOffset(edge, coordinateContext);
             foreach (ElkEdgeSection section in edge.Sections)
             {
-                Point prev = new(section.StartPoint.X, section.StartPoint.Y);
+                Point prev = OffsetPoint(section.StartPoint, offset);
                 if (section.BendPoints is { } bends)
                 {
                     foreach (ElkPoint bp in bends)
                     {
-                        Point cur = new(bp.X, bp.Y);
-                        context.DrawLine(WirePen, prev, cur);
+                        Point cur = OffsetPoint(bp, offset);
+                        context.DrawLine(pen, prev, cur);
                         prev = cur;
                     }
                 }
-                context.DrawLine(WirePen, prev, new Point(section.EndPoint.X, section.EndPoint.Y));
+                context.DrawLine(pen, prev, OffsetPoint(section.EndPoint, offset));
             }
         }
     }
@@ -152,7 +225,7 @@ public sealed class GateSchematicCanvas : Control
     private static readonly IBrush MutedBrush = SolidColorBrush.Parse("#8f9aad");
     private static readonly Pen NodePen = new(NodeStroke, 1.2);
 
-    private static void DrawNodes(DrawingContext context, ElkGraph graph, GateModule module)
+    private static void DrawNodes(DrawingContext context, ElkGraph graph, GateModule module, string? selectedCellName)
     {
         if (graph.Children is null) return;
 
@@ -164,13 +237,44 @@ public sealed class GateSchematicCanvas : Control
             cellByPrefixedName[cell.Name] = cell;
         }
 
-        foreach (ElkNode node in graph.Children)
+        DrawNodesRecursive(context, graph.Children, selectedCellName, cellByPrefixedName, baseX: 0, baseY: 0);
+    }
+
+    private static void DrawNodesRecursive(
+        DrawingContext context,
+        IReadOnlyList<ElkNode> nodes,
+        string? selectedCellName,
+        IReadOnlyDictionary<string, GateCell> cellByPrefixedName,
+        double baseX,
+        double baseY)
+    {
+        foreach (ElkNode node in nodes)
         {
-            Rect rect = new(node.X, node.Y, node.Width, node.Height);
+            double absX = baseX + node.X;
+            double absY = baseY + node.Y;
+            Rect rect = new(absX, absY, node.Width, node.Height);
             DrawNodeBackground(context, node, rect);
             DrawNodeForeground(context, node, rect, cellByPrefixedName);
-            DrawPorts(context, node);
+            if (selectedCellName is not null && NodeRepresentsCell(node, selectedCellName))
+            {
+                context.DrawRectangle(null, new Pen(HighlightWireBrush, 2.2), rect.Inflate(4), 4, 4);
+            }
+            DrawPorts(context, node, absX, absY);
+            if (node.Children is { Count: > 0 })
+            {
+                DrawNodesRecursive(context, node.Children, selectedCellName, cellByPrefixedName, absX, absY);
+            }
         }
+    }
+
+    private static bool NodeRepresentsCell(ElkNode node, string cellName)
+    {
+        if (node.Id.StartsWith("inst_", StringComparison.Ordinal))
+        {
+            return node.Labels is { Count: > 0 }
+                   && string.Equals(node.Labels[0].Text, cellName, StringComparison.Ordinal);
+        }
+        return node.Id.Contains(Sanitize(cellName), StringComparison.Ordinal);
     }
 
     private static void DrawNodeBackground(DrawingContext ctx, ElkNode node, Rect rect)
@@ -215,7 +319,7 @@ public sealed class GateSchematicCanvas : Control
         GateCell? cell = TryResolveCell(node.Id, cellByName);
         GateCellDescriptor descriptor = cell is not null
             ? GateCellLibrary.Lookup(cell.Type)
-            : GateCellDescriptor.Unknown(node.Id);
+            : ResolveDescriptorFromLabels(node);
 
         switch (descriptor.Shape)
         {
@@ -254,6 +358,15 @@ public sealed class GateSchematicCanvas : Control
             if (nodeId.Contains(Sanitize(name), StringComparison.Ordinal)) return cell;
         }
         return null;
+    }
+
+    private static GateCellDescriptor ResolveDescriptorFromLabels(ElkNode node)
+    {
+        if (node.Labels is { Count: > 1 } && !string.IsNullOrWhiteSpace(node.Labels[1].Text))
+        {
+            return GateCellLibrary.Lookup(node.Labels[1].Text);
+        }
+        return GateCellDescriptor.Unknown(node.Id);
     }
 
     private static string Sanitize(string raw) =>
@@ -437,10 +550,16 @@ public sealed class GateSchematicCanvas : Control
         }
 
         // "+" affordance in the top-right corner — same idea as the RTL viewer.
-        const double btnSize = 14;
-        Rect btn = new(rect.Right - btnSize - 6, rect.Y + 6, btnSize, btnSize);
+        Rect btn = SubModuleButtonRect(rect);
         ctx.DrawRectangle(null, new Pen(InstanceStroke, 1), btn, 3, 3);
-        DrawLabel(ctx, btn.X + 3, btn.Y - 1, "+", InstanceStroke, 11);
+        string glyph = node.Children is not null ? "-" : "+";
+        DrawLabel(ctx, btn.X + 3, btn.Y - 1, glyph, InstanceStroke, 11);
+    }
+
+    private static Rect SubModuleButtonRect(Rect rect)
+    {
+        const double btnSize = 14;
+        return new Rect(rect.Right - btnSize - 6, rect.Y + 6, btnSize, btnSize);
     }
 
     private static void DrawGenericBox(DrawingContext ctx, Rect rect, string label)
@@ -463,12 +582,12 @@ public sealed class GateSchematicCanvas : Control
 
     // ── Ports ─────────────────────────────────────────────────────────────
 
-    private static void DrawPorts(DrawingContext ctx, ElkNode node)
+    private static void DrawPorts(DrawingContext ctx, ElkNode node, double nodeAbsoluteX, double nodeAbsoluteY)
     {
         if (node.Ports is null) return;
         foreach (ElkPort port in node.Ports)
         {
-            Point centre = new(node.X + port.X, node.Y + port.Y);
+            Point centre = new(nodeAbsoluteX + port.X, nodeAbsoluteY + port.Y);
             ctx.DrawEllipse(WireBrush, null, centre, 1.8, 1.8);
         }
     }
@@ -499,6 +618,43 @@ public sealed class GateSchematicCanvas : Control
                 SubModuleActivated?.Invoke(this, instanceName);
                 e.Handled = true;
             }
+            return;
+        }
+
+        if (props.IsLeftButtonPressed)
+        {
+            Point world = ScreenToWorld(e.GetPosition(this));
+            string? badgeInstanceName = HitTestSubModuleButton(world);
+            if (badgeInstanceName is not null)
+            {
+                SubModuleExpansionToggled?.Invoke(this, badgeInstanceName);
+                e.Handled = true;
+                return;
+            }
+
+            int? netId = HitTestNet(world);
+            if (netId is not null)
+            {
+                HighlightNet(netId);
+                SelectCell(null);
+                NetSelected?.Invoke(this, new GateNetSelection(netId.Value, ResolveNetName(netId.Value)));
+                CellSelected?.Invoke(this, null);
+            }
+            else if (HitTestCell(world) is { } cell)
+            {
+                HighlightNet(null);
+                SelectCell(cell.Name);
+                NetSelected?.Invoke(this, null);
+                CellSelected?.Invoke(this, new GateCellSelection(cell));
+            }
+            else if (_highlightedNetId is not null || _selectedCellName is not null)
+            {
+                HighlightNet(null);
+                SelectCell(null);
+                NetSelected?.Invoke(this, null);
+                CellSelected?.Invoke(this, null);
+            }
+            e.Handled = true;
         }
     }
 
@@ -508,16 +664,342 @@ public sealed class GateSchematicCanvas : Control
     private string? HitTestSubModule(Point world)
     {
         if (_graph?.Children is null) return null;
-        foreach (ElkNode node in _graph.Children)
+        return HitTestSubModuleRecursive(_graph.Children, world, baseX: 0, baseY: 0);
+    }
+
+    private string? HitTestSubModuleRecursive(IReadOnlyList<ElkNode> nodes, Point world, double baseX, double baseY)
+    {
+        for (int i = nodes.Count - 1; i >= 0; i--)
         {
+            ElkNode node = nodes[i];
+            double absX = baseX + node.X;
+            double absY = baseY + node.Y;
+            if (node.Children is { Count: > 0 }
+                && HitTestSubModuleRecursive(node.Children, world, absX, absY) is { } childHit)
+            {
+                return childHit;
+            }
+
             if (!node.Id.StartsWith("inst_", System.StringComparison.Ordinal)) continue;
-            Rect rect = new(node.X, node.Y, node.Width, node.Height);
+            Rect rect = new(absX, absY, node.Width, node.Height);
             if (rect.Contains(world))
             {
-                return node.Labels is { Count: > 0 } ? node.Labels[0].Text : node.Id;
+                return GetInstancePath(node);
             }
         }
         return null;
+    }
+
+    private string? HitTestSubModuleButton(Point world)
+    {
+        if (_graph?.Children is null) return null;
+        return HitTestSubModuleButtonRecursive(_graph.Children, world, baseX: 0, baseY: 0);
+    }
+
+    private string? HitTestSubModuleButtonRecursive(IReadOnlyList<ElkNode> nodes, Point world, double baseX, double baseY)
+    {
+        for (int i = nodes.Count - 1; i >= 0; i--)
+        {
+            ElkNode node = nodes[i];
+            double absX = baseX + node.X;
+            double absY = baseY + node.Y;
+            if (node.Children is { Count: > 0 }
+                && HitTestSubModuleButtonRecursive(node.Children, world, absX, absY) is { } childHit)
+            {
+                return childHit;
+            }
+
+            if (!node.Id.StartsWith("inst_", System.StringComparison.Ordinal)) continue;
+            Rect rect = new(absX, absY, node.Width, node.Height);
+            if (SubModuleButtonRect(rect).Contains(world))
+            {
+                return GetInstancePath(node);
+            }
+        }
+        return null;
+    }
+
+    private static string GetInstancePath(ElkNode node)
+    {
+        if (node.Labels is { Count: > 2 } && !string.IsNullOrWhiteSpace(node.Labels[2].Text))
+        {
+            return node.Labels[2].Text;
+        }
+        return node.Labels is { Count: > 0 } ? node.Labels[0].Text : node.Id;
+    }
+
+    private int? HitTestNet(Point world)
+    {
+        if (_graph is null) return null;
+
+        double tolerance = Math.Max(4.0, 7.0 / Math.Max(_zoom, MinZoom));
+        if (_graph.Children is { } children)
+        {
+            foreach ((ElkNode node, double absX, double absY) in EnumerateNodes(children))
+            {
+                if (node.Ports is null) continue;
+                foreach (ElkPort port in node.Ports)
+                {
+                    Point centre = new(absX + port.X, absY + port.Y);
+                    if (Distance(world, centre) <= tolerance
+                        && TryFindNetForPort(port.Id) is { } portNet)
+                    {
+                        return portNet;
+                    }
+                }
+            }
+        }
+
+        if (_graph.Edges is null) return null;
+        ElkEdgeCoordinateContext coordinateContext = BuildEdgeCoordinateContext(_graph);
+        foreach (ElkEdge edge in _graph.Edges)
+        {
+            int? netId = TryGetEdgeNetId(edge);
+            if (netId is null || edge.Sections is null) continue;
+            Point offset = ResolveEdgeCoordinateOffset(edge, coordinateContext);
+            foreach (ElkEdgeSection section in edge.Sections)
+            {
+                Point prev = OffsetPoint(section.StartPoint, offset);
+                if (section.BendPoints is { } bends)
+                {
+                    foreach (ElkPoint bp in bends)
+                    {
+                        Point cur = OffsetPoint(bp, offset);
+                        if (DistanceToSegment(world, prev, cur) <= tolerance) return netId;
+                        prev = cur;
+                    }
+                }
+                Point end = OffsetPoint(section.EndPoint, offset);
+                if (DistanceToSegment(world, prev, end) <= tolerance) return netId;
+            }
+        }
+        return null;
+    }
+
+    private GateCell? HitTestCell(Point world)
+    {
+        if (_graph?.Children is null || _module is null) return null;
+        foreach ((ElkNode node, double absX, double absY) in EnumerateNodes(_graph.Children))
+        {
+            if (node.Id is "boundary_in" or "boundary_out") continue;
+            Rect rect = new(absX, absY, node.Width, node.Height);
+            if (!rect.Contains(world)) continue;
+
+            if (node.Id.StartsWith("inst_", StringComparison.Ordinal)
+                && node.Labels is { Count: > 0 })
+            {
+                string instanceName = node.Labels[0].Text;
+                return _module.Cells.FirstOrDefault(c => string.Equals(c.Name, instanceName, StringComparison.Ordinal))
+                    ?? BuildTransientCellFromLabels(node);
+            }
+
+            foreach (GateCell cell in _module.Cells)
+            {
+                if (node.Id.Contains(Sanitize(cell.Name), StringComparison.Ordinal))
+                {
+                    return cell;
+                }
+            }
+            if (BuildTransientCellFromLabels(node) is { } transient)
+            {
+                return transient;
+            }
+        }
+        return null;
+    }
+
+    private static GateCell? BuildTransientCellFromLabels(ElkNode node)
+    {
+        if (node.Labels is not { Count: > 2 }) return null;
+        string type = node.Labels[1].Text;
+        string name = node.Id.StartsWith("inst_", StringComparison.Ordinal)
+            ? node.Labels[0].Text
+            : node.Labels[2].Text;
+        if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(name)) return null;
+        return new GateCell(
+            name,
+            type,
+            new Dictionary<string, GateConnection>(),
+            new Dictionary<string, GatePortDirection>(),
+            new Dictionary<string, string>(),
+            new Dictionary<string, string>());
+    }
+
+    private int? TryFindNetForPort(string portId)
+    {
+        if (_graph?.Edges is null) return null;
+        foreach (ElkEdge edge in _graph.Edges)
+        {
+            if ((edge.Sources?.Contains(portId) ?? false)
+                || (edge.Targets?.Contains(portId) ?? false))
+            {
+                return TryGetEdgeNetId(edge);
+            }
+        }
+        return null;
+    }
+
+    private string? ResolveNetName(int netId)
+    {
+        if (_module?.Nets is null) return null;
+        foreach (GateNet net in _module.Nets)
+        {
+            if (net.Bits.Any(bit => bit.Kind == BitKind.Net && bit.NetId == netId))
+            {
+                return net.Name;
+            }
+        }
+        return null;
+    }
+
+    private static int? TryGetEdgeNetId(ElkEdge edge)
+    {
+        if (edge.Labels is null) return null;
+        foreach (ElkLabel label in edge.Labels)
+        {
+            string text = label.Text.Trim();
+            if (text.StartsWith("net", StringComparison.Ordinal)
+                && int.TryParse(text[3..], out int netId))
+            {
+                return netId;
+            }
+        }
+        return null;
+    }
+
+    private static IEnumerable<(ElkNode Node, double AbsoluteX, double AbsoluteY)> EnumerateNodes(
+        IReadOnlyList<ElkNode> nodes)
+    {
+        foreach (ElkNode node in nodes)
+        {
+            foreach (var item in EnumerateNodes(node, baseX: 0, baseY: 0))
+            {
+                yield return item;
+            }
+        }
+    }
+
+    private static IEnumerable<(ElkNode Node, double AbsoluteX, double AbsoluteY)> EnumerateNodes(
+        ElkNode node,
+        double baseX,
+        double baseY)
+    {
+        double absX = baseX + node.X;
+        double absY = baseY + node.Y;
+        yield return (node, absX, absY);
+        if (node.Children is null) yield break;
+        foreach (ElkNode child in node.Children)
+        {
+            foreach (var item in EnumerateNodes(child, absX, absY))
+            {
+                yield return item;
+            }
+        }
+    }
+
+    private static ElkEdgeCoordinateContext BuildEdgeCoordinateContext(ElkGraph graph)
+    {
+        Dictionary<string, string[]> endpointPaths = new(StringComparer.Ordinal);
+        Dictionary<string, Point> nodeOrigins = new(StringComparer.Ordinal);
+        Visit(graph.Children, [], absoluteX: 0, absoluteY: 0);
+        return new ElkEdgeCoordinateContext(endpointPaths, nodeOrigins);
+
+        void Visit(IReadOnlyList<ElkNode> nodes, string[] parentPath, double absoluteX, double absoluteY)
+        {
+            foreach (ElkNode node in nodes)
+            {
+                double nodeAbsoluteX = absoluteX + node.X;
+                double nodeAbsoluteY = absoluteY + node.Y;
+                string[] nodePath = [.. parentPath, node.Id];
+                endpointPaths[node.Id] = nodePath;
+                nodeOrigins[PathKey(nodePath)] = new Point(nodeAbsoluteX, nodeAbsoluteY);
+
+                if (node.Ports is { Count: > 0 })
+                {
+                    foreach (ElkPort port in node.Ports)
+                    {
+                        endpointPaths[port.Id] = nodePath;
+                    }
+                }
+
+                if (node.Children is { Count: > 0 })
+                {
+                    Visit(node.Children, nodePath, nodeAbsoluteX, nodeAbsoluteY);
+                }
+            }
+        }
+    }
+
+    private static Point ResolveEdgeCoordinateOffset(ElkEdge edge, ElkEdgeCoordinateContext context)
+    {
+        string[]? commonPath = null;
+        foreach (string endpoint in edge.Sources.Concat(edge.Targets))
+        {
+            if (!context.EndpointPaths.TryGetValue(endpoint, out string[]? endpointPath))
+            {
+                continue;
+            }
+
+            commonPath = commonPath is null
+                ? endpointPath
+                : CommonPrefix(commonPath, endpointPath);
+            if (commonPath.Length == 0)
+            {
+                return default;
+            }
+        }
+
+        if (commonPath is null || commonPath.Length == 0)
+        {
+            return default;
+        }
+
+        return context.NodeOrigins.TryGetValue(PathKey(commonPath), out Point origin)
+            ? origin
+            : default;
+    }
+
+    private static string[] CommonPrefix(string[] left, string[] right)
+    {
+        int count = Math.Min(left.Length, right.Length);
+        int i = 0;
+        while (i < count && string.Equals(left[i], right[i], StringComparison.Ordinal))
+        {
+            i++;
+        }
+
+        return left[..i];
+    }
+
+    private static string PathKey(IReadOnlyList<string> path) => string.Join('\u001f', path);
+
+    private static Point OffsetPoint(ElkPoint point, Point offset) =>
+        new(point.X + offset.X, point.Y + offset.Y);
+
+    private sealed record ElkEdgeCoordinateContext(
+        IReadOnlyDictionary<string, string[]> EndpointPaths,
+        IReadOnlyDictionary<string, Point> NodeOrigins);
+
+    private static double Distance(Point a, Point b)
+    {
+        double dx = a.X - b.X;
+        double dy = a.Y - b.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    private static double DistanceToSegment(Point p, Point a, Point b)
+    {
+        double dx = b.X - a.X;
+        double dy = b.Y - a.Y;
+        if (Math.Abs(dx) < double.Epsilon && Math.Abs(dy) < double.Epsilon)
+        {
+            return Distance(p, a);
+        }
+
+        double t = ((p.X - a.X) * dx + (p.Y - a.Y) * dy) / (dx * dx + dy * dy);
+        t = Math.Clamp(t, 0, 1);
+        Point projection = new(a.X + t * dx, a.Y + t * dy);
+        return Distance(p, projection);
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -603,3 +1085,7 @@ public sealed class GateSchematicCanvas : Control
         if (_fitPending) InvalidateVisual();
     }
 }
+
+public sealed record GateNetSelection(int NetId, string? NetName);
+
+public sealed record GateCellSelection(GateCell Cell);

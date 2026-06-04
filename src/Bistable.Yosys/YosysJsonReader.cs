@@ -181,7 +181,27 @@ public static class YosysJsonReader
             }
         }
 
-        return new GateCell(name, type, connections, portDirections, parameters);
+        Dictionary<string, string> attributes = ReadStringMap(cellNode, "attributes");
+
+        return new GateCell(name, type, connections, portDirections, parameters, attributes);
+    }
+
+    private static Dictionary<string, string> ReadStringMap(JsonElement owner, string propertyName)
+    {
+        Dictionary<string, string> values = new(StringComparer.Ordinal);
+        if (!owner.TryGetProperty(propertyName, out JsonElement mapNode)
+            || mapNode.ValueKind != JsonValueKind.Object)
+        {
+            return values;
+        }
+
+        foreach (JsonProperty p in mapNode.EnumerateObject())
+        {
+            values[p.Name] = p.Value.ValueKind == JsonValueKind.String
+                ? p.Value.GetString() ?? string.Empty
+                : p.Value.ToString();
+        }
+        return values;
     }
 
     // Reads a "bits" field — accepts both {"bits": [...]} and direct array.

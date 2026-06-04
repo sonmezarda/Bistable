@@ -43,7 +43,8 @@ public sealed record GateCell(
     string Type,
     IReadOnlyDictionary<string, GateConnection> Connections,
     IReadOnlyDictionary<string, GatePortDirection> PortDirections,
-    IReadOnlyDictionary<string, string> Parameters);
+    IReadOnlyDictionary<string, string> Parameters,
+    IReadOnlyDictionary<string, string> Attributes);
 
 public sealed record GateConnection(
     string PortName,

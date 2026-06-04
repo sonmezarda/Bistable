@@ -24,6 +24,7 @@ public sealed class SynthesisConfigurationTests
                 Script: "synth.ys",
                 TopModule: "top",
                 OutputJson: ".bistable/synthesis/top.json",
+                OutputVerilog: ".bistable/synthesis/top.sv",
                 GenericCells: true,
                 Flatten: false),
         };
@@ -38,6 +39,7 @@ public sealed class SynthesisConfigurationTests
         Assert.Equal("synth.ys", round.Synthesis.Script);
         Assert.Equal("top", round.Synthesis.TopModule);
         Assert.Equal(".bistable/synthesis/top.json", round.Synthesis.OutputJson);
+        Assert.Equal(".bistable/synthesis/top.sv", round.Synthesis.OutputVerilog);
         Assert.True(round.Synthesis.GenericCells);
         Assert.False(round.Synthesis.Flatten);
     }
@@ -76,5 +78,6 @@ public sealed class SynthesisConfigurationTests
         Assert.True(config.Synthesis.GenericCells);
         Assert.False(config.Synthesis.Flatten);
         Assert.Equal(".bistable/synthesis/netlist.json", config.Synthesis.OutputJson);
+        Assert.Equal(".bistable/synthesis/netlist.sv", config.Synthesis.OutputVerilog);
     }
 }

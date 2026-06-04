@@ -18,6 +18,9 @@ namespace Bistable.App.Services.Routing.Elk;
 /// </summary>
 public static class GateNetlistElkBuilder
 {
+    private static readonly IReadOnlySet<string> EmptyExpandedInstancePaths =
+        new HashSet<string>(StringComparer.Ordinal);
+
     /// <summary>
     /// Build the ELK graph for the netlist's top module. Returns the
     /// pre-layout graph plus the <see cref="ElkPortRef"/> map for callers who
@@ -31,7 +34,7 @@ public static class GateNetlistElkBuilder
             throw new InvalidOperationException(
                 $"Netlist top module '{netlist.TopModule}' missing from Modules dictionary.");
         }
-        return BuildModule(topModule, netlist);
+        return BuildModule(topModule, netlist, expandedInstancePaths: EmptyExpandedInstancePaths);
     }
 
     /// <summary>
@@ -42,9 +45,16 @@ public static class GateNetlistElkBuilder
     /// can't be resolved (instance name typo, missing sub-module definition).
     /// </summary>
     public static GateNetlistElkBuildResult BuildScope(GateNetlist netlist, IReadOnlyList<string> scopePath)
+        => BuildScope(netlist, scopePath, expandedInstancePaths: EmptyExpandedInstancePaths);
+
+    public static GateNetlistElkBuildResult BuildScope(
+        GateNetlist netlist,
+        IReadOnlyList<string> scopePath,
+        IReadOnlySet<string> expandedInstancePaths)
     {
         ArgumentNullException.ThrowIfNull(netlist);
         ArgumentNullException.ThrowIfNull(scopePath);
+        ArgumentNullException.ThrowIfNull(expandedInstancePaths);
         if (scopePath.Count == 0) return Build(netlist);
 
         if (!netlist.Modules.TryGetValue(scopePath[0], out GateModule? current))
@@ -67,10 +77,13 @@ public static class GateNetlistElkBuilder
             }
             current = next;
         }
-        return BuildModule(current, netlist);
+        return BuildModule(current, netlist, expandedInstancePaths);
     }
 
-    private static GateNetlistElkBuildResult BuildModule(GateModule module, GateNetlist netlist)
+    private static GateNetlistElkBuildResult BuildModule(
+        GateModule module,
+        GateNetlist netlist,
+        IReadOnlySet<string> expandedInstancePaths)
     {
         ElkGraph graph = new() { Id = "root", LayoutOptions = BuildRootLayoutOptions() };
         Dictionary<string, ElkPortRef> portRefs = new(StringComparer.Ordinal);
@@ -78,30 +91,69 @@ public static class GateNetlistElkBuilder
         // Producer / consumer maps keyed by Yosys net id. We emit edges per
         // net so multi-fanout signals flow out as N parallel edges from one
         // driver to N receivers — same shape ELK already routes in the RTL.
-        Dictionary<int, List<ElkPortRef>> producers = new();
-        Dictionary<int, List<ElkPortRef>> consumers = new();
+        Dictionary<string, List<ElkPortRef>> producers = new(StringComparer.Ordinal);
+        Dictionary<string, List<ElkPortRef>> consumers = new(StringComparer.Ordinal);
 
         AddBoundaryNodes(module, graph, producers, consumers, portRefs);
-        int cellIndex = 0;
-        foreach (GateCell cell in module.Cells)
-        {
-            // Phase 6.5 Wave 2: cells whose type names another module in the
-            // netlist are sub-module instances — render as expandable boxes
-            // (one ELK pin per declared module port) so the user can drill in.
-            // Primitive cells ($_AND_/$_DFF_/...) keep the existing path.
-            if (netlist.Modules.TryGetValue(cell.Type, out GateModule? childModule))
-            {
-                AddSubModuleInstanceNode(cell, cellIndex++, childModule, graph, producers, consumers, portRefs);
-            }
-            else
-            {
-                AddCellNode(cell, cellIndex++, graph, producers, consumers, portRefs);
-            }
-        }
+        AddModuleCells(
+            module,
+            netlist,
+            graph.Children,
+            instancePathPrefix: string.Empty,
+            nodeIdPrefix: string.Empty,
+            netScope: "root",
+            expandedInstancePaths,
+            producers,
+            consumers,
+            portRefs);
 
         EmitEdges(graph, producers, consumers);
 
         return new GateNetlistElkBuildResult(graph, portRefs);
+    }
+
+    private static void AddModuleCells(
+        GateModule module,
+        GateNetlist netlist,
+        List<ElkNode> ownerChildren,
+        string instancePathPrefix,
+        string nodeIdPrefix,
+        string netScope,
+        IReadOnlySet<string> expandedInstancePaths,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        int cellIndex = 0;
+        foreach (GateCell cell in module.Cells)
+        {
+            string instancePath = string.IsNullOrEmpty(instancePathPrefix)
+                ? cell.Name
+                : instancePathPrefix + "/" + cell.Name;
+
+            if (netlist.Modules.TryGetValue(cell.Type, out GateModule? childModule))
+            {
+                bool expanded = expandedInstancePaths.Contains(instancePath);
+                AddSubModuleInstanceNode(
+                    cell,
+                    cellIndex++,
+                    childModule,
+                    netlist,
+                    ownerChildren,
+                    instancePath,
+                    nodeIdPrefix,
+                    netScope,
+                    expanded,
+                    expandedInstancePaths,
+                    producers,
+                    consumers,
+                    portRefs);
+            }
+            else
+            {
+                AddCellNode(cell, cellIndex++, ownerChildren, nodeIdPrefix, netScope, producers, consumers, portRefs);
+            }
+        }
     }
 
     // ── Boundary ports ────────────────────────────────────────────────────
@@ -109,23 +161,25 @@ public static class GateNetlistElkBuilder
     private static void AddBoundaryNodes(
         GateModule module,
         ElkGraph graph,
-        Dictionary<int, List<ElkPortRef>> producers,
-        Dictionary<int, List<ElkPortRef>> consumers,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers,
         Dictionary<string, ElkPortRef> portRefs)
     {
         graph.Children ??= [];
-        ElkNode inputs  = NewBoundaryNode(ElkNodeIds.BoundaryIn);
-        ElkNode outputs = NewBoundaryNode(ElkNodeIds.BoundaryOut);
+        int inputRows = CountPortBitRows(module.Ports, isInputSide: true);
+        int outputRows = CountPortBitRows(module.Ports, isInputSide: false);
+        ElkNode inputs  = NewBoundaryNode(ElkNodeIds.BoundaryIn, inputRows);
+        ElkNode outputs = NewBoundaryNode(ElkNodeIds.BoundaryOut, outputRows);
         graph.Children.Add(inputs);
         graph.Children.Add(outputs);
 
-        int inIndex = 0;
-        int outIndex = 0;
+        int inRow = 0;
+        int outRow = 0;
         foreach (GatePort port in module.Ports)
         {
             bool isInput = port.Direction == GatePortDirection.Input;
             ElkNode owner = isInput ? inputs : outputs;
-            int rowIndex = isInput ? inIndex++ : outIndex++;
+            int rowIndex = isInput ? inRow : outRow;
 
             // Multi-bit ports get one ELK pin per bit so each wire is
             // independently routed — matches what the user sees on the RTL view.
@@ -147,19 +201,26 @@ public static class GateNetlistElkBuilder
                 if (bit.Kind == BitKind.Net)
                 {
                     // Boundary input drives the net; boundary output consumes it.
-                    if (isInput) AddTo(producers, bit.NetId, portRef);
-                    else         AddTo(consumers, bit.NetId, portRef);
+                    string key = NetKey("root", bit.NetId);
+                    if (isInput) AddTo(producers, key, portRef);
+                    else         AddTo(consumers, key, portRef);
                 }
             }
+            if (isInput) inRow += Math.Max(1, port.Bits.Count);
+            else         outRow += Math.Max(1, port.Bits.Count);
         }
     }
 
-    private static ElkNode NewBoundaryNode(string id) => new()
+    private static int CountPortBitRows(IReadOnlyList<GatePort> ports, bool isInputSide) =>
+        ports.Where(p => (p.Direction == GatePortDirection.Input) == isInputSide)
+             .Sum(p => Math.Max(1, p.Bits.Count));
+
+    private static ElkNode NewBoundaryNode(string id, int rows) => new()
     {
         Id = id,
-        Width = 32,
-        Height = 200,
-        LayoutOptions = FixedOrderPortConstraints(),
+        Width = 44,
+        Height = Math.Max(80, 28 + rows * 18),
+        LayoutOptions = BoundaryLayoutOptions(),
         Ports = [],
     };
 
@@ -172,26 +233,55 @@ public static class GateNetlistElkBuilder
         GateCell cell,
         int cellIndex,
         GateModule childModule,
-        ElkGraph graph,
-        Dictionary<int, List<ElkPortRef>> producers,
-        Dictionary<int, List<ElkPortRef>> consumers,
+        GateNetlist netlist,
+        List<ElkNode> ownerChildren,
+        string instancePath,
+        string nodeIdPrefix,
+        string parentNetScope,
+        bool expanded,
+        IReadOnlySet<string> expandedInstancePaths,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers,
         Dictionary<string, ElkPortRef> portRefs)
     {
-        string nodeId = "inst_" + Sanitize(cell.Name) + "_" + cellIndex;
+        string nodeId = "inst_" + nodeIdPrefix + Sanitize(cell.Name) + "_" + cellIndex;
 
-        // Size scales with the larger of input or output port count so wide
-        // sub-modules (RV32I imem with prog_rdata + instruction) don't crush
-        // their pins on top of each other.
-        int inputCount  = childModule.Ports.Count(p => p.Direction == GatePortDirection.Input);
-        int outputCount = childModule.Ports.Count(p => p.Direction == GatePortDirection.Output);
-        int rowCount    = Math.Max(inputCount, outputCount);
+        // Size scales with the number of *rendered pin rows*, not the number
+        // of declared ports. A single 32-bit bus becomes 32 ELK ports; sizing
+        // only by declared-port count crushes every wire onto the same edge.
+        int inputRows = 0;
+        int outputRows = 0;
+        foreach (GatePort port in childModule.Ports)
+        {
+            if (!cell.Connections.TryGetValue(port.Name, out GateConnection? conn))
+            {
+                continue;
+            }
+
+            int rows = Math.Max(1, conn.Bits.Count);
+            if (port.Direction == GatePortDirection.Output)
+            {
+                outputRows += rows;
+            }
+            else
+            {
+                inputRows += rows;
+            }
+        }
+        int rowCount = Math.Max(inputRows, outputRows);
+        int longestLabel = Math.Max(cell.Name.Length, cell.Type.Length);
+        Dictionary<string, string> layoutOptions = FixedOrderPortConstraints();
+        layoutOptions["elk.padding"] = expanded
+            ? "[top=48,left=36,right=36,bottom=24]"
+            : "[top=32,left=0,right=0,bottom=8]";
+        layoutOptions["elk.spacing.portPort"] = "18";
 
         ElkNode node = new()
         {
             Id = nodeId,
-            Width = 140,
-            Height = Math.Max(70, 24 + rowCount * 18),
-            LayoutOptions = FixedOrderPortConstraints(),
+            Width = Math.Max(170, 24 + longestLabel * 8),
+            Height = Math.Max(80, 36 + rowCount * 18),
+            LayoutOptions = layoutOptions,
             // labels[0] = instance display name (e.g. "u_imem"),
             // labels[1] = child module type (e.g. "riscv_instruction_memory")
             //             — canvas reads it for the under-title chip.
@@ -199,13 +289,15 @@ public static class GateNetlistElkBuilder
             [
                 new ElkLabel { Text = cell.Name },
                 new ElkLabel { Text = cell.Type },
+                new ElkLabel { Text = instancePath },
             ],
             Ports = [],
+            Children = expanded ? [] : null,
         };
-        graph.Children!.Add(node);
+        ownerChildren.Add(node);
 
         PinPlacementContext ctx = new(node, nodeId, new CellPinSlots(),
-            producers, consumers, portRefs);
+            parentNetScope, producers, consumers, portRefs);
 
         // Iterate the child module's declared ports in the order they were
         // emitted by Yosys; the instance pin name == the port name.
@@ -218,6 +310,79 @@ public static class GateNetlistElkBuilder
             PinRole role = port.Direction == GatePortDirection.Output ? PinRole.Output : PinRole.Input;
             AddPin(port.Name, conn.Bits, role, ctx);
         }
+
+        if (!expanded)
+        {
+            return;
+        }
+
+        BridgeExpandedInstancePortsToChildNets(cell, childModule, node, instancePath,
+            producers, consumers, portRefs);
+        string childNodePrefix = nodeIdPrefix + Sanitize(cell.Name) + "__";
+        string childNetScope = "inst:" + instancePath;
+        AddModuleCells(
+            childModule,
+            netlist,
+            node.Children!,
+            instancePathPrefix: instancePath,
+            nodeIdPrefix: childNodePrefix,
+            netScope: childNetScope,
+            expandedInstancePaths,
+            producers,
+            consumers,
+            portRefs);
+    }
+
+    private static void BridgeExpandedInstancePortsToChildNets(
+        GateCell cell,
+        GateModule childModule,
+        ElkNode instanceNode,
+        string instancePath,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers,
+        Dictionary<string, ElkPortRef> portRefs)
+    {
+        string childNetScope = "inst:" + instancePath;
+        foreach (GatePort port in childModule.Ports)
+        {
+            if (!cell.Connections.TryGetValue(port.Name, out GateConnection? conn))
+            {
+                continue;
+            }
+
+            int bitCount = Math.Min(port.Bits.Count, conn.Bits.Count);
+            for (int bitOrdinal = 0; bitOrdinal < bitCount; bitOrdinal++)
+            {
+                GateBit childBit = port.Bits[bitOrdinal];
+                if (childBit.Kind != BitKind.Net)
+                {
+                    continue;
+                }
+
+                string pinName = conn.Bits.Count == 1 ? port.Name : $"{port.Name}[{bitOrdinal}]";
+                string pinId = $"{instanceNode.Id}.{pinName}";
+                if (!portRefs.TryGetValue(pinId, out ElkPortRef? portRef))
+                {
+                    continue;
+                }
+
+                string childKey = NetKey(childNetScope, childBit.NetId);
+                if (port.Direction == GatePortDirection.Output)
+                {
+                    // Child output: internal logic produces the child net, the
+                    // compound boundary port consumes it before driving the
+                    // parent net already registered by AddPin.
+                    AddTo(consumers, childKey, portRef);
+                }
+                else
+                {
+                    // Child input/inout: parent drives the compound boundary
+                    // port; inside the expanded module that same port is the
+                    // producer for the child's local net.
+                    AddTo(producers, childKey, portRef);
+                }
+            }
+        }
     }
 
     // ── Cells ─────────────────────────────────────────────────────────────
@@ -225,13 +390,15 @@ public static class GateNetlistElkBuilder
     private static void AddCellNode(
         GateCell cell,
         int cellIndex,
-        ElkGraph graph,
-        Dictionary<int, List<ElkPortRef>> producers,
-        Dictionary<int, List<ElkPortRef>> consumers,
+        List<ElkNode> ownerChildren,
+        string nodeIdPrefix,
+        string netScope,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers,
         Dictionary<string, ElkPortRef> portRefs)
     {
         GateCellDescriptor descriptor = GateCellLibrary.Lookup(cell.Type);
-        string nodeId = BuildCellNodeId(cell, cellIndex, descriptor);
+        string nodeId = BuildCellNodeId(cell, cellIndex, descriptor, nodeIdPrefix);
         ElkNode node = new()
         {
             Id = nodeId,
@@ -241,10 +408,10 @@ public static class GateNetlistElkBuilder
             Labels = BuildCellLabels(cell, descriptor),
             Ports = [],
         };
-        graph.Children!.Add(node);
+        ownerChildren.Add(node);
 
         PinPlacementContext ctx = new(node, nodeId, new CellPinSlots(),
-            producers, consumers, portRefs);
+            netScope, producers, consumers, portRefs);
         if (descriptor.IsUnknown)
         {
             AddUnknownCellPins(cell, ctx);
@@ -269,8 +436,9 @@ public static class GateNetlistElkBuilder
         ElkNode Node,
         string NodeId,
         CellPinSlots Slots,
-        Dictionary<int, List<ElkPortRef>> Producers,
-        Dictionary<int, List<ElkPortRef>> Consumers,
+        string NetScope,
+        Dictionary<string, List<ElkPortRef>> Producers,
+        Dictionary<string, List<ElkPortRef>> Consumers,
         Dictionary<string, ElkPortRef> PortRefs);
 
     // Use the library's pin ordering so renderers (FF: D / C / Q) line up
@@ -337,8 +505,9 @@ public static class GateNetlistElkBuilder
 
             if (bit.Kind == BitKind.Net)
             {
-                if (isInput) AddTo(ctx.Consumers, bit.NetId, portRef);
-                else         AddTo(ctx.Producers, bit.NetId, portRef);
+                string key = NetKey(ctx.NetScope, bit.NetId);
+                if (isInput) AddTo(ctx.Consumers, key, portRef);
+                else         AddTo(ctx.Producers, key, portRef);
             }
         }
     }
@@ -352,7 +521,11 @@ public static class GateNetlistElkBuilder
         return isInput ? ElkPortRole.ChildInput : ElkPortRole.ChildOutput;
     }
 
-    private static string BuildCellNodeId(GateCell cell, int cellIndex, GateCellDescriptor descriptor)
+    private static string BuildCellNodeId(
+        GateCell cell,
+        int cellIndex,
+        GateCellDescriptor descriptor,
+        string nodeIdPrefix)
     {
         // The prefix is the load-bearing piece — SchematicPreviewControl's
         // node dispatchers use StartsWith to pick the right symbol. Anything
@@ -367,7 +540,7 @@ public static class GateNetlistElkBuilder
             GateCellShape.Gate     => "gate_",
             _                      => "node_",
         };
-        return prefix + Sanitize(cell.Name) + "_" + cellIndex;
+        return prefix + nodeIdPrefix + Sanitize(cell.Name) + "_" + cellIndex;
     }
 
     private static List<ElkLabel> BuildCellLabels(GateCell cell, GateCellDescriptor descriptor)
@@ -378,7 +551,12 @@ public static class GateNetlistElkBuilder
         string primary = descriptor.Shape == GateCellShape.Gate && descriptor.GateKind is { } gk
             ? gk.ToString()
             : cell.Type;
-        return [new ElkLabel { Text = primary }];
+        return
+        [
+            new ElkLabel { Text = primary },
+            new ElkLabel { Text = cell.Type },
+            new ElkLabel { Text = cell.Name },
+        ];
     }
 
     private static double ResolveNodeWidth(GateCellDescriptor descriptor) => descriptor.Shape switch
@@ -403,14 +581,14 @@ public static class GateNetlistElkBuilder
 
     private static void EmitEdges(
         ElkGraph graph,
-        Dictionary<int, List<ElkPortRef>> producers,
-        Dictionary<int, List<ElkPortRef>> consumers)
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
     {
         graph.Edges ??= [];
         int edgeId = 0;
-        foreach ((int netId, List<ElkPortRef> sources) in producers)
+        foreach ((string netKey, List<ElkPortRef> sources) in producers)
         {
-            if (!consumers.TryGetValue(netId, out List<ElkPortRef>? targets)) continue;
+            if (!consumers.TryGetValue(netKey, out List<ElkPortRef>? targets)) continue;
             foreach (ElkPortRef source in sources)
             {
                 foreach (ElkPortRef target in targets)
@@ -420,7 +598,7 @@ public static class GateNetlistElkBuilder
                         Id = $"e{edgeId++}",
                         Sources = [source.PortId],
                         Targets = [target.PortId],
-                        Labels = [new ElkLabel { Text = $"net{netId}" }],
+                        Labels = [new ElkLabel { Text = NetLabel(netKey) }],
                     });
                 }
             }
@@ -431,6 +609,14 @@ public static class GateNetlistElkBuilder
 
     private static Dictionary<string, string> FixedOrderPortConstraints() =>
         new() { ["elk.portConstraints"] = "FIXED_ORDER" };
+
+    private static Dictionary<string, string> BoundaryLayoutOptions()
+    {
+        Dictionary<string, string> options = FixedOrderPortConstraints();
+        options["elk.spacing.portPort"] = "18";
+        options["elk.padding"] = "[top=20,left=0,right=0,bottom=8]";
+        return options;
+    }
 
     private static Dictionary<string, string> PortLayout(string side, int index) =>
         new()
@@ -449,7 +635,7 @@ public static class GateNetlistElkBuilder
         ["elk.layered.spacing.nodeNodeBetweenLayers"] = "80",
     };
 
-    private static void AddTo(Dictionary<int, List<ElkPortRef>> map, int key, ElkPortRef value)
+    private static void AddTo(Dictionary<string, List<ElkPortRef>> map, string key, ElkPortRef value)
     {
         if (!map.TryGetValue(key, out List<ElkPortRef>? list))
         {
@@ -457,6 +643,17 @@ public static class GateNetlistElkBuilder
             map[key] = list;
         }
         list.Add(value);
+    }
+
+    private static string NetKey(string scope, int netId) =>
+        scope + "#" + netId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string NetLabel(string netKey)
+    {
+        int hash = netKey.LastIndexOf('#');
+        return hash >= 0 && hash + 1 < netKey.Length
+            ? "net" + netKey[(hash + 1)..]
+            : "net" + netKey;
     }
 
     private static string Sanitize(string raw) =>

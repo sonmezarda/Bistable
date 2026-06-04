@@ -30,6 +30,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     private Bistable.Core.Design.Ast.DesignAst? _currentAst;
     private string? _currentProjectDirectory;
     private SimulationWorkerClient? _worker;
+    private SimulationWorkerClient? _gateLevelWorker;
+    private readonly GateLevelWorkerBuildService _gateLevelWorkerBuilder = new();
     private readonly LiveProbeService _liveProbes = new();
     private readonly DockPanelViewModel _projectPanel = new(DockPanelKind.Project, "Project");
     private readonly DockPanelViewModel _waveformPanel = new(DockPanelKind.Waveform, "Waveform");
@@ -128,6 +130,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         ReleaseSelectedSchematicSignalCommand = new AsyncCommand(ReleaseSelectedSchematicSignalAsync);
         ReleasePathCommand = new ParameterizedAsyncCommand<string>(ReleasePathAsync);
         ReleaseAllForcedCommand = new AsyncCommand(ReleaseAllForcedAsync);
+        SaveSynthesisSettingsCommand = new AsyncCommand(SaveSynthesisSettingsAsync,
+            () => _currentProject is not null && _currentProjectPath is not null);
         RemoveSelectedWaveformSignalCommand = new RelayCommand(RemoveSelectedWaveformSignal);
         ClearWaveformCommand = new RelayCommand(ClearWaveform);
         // P2.7-5: chip-strip "Clear all" — fires through the wired action so the
@@ -378,12 +382,57 @@ public sealed class MainWindowViewModel : ViewModelBase
     // ── Phase 6: gate-level synthesis ───────────────────────────────────────
 
     /// <summary>
-    /// True when the current project ships a synthesis block AND it's enabled.
-    /// The toolbar's "Synthesize" button binds visibility against this so
-    /// non-synth designs don't see the button at all.
+    /// True when a project is loaded. Synthesis is no longer JSON-gated; the
+    /// GUI supplies default synthesis settings and persists them only when the
+    /// user saves project settings.
     /// </summary>
     public bool IsSynthesisAvailable =>
-        _currentProject?.Synthesis is { Enabled: true };
+        _currentProject is not null && _currentProjectDirectory is not null;
+
+    public bool SynthesisEnabled
+    {
+        get => CurrentSynthesis.Enabled;
+        set => UpdateSynthesis(CurrentSynthesis with { Enabled = value });
+    }
+
+    public string SynthesisTopModule
+    {
+        get => CurrentSynthesis.TopModule ?? TopModuleForSynthesisFallback();
+        set => UpdateSynthesis(CurrentSynthesis with { TopModule = NormalizeOptionalText(value) });
+    }
+
+    public string SynthesisOutputJson
+    {
+        get => CurrentSynthesis.OutputJson;
+        set => UpdateSynthesis(CurrentSynthesis with { OutputJson = NormalizeRequiredText(value, DefaultSynthesis.OutputJson) });
+    }
+
+    public string SynthesisOutputVerilog
+    {
+        get => CurrentSynthesis.OutputVerilog;
+        set => UpdateSynthesis(CurrentSynthesis with { OutputVerilog = NormalizeRequiredText(value, DefaultSynthesis.OutputVerilog) });
+    }
+
+    public bool SynthesisGenericCells
+    {
+        get => CurrentSynthesis.GenericCells;
+        set => UpdateSynthesis(CurrentSynthesis with { GenericCells = value });
+    }
+
+    public bool SynthesisFlatten
+    {
+        get => CurrentSynthesis.Flatten;
+        set => UpdateSynthesis(CurrentSynthesis with { Flatten = value });
+    }
+
+    public bool CanSaveSynthesisSettings => _currentProject is not null && _currentProjectPath is not null;
+
+    public ICommand SaveSynthesisSettingsCommand { get; }
+
+    private static readonly SynthesisConfiguration DefaultSynthesis = new(Enabled: true);
+
+    private SynthesisConfiguration CurrentSynthesis =>
+        _currentProject?.Synthesis ?? DefaultSynthesis with { TopModule = TopModuleForSynthesisFallback() };
 
     public string SynthesisStatus
     {
@@ -413,7 +462,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ICommand SynthesizeCommand =>
         _synthesizeCommand ??= new AsyncCommand(SynthesizeAsync,
-            () => !_isSynthesizing && IsSynthesisAvailable && _currentProjectDirectory is not null);
+            () => !_isSynthesizing && IsSynthesisAvailable && SynthesisEnabled && _currentProjectDirectory is not null);
     private ICommand? _synthesizeCommand;
 
     /// <summary>Raised when synthesis succeeds — the View opens the gate-level window.</summary>
@@ -421,7 +470,13 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     private async Task SynthesizeAsync(CancellationToken cancellationToken)
     {
-        if (_currentProject?.Synthesis is not { } synth || _currentProjectDirectory is null) return;
+        if (_currentProject is null || _currentProjectDirectory is null) return;
+        SynthesisConfiguration synth = CurrentSynthesis;
+        if (!synth.Enabled)
+        {
+            SynthesisStatus = "Synthesis is disabled in project settings.";
+            return;
+        }
 
         IsSynthesizing = true;
         try
@@ -458,6 +513,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                 ? topModule.Cells.Count : 0;
             SynthesisStatus = $"Synthesised {netlist.TopModule}: {cellCount} cells.";
             GateNetlistReady?.Invoke(this, netlist);
+            await BuildGateLevelWorkerAsync(synth, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -470,6 +526,92 @@ public sealed class MainWindowViewModel : ViewModelBase
         finally
         {
             IsSynthesizing = false;
+        }
+    }
+
+    private void UpdateSynthesis(SynthesisConfiguration synthesis)
+    {
+        if (_currentProject is null) return;
+        _currentProject = _currentProject with { Synthesis = synthesis };
+        RaiseSynthesisSettingsChanged();
+    }
+
+    private async Task SaveSynthesisSettingsAsync(CancellationToken cancellationToken)
+    {
+        if (_currentProject is null || _currentProjectPath is null) return;
+        try
+        {
+            _currentProject = _currentProject with { Synthesis = CurrentSynthesis };
+            string json = System.Text.Json.JsonSerializer.Serialize(_currentProject, ProjectConfiguration.JsonOptions);
+            await File.WriteAllTextAsync(_currentProjectPath, json, cancellationToken);
+            SynthesisStatus = "Synthesis settings saved to project file.";
+            RaiseSynthesisSettingsChanged();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            SynthesisStatus = $"Saving synthesis settings failed: {ex.Message}";
+        }
+    }
+
+    private void RaiseSynthesisSettingsChanged()
+    {
+        OnPropertyChanged(nameof(IsSynthesisAvailable));
+        OnPropertyChanged(nameof(SynthesisEnabled));
+        OnPropertyChanged(nameof(SynthesisTopModule));
+        OnPropertyChanged(nameof(SynthesisOutputJson));
+        OnPropertyChanged(nameof(SynthesisOutputVerilog));
+        OnPropertyChanged(nameof(SynthesisGenericCells));
+        OnPropertyChanged(nameof(SynthesisFlatten));
+        OnPropertyChanged(nameof(CanSaveSynthesisSettings));
+        ((AsyncCommand)SynthesizeCommand).RaiseCanExecuteChanged();
+        ((AsyncCommand)SaveSynthesisSettingsCommand).RaiseCanExecuteChanged();
+    }
+
+    private string TopModuleForSynthesisFallback() =>
+        _currentProject?.TopModule ?? (TopModule == "-" ? string.Empty : TopModule);
+
+    private static string? NormalizeOptionalText(string value)
+    {
+        string trimmed = value.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
+
+    private static string NormalizeRequiredText(string value, string fallback)
+    {
+        string trimmed = value.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? fallback : trimmed;
+    }
+
+    private async Task BuildGateLevelWorkerAsync(
+        SynthesisConfiguration synth,
+        CancellationToken cancellationToken)
+    {
+        if (_currentProject is null || _currentProjectDirectory is null) return;
+
+        try
+        {
+            await DisposeGateLevelWorkerAsync();
+            Progress<SimulationWorkerBuildProgress> progress = new(report =>
+            {
+                if (!string.IsNullOrWhiteSpace(report.Message))
+                {
+                    SynthesisStatus = $"Gate build {report.Stage}: {TrimBuildStatus(report.Message)}";
+                }
+            });
+
+            GateLevelWorkerBuildResult gateBuild = await _gateLevelWorkerBuilder.BuildAsync(
+                _currentProject,
+                synth,
+                _currentProjectDirectory,
+                cancellationToken,
+                progress);
+
+            _gateLevelWorker = new SimulationWorkerClient(gateBuild.Worker.ExecutablePath);
+            SynthesisStatus = $"Gate-level worker ready: {Path.GetFileName(gateBuild.Worker.ExecutablePath)}.";
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            SynthesisStatus = $"Gate-level worker build failed: {ex.Message}";
         }
     }
 
@@ -1832,10 +1974,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             _currentAst = result.Ast;
             // P2.9-8: enable View → Schematic Coverage… now that AST is loaded.
             ((RelayCommand)OpenDiagnosticsCommand).RaiseCanExecuteChanged();
-            // Phase 6: Synthesize button visibility + CanExecute follow the new
-            // project's Synthesis block.
-            OnPropertyChanged(nameof(IsSynthesisAvailable));
-            ((AsyncCommand)SynthesizeCommand).RaiseCanExecuteChanged();
+            RaiseSynthesisSettingsChanged();
             _currentProjectDirectory = result.ProjectDirectory;
             RebuildPrimitivesByModule();
             SchematicExpandedPaths.Clear();
@@ -1854,6 +1993,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             WaveformCursorOrder = _waveformOrder;
             HierarchyRoot = new HierarchyNodeViewModel(result.Design.HierarchyRoot);
             SelectedHierarchyNode = HierarchyRoot;
+            await DisposeGateLevelWorkerAsync();
             await DisposeWorkerAsync();
             Status = $"Loaded {result.Metadata.Ports.Count} top-level ports.";
         }
@@ -2680,6 +2820,15 @@ public sealed class MainWindowViewModel : ViewModelBase
             await _worker.DisposeAsync();
             _worker = null;
             _liveProbes.AttachWorker(null);
+        }
+    }
+
+    private async Task DisposeGateLevelWorkerAsync()
+    {
+        if (_gateLevelWorker is not null)
+        {
+            await _gateLevelWorker.DisposeAsync();
+            _gateLevelWorker = null;
         }
     }
 

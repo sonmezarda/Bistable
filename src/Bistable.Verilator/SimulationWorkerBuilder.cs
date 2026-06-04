@@ -24,7 +24,11 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         ArgumentNullException.ThrowIfNull(metadata);
         ArgumentException.ThrowIfNullOrWhiteSpace(projectDirectory);
 
-        string buildDirectory = Path.Combine(projectDirectory, ".bistable", "worker", configuration.TopModule);
+        string buildDirectory = Path.Combine(
+            projectDirectory,
+            ".bistable",
+            "worker",
+            ResolveBuildDirectoryName(configuration));
         SemaphoreSlim buildLock = BuildLocks.GetOrAdd(buildDirectory, static _ => new SemaphoreSlim(1, 1));
         await buildLock.WaitAsync(cancellationToken);
         try
@@ -113,6 +117,11 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
             | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
     }
+
+    private static string ResolveBuildDirectoryName(ProjectConfiguration configuration) =>
+        string.IsNullOrWhiteSpace(configuration.WorkerBuildName)
+            ? configuration.TopModule
+            : configuration.WorkerBuildName!;
 
     /// <summary>
     /// Assembles the Verilator command-line argument list for one worker build.

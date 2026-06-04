@@ -8,7 +8,7 @@ namespace Bistable.Tests.Synthesis;
 ///   - read every source from the project,
 ///   - target the synthesis top (or fall back to the project top),
 ///   - include flatten / techmap stages when the config asks for them,
-///   - write JSON to the configured (relative or absolute) path.
+///   - write JSON + synthesised Verilog to configured paths.
 ///
 /// We assert against the script text rather than running yosys so the tests
 /// stay deterministic + don't require the binary.
@@ -22,7 +22,7 @@ public sealed class YosysScriptBuilderTests
     };
 
     [Fact]
-    public void Build_EmitsReadVerilogHierarchyAndWriteJson()
+    public void Build_EmitsReadVerilogHierarchyWriteJsonAndWriteVerilog()
     {
         string dir = Path.GetTempPath();
         SynthesisConfiguration synth = new(Enabled: true);
@@ -35,6 +35,7 @@ public sealed class YosysScriptBuilderTests
         Assert.Contains("proc", script);
         Assert.Contains("memory", script);
         Assert.Contains("write_json", script);
+        Assert.Contains("write_verilog -noattr", script);
     }
 
     [Fact]
@@ -90,6 +91,26 @@ public sealed class YosysScriptBuilderTests
             string expected = Path.Combine(dir, ".bistable/synthesis/foo.json");
             Assert.Contains(expected, script);
             // Side-effect: build creates the output directory so yosys can write into it.
+            Assert.True(Directory.Exists(Path.GetDirectoryName(expected)!));
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Build_RelativeOutputVerilogIsResolvedAgainstProjectDir()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"bistable-yosys-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            SynthesisConfiguration synth = new(OutputVerilog: ".bistable/synthesis/foo.sv");
+            string script = YosysScriptBuilder.Build(MinimalProject(dir), synth, dir);
+
+            string expected = Path.Combine(dir, ".bistable/synthesis/foo.sv");
+            Assert.Contains(expected, script);
             Assert.True(Directory.Exists(Path.GetDirectoryName(expected)!));
         }
         finally

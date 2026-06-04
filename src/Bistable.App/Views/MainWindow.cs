@@ -641,6 +641,7 @@ public sealed class MainWindow : Window
         panel.Children.Add(BoundLabel("ProjectName", 15, TextBrush));
         panel.Children.Add(MetadataLine("Top", "TopModule"));
         panel.Children.Add(MetadataLine("Tool", "VerilatorVersion"));
+        panel.Children.Add(BuildSynthesisSettingsPanel());
         panel.Children.Add(SectionTitle("Signals"));
         panel.Children.Add(new StackPanel
         {
@@ -676,6 +677,102 @@ public sealed class MainWindow : Window
         });
 
         return panel;
+    }
+
+    private static Control BuildSynthesisSettingsPanel()
+    {
+        Border border = PanelBorder();
+        border.Padding = new Thickness(10);
+
+        Grid grid = new()
+        {
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+            },
+            RowSpacing = 8,
+        };
+
+        grid.Children.Add(new TextBlock
+        {
+            Text = "Synthesis",
+            Foreground = AccentBrush,
+            FontSize = 12,
+            FontWeight = FontWeight.SemiBold,
+        });
+
+        StackPanel flags = new()
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            Margin = new Thickness(0, 4, 0, 0),
+            Children =
+            {
+                ToolbarCheckBox("Enabled", "SynthesisEnabled"),
+                ToolbarCheckBox("Generic cells", "SynthesisGenericCells"),
+                ToolbarCheckBox("Flatten", "SynthesisFlatten"),
+            },
+            [Grid.RowProperty] = 1,
+        };
+        grid.Children.Add(flags);
+
+        grid.Children.Add(SettingsTextBox("Top module", "SynthesisTopModule", row: 2));
+        grid.Children.Add(SettingsTextBox("JSON output", "SynthesisOutputJson", row: 3));
+        grid.Children.Add(SettingsTextBox("Verilog output", "SynthesisOutputVerilog", row: 4));
+
+        StackPanel actions = new()
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Children =
+            {
+                SmallButton("Save", "SaveSynthesisSettingsCommand"),
+                SmallButton("Synthesize", "SynthesizeCommand"),
+            },
+            [Grid.RowProperty] = 5,
+        };
+        grid.Children.Add(actions);
+
+        border.Child = grid;
+        return border;
+    }
+
+    private static Control SettingsTextBox(string label, string bindingPath, int row)
+    {
+        Grid rowGrid = new()
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(new GridLength(92)),
+                new ColumnDefinition(GridLength.Star),
+            },
+            ColumnSpacing = 8,
+            [Grid.RowProperty] = row,
+        };
+        rowGrid.Children.Add(new TextBlock
+        {
+            Text = label,
+            Foreground = MutedBrush,
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        rowGrid.Children.Add(new TextBox
+        {
+            MinHeight = 28,
+            FontSize = 11,
+            Background = SurfaceAltBrush,
+            Foreground = TextBrush,
+            BorderBrush = StrokeBrush,
+            FontFamily = FontFamily.Parse("monospace"),
+            [!TextBox.TextProperty] = new Binding(bindingPath, BindingMode.TwoWay),
+            [Grid.ColumnProperty] = 1,
+        });
+        return rowGrid;
     }
 
     private Control BuildWaveformPanelContent(bool showHeader = true)
@@ -2212,10 +2309,9 @@ public sealed class MainWindow : Window
         return button;
     }
 
-    // Phase 6 P6-7: triggers Yosys synthesis (project must declare a
-    // synthesis block) and opens the gate-level schematic window on success.
-    // Visibility binds to IsSynthesisAvailable, which is true only when the
-    // current project's Synthesis section is non-null + enabled.
+    // Phase 6 P6-7/P6.5: triggers Yosys synthesis and opens the gate-level
+    // schematic window on success. Visibility is project-loaded, not JSON
+    // synthesis-block gated; settings are edited in the Project panel.
     private static Control BuildSynthesizeButton()
     {
         Button button = new()
