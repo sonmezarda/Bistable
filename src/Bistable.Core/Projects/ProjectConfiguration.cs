@@ -41,6 +41,15 @@ public sealed record ProjectConfiguration
     /// </summary>
     public CpuRuntimeConfiguration? Runtime { get; init; }
 
+    /// <summary>
+    /// Phase 6: optional gate-level synthesis configuration. When
+    /// <see cref="SynthesisConfiguration.Enabled"/> is true, the GUI offers
+    /// a "Synthesize" action that invokes Yosys (or another backend) on the
+    /// project's sources and renders the resulting netlist alongside the RTL.
+    /// Null for designs that don't synthesise.
+    /// </summary>
+    public SynthesisConfiguration? Synthesis { get; init; }
+
     public static JsonSerializerOptions JsonOptions { get; } = new(JsonSerializerDefaults.Web)
     {
         ReadCommentHandling = JsonCommentHandling.Skip,

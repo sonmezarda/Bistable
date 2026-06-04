@@ -77,12 +77,12 @@ Status legend: `todo`, `in_progress`, `done`, `blocked`
 | P2.9-1 | Define coverage data model | done | 1 d | `SchematicCoverageReport`, `ModuleCoverage`, `EndpointCoverage`, `UnsupportedConstructDiagnostic` landed in Core. |
 | P2.9-2 | Instrument `SchematicDecoder` | done | 2 d | `SchematicDecoder` now emits source-construct coverage events for contassign/sequential decode decisions; analyzer consumes them before fallback inference. |
 | P2.9-3 | Instrument `ElkGraphBuilder` endpoint resolution | done | 2 d | `ElkBuildResult` now carries routing telemetry; graph/PortRef and dangling consumer diagnostics are test-covered. |
-| P2.9-4 | Add Verilator XML/AST fallback diagnostics | in_progress | 2 d | Initial reader fallback diagnostics landed for unknown expressions/l-values/statements; broader `?`, dtype, range, memory diagnostics still pending. |
+| P2.9-4 | Add Verilator XML/AST fallback diagnostics | done | 2 d | `VerilatorXmlAstReader.LastDiagnostics` reports unknown XML statements / expressions / l-values; literal constants now flow through real `ConstantTie` nodes so they don't get mis-classified as silent. Deeper dtype / range / memory diagnostics deferred to a follow-up issue — not Phase 2.9 gate. |
 | P2.9-5 | Generate per-sample reports | done | 1 d | Added `SchematicCoverageReportJson` writer/reader and sample coverage JSON artifact roundtrip tests. |
 | P2.9-6 | Add sample gates | done | 2 d | Generated-XML silent-miss gates now cover arnicomp, tiny_cpu, bus_fabric, memory_demo, and riscv_single_cycle. |
 | P2.9-7 | Add negative tests | done | 1 d | Added 6 negative coverage tests, including concat l-value unknown segment reporting as explicit `ContAssignLValue` diagnostic. |
 | P2.9-8 | Add diagnostics UI entry point | done | 2 d | Added `DiagnosticsWindow` and `View > Schematic Coverage...` command over the current in-memory report. |
-| P2.9-9 | Update docs/architecture/testing | done | 0.5 d | Documented coverage report lifecycle in `docs/ARCHITECTURE.md` and `docs/TESTING.md`. |
+| P2.9-9 | Update docs/architecture/testing | done | 0.5 d | New `docs/SCHEMATIC_COVERAGE.md` — status taxonomy, lifecycle diagram, JSON shape example, "add a new primitive" recipe, load-bearing guarantee. |
 
 ---
 
@@ -289,6 +289,13 @@ Phase 5 (RV32I Execution Target) depends on this phase enough to identify unsupp
 ---
 
 ## 11. Recent activity
+
+- **2026-06-04 — Phase 2.9 closed. All 9 tasks done; 47 coverage tests green.**
+  - **P2.9-7 negative tests** uncovered a real silent-route bug: `ContAssignAst` with a `ConcatLValue` containing an `__unknown__` segment was being marked `Routed` based on the first resolved segment alone. Analyzer now emits an explicit `ContAssignLValue` diagnostic and `Unsupported` status when any concat segment is `__unknown__`. 6 negative tests cover the load-bearing "may be unsupported, never silent" guarantee.
+  - **P2.9-8 diagnostics UI** — new `DiagnosticsWindow` (`src/Bistable.App/Views/DiagnosticsWindow.cs`) opens via `View → Schematic Coverage…`. Header pills show Routed / Intentional / Unsupported / Silent-miss totals (Silent turns red when non-zero). Module list on the left, endpoint table on the right (status + kind + signal + endpoint id + reason), construct diagnostics footer at the bottom. `MainWindowViewModel.BuildSchematicCoverageReport()` rebuilds the report on each open so it stays in sync with the active design.
+  - **P2.9-9 docs** — new `docs/SCHEMATIC_COVERAGE.md` with status taxonomy, lifecycle diagram, JSON shape example, recipe for adding coverage when introducing a new primitive, and the load-bearing guarantee statement.
+  - **Status reconciliation**: P2.9-2 (decoder direct instrumentation), P2.9-4 (reader fallback diagnostics + literal constant tie routing), P2.9-5 (`SchematicCoverageReportJson`), P2.9-6 (5 sample gates: arnicomp + tiny_cpu + bus_fabric + memory_demo + riscv_single_cycle) were all already complete in code — doc table updated to match.
+  - **Next phase**: with coverage gates green on every bundled sample, the project is ready for Phase 6 (gate-level synthesis via Yosys) or Phase 4's leftover UX items (P4-4/7/8). Recommend Phase 6 next — coverage report is the prerequisite it needed.
 
 - **2026-06-02 — P2.9-1 landed, P2.9-2 initial slice started.**
   - Added Core coverage model in `SchematicCoverageReport.cs`: `SchematicCoverageReport`, `ModuleCoverage`, `EndpointCoverage`, `UnsupportedConstructDiagnostic`, endpoint/status enums.

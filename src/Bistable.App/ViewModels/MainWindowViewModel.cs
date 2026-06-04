@@ -375,6 +375,104 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public event EventHandler? DiagnosticsRequested;
 
+    // ── Phase 6: gate-level synthesis ───────────────────────────────────────
+
+    /// <summary>
+    /// True when the current project ships a synthesis block AND it's enabled.
+    /// The toolbar's "Synthesize" button binds visibility against this so
+    /// non-synth designs don't see the button at all.
+    /// </summary>
+    public bool IsSynthesisAvailable =>
+        _currentProject?.Synthesis is { Enabled: true };
+
+    public string SynthesisStatus
+    {
+        get => _synthesisStatus;
+        private set
+        {
+            if (SetProperty(ref _synthesisStatus, value) && !string.IsNullOrWhiteSpace(value))
+            {
+                Status = value;
+            }
+        }
+    }
+    private string _synthesisStatus = string.Empty;
+
+    public bool IsSynthesizing
+    {
+        get => _isSynthesizing;
+        private set
+        {
+            if (SetProperty(ref _isSynthesizing, value))
+            {
+                ((AsyncCommand)SynthesizeCommand).RaiseCanExecuteChanged();
+            }
+        }
+    }
+    private bool _isSynthesizing;
+
+    public ICommand SynthesizeCommand =>
+        _synthesizeCommand ??= new AsyncCommand(SynthesizeAsync,
+            () => !_isSynthesizing && IsSynthesisAvailable && _currentProjectDirectory is not null);
+    private ICommand? _synthesizeCommand;
+
+    /// <summary>Raised when synthesis succeeds — the View opens the gate-level window.</summary>
+    public event EventHandler<Bistable.Core.Synthesis.GateNetlist>? GateNetlistReady;
+
+    private async Task SynthesizeAsync(CancellationToken cancellationToken)
+    {
+        if (_currentProject?.Synthesis is not { } synth || _currentProjectDirectory is null) return;
+
+        IsSynthesizing = true;
+        try
+        {
+            Bistable.Yosys.YosysTool tool = new();
+            if (!await tool.IsAvailableAsync(cancellationToken))
+            {
+                SynthesisStatus = "Yosys not found on PATH. Install yosys to use synthesis.";
+                return;
+            }
+
+            string scriptPath = Path.Combine(_currentProjectDirectory, ".bistable", "synthesis", "synth.ys");
+            Directory.CreateDirectory(Path.GetDirectoryName(scriptPath)!);
+            string script = Bistable.Yosys.YosysScriptBuilder.Build(
+                _currentProject!, synth, _currentProjectDirectory);
+            await File.WriteAllTextAsync(scriptPath, script, cancellationToken);
+
+            SynthesisStatus = "Running Yosys…";
+            await tool.RunScriptAsync(scriptPath, _currentProjectDirectory, cancellationToken);
+
+            string outputJson = Path.IsPathRooted(synth.OutputJson)
+                ? synth.OutputJson
+                : Path.Combine(_currentProjectDirectory, synth.OutputJson);
+            if (!File.Exists(outputJson))
+            {
+                SynthesisStatus = $"Yosys produced no output at {synth.OutputJson}.";
+                return;
+            }
+
+            Bistable.Core.Synthesis.GateNetlist netlist =
+                await Bistable.Yosys.YosysJsonReader.ReadFileAsync(outputJson, cancellationToken);
+
+            int cellCount = netlist.Modules.TryGetValue(netlist.TopModule, out var topModule)
+                ? topModule.Cells.Count : 0;
+            SynthesisStatus = $"Synthesised {netlist.TopModule}: {cellCount} cells.";
+            GateNetlistReady?.Invoke(this, netlist);
+        }
+        catch (OperationCanceledException)
+        {
+            SynthesisStatus = "Synthesis cancelled.";
+        }
+        catch (Exception ex)
+        {
+            SynthesisStatus = $"Synthesis failed: {ex.Message}";
+        }
+        finally
+        {
+            IsSynthesizing = false;
+        }
+    }
+
     /// <summary>
     /// P4-5: optional callback the View sets so the VM can narrow post-Tick
     /// scalar refreshes to "what the schematic actually rendered last frame."
@@ -1734,6 +1832,10 @@ public sealed class MainWindowViewModel : ViewModelBase
             _currentAst = result.Ast;
             // P2.9-8: enable View → Schematic Coverage… now that AST is loaded.
             ((RelayCommand)OpenDiagnosticsCommand).RaiseCanExecuteChanged();
+            // Phase 6: Synthesize button visibility + CanExecute follow the new
+            // project's Synthesis block.
+            OnPropertyChanged(nameof(IsSynthesisAvailable));
+            ((AsyncCommand)SynthesizeCommand).RaiseCanExecuteChanged();
             _currentProjectDirectory = result.ProjectDirectory;
             RebuildPrimitivesByModule();
             SchematicExpandedPaths.Clear();

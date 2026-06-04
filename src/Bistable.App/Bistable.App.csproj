@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Bistable.Core\Bistable.Core.csproj" />
     <ProjectReference Include="..\Bistable.Verilator\Bistable.Verilator.csproj" />
+    <ProjectReference Include="..\Bistable.Yosys\Bistable.Yosys.csproj" />
     <ProjectReference Include="..\Bistable.Protocol\Bistable.Protocol.csproj" />
   </ItemGroup>
 

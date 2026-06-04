@@ -52,6 +52,7 @@ public sealed class MainWindow : Window
     private SchematicStudioWindow? _schematicStudioWindow;
     private PreferencesWindow? _preferencesWindow;
     private DiagnosticsWindow? _diagnosticsWindow;
+    private GateLevelSchematicWindow? _gateLevelWindow;
     private WaveformStudioWindow? _waveformStudioWindow;
     private readonly Dictionary<string, MemoryViewerWindow> _memoryViewerWindows = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<DockPanelKind, ToolPanelWindow> _floatingToolWindows = [];
@@ -505,7 +506,8 @@ public sealed class MainWindow : Window
                 ToolbarButton("Reset", "ResetCommand"),
                 BuildCpuRunButton(),
                 BuildCpuLoadProgramButton(),
-                BuildCpuProgramNameTextBlock()
+                BuildCpuProgramNameTextBlock(),
+                BuildSynthesizeButton()
             }
         };
         Grid.SetColumn(actions, 2);
@@ -2210,6 +2212,30 @@ public sealed class MainWindow : Window
         return button;
     }
 
+    // Phase 6 P6-7: triggers Yosys synthesis (project must declare a
+    // synthesis block) and opens the gate-level schematic window on success.
+    // Visibility binds to IsSynthesisAvailable, which is true only when the
+    // current project's Synthesis section is non-null + enabled.
+    private static Control BuildSynthesizeButton()
+    {
+        Button button = new()
+        {
+            Content = "Synthesize",
+            MinWidth = 102,
+            Height = 34,
+            Background = AccentBrush,
+            Foreground = TextBrush,
+            BorderBrush = StrokeBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            FontWeight = FontWeight.SemiBold,
+            [!Button.CommandProperty] = new Binding("SynthesizeCommand"),
+            [!Control.IsVisibleProperty] = new Binding("IsSynthesisAvailable"),
+        };
+        ToolTip.SetTip(button, "Run Yosys synthesis and open the gate-level schematic.");
+        return button;
+    }
+
     private sealed class NotNullConverter : Avalonia.Data.Converters.IValueConverter
     {
         public object? Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
@@ -2555,6 +2581,19 @@ public sealed class MainWindow : Window
         _diagnosticsWindow.Show(this);
     }
 
+    // Phase 6 P6-7: Yosys finished and produced a netlist — open (or replace)
+    // the gate-level schematic window. Single-instance per main window.
+    private void OnGateNetlistReady(object? sender, Bistable.Core.Synthesis.GateNetlist netlist)
+    {
+        if (_gateLevelWindow is { IsVisible: true } existing)
+        {
+            existing.Close();
+        }
+        _gateLevelWindow = new GateLevelSchematicWindow(netlist);
+        _gateLevelWindow.Closed += (_, _) => _gateLevelWindow = null;
+        _gateLevelWindow.Show(this);
+    }
+
     private async void OnLoadCpuProgramRequested(object? sender, EventArgs e)
     {
         if (DataContext is not MainWindowViewModel viewModel) return;
@@ -2809,6 +2848,7 @@ public sealed class MainWindow : Window
             previousViewModel.MemoryViewerRequested -= OnMemoryViewerRequested;
             previousViewModel.LoadCpuProgramRequested -= OnLoadCpuProgramRequested;
             previousViewModel.DiagnosticsRequested -= OnDiagnosticsRequested;
+            previousViewModel.GateNetlistReady -= OnGateNetlistReady;
         }
 
         if (window.DataContext is MainWindowViewModel viewModel)
@@ -2817,6 +2857,7 @@ public sealed class MainWindow : Window
             viewModel.MemoryViewerRequested += OnMemoryViewerRequested;
             viewModel.LoadCpuProgramRequested += OnLoadCpuProgramRequested;
             viewModel.DiagnosticsRequested += OnDiagnosticsRequested;
+            viewModel.GateNetlistReady += OnGateNetlistReady;
             // P2.7-2: now that the DataContext is set, point the Alt+Left /
             // Alt+Right gestures at the VM's back/forward commands.
             _scopeBackKeyBinding.Command = viewModel.NavigateScopeBackCommand;

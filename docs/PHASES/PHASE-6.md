@@ -170,13 +170,13 @@ Status legend: `todo`, `in_progress`, `done`, `blocked`
 
 | ID | Task | Status | Est. | Notes |
 |----|------|--------|------|-------|
-| P6-1 | Add synthesis config model | todo | 1 d | `SynthesisConfiguration` in project config. |
-| P6-2 | Add `Bistable.Yosys` project | todo | 1 d | Tool runner + JSON reader shell. |
-| P6-3 | Implement `YosysTool` runner | todo | 2 d | Locate `yosys`, run script, capture logs/errors. |
-| P6-4 | Parse Yosys JSON to `GateNetlist` | todo | 4 d | Modules, ports, cells, netnames, bit vectors. |
-| P6-5 | Add generic-cell primitive mapping | todo | 4 d | Gate cell symbol families and pin metadata. |
-| P6-6 | Build gate-level schematic graph | todo | 5 d | Separate from RTL builder; use shared renderer where safe. |
-| P6-7 | Gate-level worker build path | todo | 4 d | Verilator can compile synthesized Verilog or Yosys output flow; choose safest first. |
+| P6-1 | Add synthesis config model | done | 1 d | `Bistable.Core.Projects.SynthesisConfiguration` opt-in `Synthesis` field on `ProjectConfiguration`. JSON round-trips with sensible defaults. |
+| P6-2 | Add `Bistable.Yosys` project | done | 1 d | Solution + App + Tests now reference `Bistable.Yosys`. Tool + script-builder live here; JSON parser will land in P6-4. |
+| P6-3 | Implement `YosysTool` runner | done | 2 d | `YosysTool.IsAvailableAsync` / `GetVersionAsync` / `RunScriptAsync`. `YosysScriptBuilder.Build(project, synth, dir)` emits the default `read_verilog → hierarchy → proc → opt → fsm → opt → memory → opt → [flatten] → [techmap] → write_json` pipeline. |
+| P6-4 | Parse Yosys JSON to `GateNetlist` | done | 4 d | `Bistable.Core.Synthesis.GateNetlist` data model + `Bistable.Yosys.YosysJsonReader.Read(string|JsonElement)` / `ReadFileAsync(path, ct)`. Handles port directions, ordered bit vectors, integer net ids vs string-encoded constants (`"0"/"1"/"x"/"z"`), cell connections + `port_directions` + `parameters`, and the top-module attribute. |
+| P6-5 | Add generic-cell primitive mapping | done | 4 d | `Bistable.Yosys.GateCellLibrary` maps `$_AND_`/`$_OR_`/`$_XOR_`/`$_NAND_`/`$_NOR_`/`$_XNOR_`/`$_NOT_`/`$_BUF_`/`$_MUX_`/`$_DFF_P_`/`$_DFF_N_`/`$_DLATCH_P_`/`$_DLATCH_N_` to renderer symbol families (Gate/Inverter/Buffer/Mux/FlipFlop/Latch) + pin role metadata (Inputs / Output / ClockPin / EnablePin). Unknown cells fall back to a generic descriptor instead of being dropped. |
+| P6-6 | Build gate-level schematic graph | done | 5 d | `GateNetlistElkBuilder.Build(netlist)` emits one ELK node per cell with the matching prefix (`gate_` / `ff_` / `mux_` / `inv_` / `buf_` / `latch_`) so the existing `SchematicPreviewControl` symbol dispatchers fire; boundary anchors per port; edges keyed off Yosys's shared bit ids with constants skipped. |
+| P6-7 | Gate-level GUI + worker build path | partial | 4 d | GUI side landed: VM `SynthesizeCommand` runs Yosys → parses JSON → raises `GateNetlistReady`. Toolbar **Synthesize** button (visible only when `Synthesis.Enabled`); single-instance `GateLevelSchematicWindow` renders the laid-out graph on a Canvas. Gate-level worker simulation deferred to a follow-up pass. |
 | P6-8 | RTL vs gate-level smoke comparison | todo | 4 d | Same inputs/program, compare outputs/final state. |
 | P6-9 | Synthesis reports | todo | 2 d | Cell count, net count, unsupported cells, memory treatment. |
 | P6-10 | Tests and sample synthesis flow | todo | 5 d | Start with tiny combinational/sequential modules, then RV32I smoke. |
@@ -371,4 +371,34 @@ Do not start with:
 - full formal equivalence.
 
 Those are future professional features after generic gate-level works.
+
+---
+
+## 14. Recent activity
+
+- **2026-06-04 — P6-1 / P6-2 / P6-3 landed (foundation wave).**
+  - `Bistable.Core.Projects.SynthesisConfiguration` is the new opt-in `Synthesis` field on `ProjectConfiguration`. Designs without a synthesis section behave exactly as before; CPU samples can add a small block to participate. JSON tests pin round-trip + missing-field + partial-field semantics.
+  - New `src/Bistable.Yosys/` project. `Bistable.App` and `Bistable.Tests` both depend on it; solution updated. Will host the JSON parser (P6-4), generic-cell mapping (P6-5), and the gate-level schematic graph builder (P6-6).
+  - `YosysTool` mirrors `VerilatorTool`'s shape: `IsAvailableAsync` (graceful return when yosys isn't on PATH), `GetVersionAsync`, `RunScriptAsync(scriptPath, workingDir)` capturing full stdout/stderr.
+  - `YosysScriptBuilder.Build(project, synthesis, projectDir)` emits the default `read_verilog → hierarchy → proc → opt → fsm → opt → memory → opt → [flatten] → [techmap when GenericCells] → opt → write_json` pipeline. Output path resolves relative to the project dir; the output directory is created so yosys can write into it.
+  - **Tests**: +11 in `tests/Bistable.Tests/Synthesis/` — `SynthesisConfigurationTests` (3, JSON round-trip / optional / partial defaults), `YosysScriptBuilderTests` (6, every stage toggle + path resolution), `YosysToolTests` (2, missing-binary + missing-script paths). Combined suite **672/672 green** (652 Tests + 14 Snapshots + 4 Regression + 2 UI).
+  - **Side note**: `docs/RTL_COVERAGE_TODO.md` lists 10 RTL endpoints (8 SequentialBlock multi-statement / array-loop reset, 2 PrimitiveEndpoint replicate-concat) that the analyzer still flags as `Unsupported` on the bundled samples. Phase 6 work assumes those improvements happen in parallel — the gate-level renderer's correctness doesn't depend on them.
+  - **Next P6 milestones**: P6-4 (Yosys JSON → `GateNetlist` reader), then P6-5 (gate cell symbol library), then P6-6 (gate-level schematic graph builder).
+
+- **2026-06-04 — P6-4 (Yosys JSON → GateNetlist parser) landed.**
+  - `Bistable.Core.Synthesis.GateNetlist` data model: `GateNetlist { TopModule, Modules }` → `GateModule { Name, Ports[], Cells[], Nets[] }` → `GateCell { Name, Type, Connections, PortDirections, Parameters }`. Bit identity is `GateBit` (struct) carrying either a net id (≥ 2) or one of four constant flags (`0`/`1`/`x`/`z`). Deliberately separate from `DesignAst` — RTL and post-synthesis are different semantic layers.
+  - `Bistable.Yosys.YosysJsonReader.Read(json)` and `ReadFileAsync(path, ct)` parse Yosys 0.33's `write_json` output. Handles: integer net ids alongside string constants in the same `bits` array, optional `port_directions`/`parameters`/`netnames`, the `top` attribute's 32-char binary encoding, and the "single module, no top flag" fallback.
+  - Tests: +7 fixture-driven in `YosysJsonReaderTests` against real `yosys 0.33` output (and-gate, 4-bit DFF bus, const-bit concat, ternary mux, netnames preservation, error-on-missing-modules, top-fallback). Fixtures live under `tests/Bistable.Tests/Synthesis/fixtures/` and are copied to the test output dir via `CopyToOutputDirectory="PreserveNewest"`.
+  - End-to-end integration test (`YosysRoundTripIntegrationTests`, `Category=Integration`) writes a tiny SV file, runs the real `yosys` binary through `YosysScriptBuilder` + `YosysTool`, then parses the resulting JSON. Skips gracefully when yosys isn't on PATH so CI without the binary stays green.
+  - Combined suite **680/680 green** (660 Tests + 14 Snapshots + 4 Regression + 2 UI).
+  - **Next P6 milestones**: P6-5 (generic-cell symbol library + pin metadata for `$_AND_` / `$_OR_` / `$_XOR_` / `$_NOT_` / `$_MUX_` / `$_DFF_*`), then P6-6 (gate-level schematic graph builder backed by ELK).
+
+- **2026-06-04 — P6-5 / P6-6 / P6-7 (GUI side) landed.**
+  - **GateCellLibrary** (`src/Bistable.Yosys/GateCellLibrary.cs`) — explicit table from every supported Yosys cell type to a `GateCellDescriptor { Shape, GateKind?, Inputs[], Output, ClockPin?, EnablePin? }`. The schema lets the graph builder honour FF pin ordering (D / C / Q) and mux south-side selectors, and lets the renderer dispatch on the existing `GateKind` enum without any new symbol code.
+  - **GateNetlistElkBuilder** (`src/Bistable.App/Services/Routing/Elk/GateNetlistElkBuilder.cs`) — static graph builder. One ELK node per cell (prefix follows `Shape`: `gate_` / `ff_` / `mux_` / `inv_` / `buf_` / `latch_`), two boundary anchors for input / output module ports, edges generated per shared net id (constants are silently skipped — they have no driver). All endpoints land in `PortRefs` so a future live-values pass can attach.
+  - **Synthesize VM command** in `MainWindowViewModel` runs `YosysTool.IsAvailableAsync` → writes a script from `YosysScriptBuilder` → runs Yosys → parses the JSON via `YosysJsonReader` → raises `GateNetlistReady`. Status text (`SynthesisStatus`) mirrors to the global status bar so long synths surface progress. `IsSynthesizing` re-evaluates the command so double-presses are suppressed.
+  - **Toolbar Synthesize button** + **GateLevelSchematicWindow**. Window builds the netlist's ELK graph, runs the local `ElkRunner`, and paints nodes + polylined edges on a `Canvas` (deliberately simpler than the RTL preview — the goal is "user sees real gates and wires" before lifting the full symbol painter over).
+  - **RISC-V sample** (`samples/riscv_single_cycle/riscv_single_cycle.bistable.json`) gained a `"synthesis": { "enabled": true, "outputJson": ".bistable/synthesis/riscv_single_cycle_top.json", "genericCells": true }` block — one-click demo path.
+  - **Tests**: +9 in `GateCellLibraryTests` (every supported cell type + unknown fallback), +6 in `GateNetlistElkBuilderTests` (boundary + cell nodes, label kind token, edge count, multi-FF bus, constants don't emit edges, missing-top-throws). Combined suite **700/700 green** (680 Tests + 14 Snapshots + 4 Regression + 2 UI).
+  - **Remaining P6 work**: P6-7's worker-build path (gate-level Verilator compilation), P6-8 (RTL vs gate-level smoke compare), P6-9 (synthesis reports surfaced in the UI), P6-10 (sample synthesis flow tests). The current GUI surface is enough for the user to drive `Synthesize` against the RISC-V sample and see gates.
 

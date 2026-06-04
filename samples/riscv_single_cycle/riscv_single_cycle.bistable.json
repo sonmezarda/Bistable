@@ -48,5 +48,12 @@
       "registerFile": "riscv_single_cycle_top.u_registers.regs",
       "dataMemory": "riscv_single_cycle_top.u_dmem.mem"
     }
+  },
+  "synthesis": {
+    "enabled": true,
+    "backend": "yosys",
+    "outputJson": ".bistable/synthesis/riscv_single_cycle_top.json",
+    "genericCells": true,
+    "flatten": false
   }
 }
