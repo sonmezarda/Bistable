@@ -7,6 +7,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Bistable.App.Services;
 using Bistable.App.ViewModels;
+using Bistable.Core.Projects;
 
 namespace Bistable.App.Views;
 
@@ -105,6 +106,11 @@ public sealed class PreferencesWindow : Window
             BuildEnumComboBox<SchematicRoutingEngine>("AvailableSchematicRouters", "SchematicRouter",
                 engine => engine.ToString())));
 
+        root.Children.Add(BuildField(
+            "Gate routing quality",
+            "Project-scoped ELK quality preset for synthesized gate-level schematics. Fast preview is intended for large RISC-V-scale designs.",
+            BuildRoutingQualityEditor()));
+
         return root;
     }
 
@@ -157,4 +163,46 @@ public sealed class PreferencesWindow : Window
         };
         return box;
     }
+
+    private Control BuildRoutingQualityEditor()
+    {
+        StackPanel row = new()
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 8,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        row.Children.Add(BuildEnumComboBox<RoutingQuality>(
+            "AvailableRoutingQualities",
+            "GateRoutingQuality",
+            RoutingQualityDisplayName));
+        row.Children.Add(new CheckBox
+        {
+            Content = "Auto fast preview for large graphs",
+            Foreground = TextBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            [!ToggleButton.IsCheckedProperty] = new Binding("GateAutoDowngradeLargeGraphs", BindingMode.TwoWay),
+        });
+        row.Children.Add(new Button
+        {
+            Content = "Save to project",
+            MinHeight = 30,
+            Padding = new Thickness(10, 2),
+            Background = SurfaceAltBrush,
+            Foreground = TextBrush,
+            BorderBrush = StrokeBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
+            [!Button.CommandProperty] = new Binding("SaveProjectSettingsCommand"),
+        });
+        return row;
+    }
+
+    private static string RoutingQualityDisplayName(RoutingQuality quality) => quality switch
+    {
+        RoutingQuality.FastPreview => "Fast preview",
+        RoutingQuality.Balanced => "Balanced",
+        RoutingQuality.Production => "Production",
+        _ => quality.ToString(),
+    };
 }

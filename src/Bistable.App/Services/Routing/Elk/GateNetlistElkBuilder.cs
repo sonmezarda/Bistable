@@ -1,3 +1,4 @@
+using Bistable.Core.Projects;
 using Bistable.Core.Synthesis;
 using Bistable.Yosys;
 
@@ -26,7 +27,7 @@ public static class GateNetlistElkBuilder
     /// pre-layout graph plus the <see cref="ElkPortRef"/> map for callers who
     /// want to render edge values later.
     /// </summary>
-    public static GateNetlistElkBuildResult Build(GateNetlist netlist)
+    public static GateNetlistElkBuildResult Build(GateNetlist netlist, SchematicLayoutOptions? layoutOptions = null)
     {
         ArgumentNullException.ThrowIfNull(netlist);
         if (!netlist.Modules.TryGetValue(netlist.TopModule, out GateModule? topModule))
@@ -34,7 +35,7 @@ public static class GateNetlistElkBuilder
             throw new InvalidOperationException(
                 $"Netlist top module '{netlist.TopModule}' missing from Modules dictionary.");
         }
-        return BuildModule(topModule, netlist, expandedInstancePaths: EmptyExpandedInstancePaths);
+        return BuildModule(topModule, netlist, expandedInstancePaths: EmptyExpandedInstancePaths, layoutOptions);
     }
 
     /// <summary>
@@ -45,17 +46,18 @@ public static class GateNetlistElkBuilder
     /// can't be resolved (instance name typo, missing sub-module definition).
     /// </summary>
     public static GateNetlistElkBuildResult BuildScope(GateNetlist netlist, IReadOnlyList<string> scopePath)
-        => BuildScope(netlist, scopePath, expandedInstancePaths: EmptyExpandedInstancePaths);
+        => BuildScope(netlist, scopePath, expandedInstancePaths: EmptyExpandedInstancePaths, layoutOptions: null);
 
     public static GateNetlistElkBuildResult BuildScope(
         GateNetlist netlist,
         IReadOnlyList<string> scopePath,
-        IReadOnlySet<string> expandedInstancePaths)
+        IReadOnlySet<string> expandedInstancePaths,
+        SchematicLayoutOptions? layoutOptions = null)
     {
         ArgumentNullException.ThrowIfNull(netlist);
         ArgumentNullException.ThrowIfNull(scopePath);
         ArgumentNullException.ThrowIfNull(expandedInstancePaths);
-        if (scopePath.Count == 0) return Build(netlist);
+        if (scopePath.Count == 0) return Build(netlist, layoutOptions);
 
         if (!netlist.Modules.TryGetValue(scopePath[0], out GateModule? current))
         {
@@ -77,15 +79,20 @@ public static class GateNetlistElkBuilder
             }
             current = next;
         }
-        return BuildModule(current, netlist, expandedInstancePaths);
+        return BuildModule(current, netlist, expandedInstancePaths, layoutOptions);
     }
 
     private static GateNetlistElkBuildResult BuildModule(
         GateModule module,
         GateNetlist netlist,
-        IReadOnlySet<string> expandedInstancePaths)
+        IReadOnlySet<string> expandedInstancePaths,
+        SchematicLayoutOptions? layoutOptions)
     {
-        ElkGraph graph = new() { Id = "root", LayoutOptions = BuildRootLayoutOptions() };
+        // Null preserves the legacy inline option values via the Balanced
+        // preset, so callers that haven't been migrated yet keep behaving
+        // exactly as they did before Wave 5.
+        SchematicLayoutOptions effective = layoutOptions ?? ElkLayoutOptionsFactory.For(RoutingQuality.Balanced);
+        ElkGraph graph = new() { Id = "root", LayoutOptions = effective.ToElkOptions() };
         Dictionary<string, ElkPortRef> portRefs = new(StringComparer.Ordinal);
 
         // Producer / consumer maps keyed by Yosys net id. We emit edges per
@@ -624,16 +631,6 @@ public static class GateNetlistElkBuilder
             ["elk.port.side"] = side,
             ["elk.port.index"] = index.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
-
-    private static Dictionary<string, string> BuildRootLayoutOptions() => new()
-    {
-        ["elk.algorithm"] = "layered",
-        ["elk.direction"] = "RIGHT",
-        ["elk.edgeRouting"] = "ORTHOGONAL",
-        ["elk.hierarchyHandling"] = "INCLUDE_CHILDREN",
-        ["elk.spacing.nodeNode"] = "40",
-        ["elk.layered.spacing.nodeNodeBetweenLayers"] = "80",
-    };
 
     private static void AddTo(Dictionary<string, List<ElkPortRef>> map, string key, ElkPortRef value)
     {

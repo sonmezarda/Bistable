@@ -29,6 +29,47 @@ public sealed class ProjectConfigurationTests
     }
 
     [Fact]
+    public void SchematicConfiguration_DefaultsToBalancedRoutingQuality()
+    {
+        const string json = """
+        {
+          "topModule": "alu",
+          "sources": ["alu.sv"]
+        }
+        """;
+
+        ProjectConfiguration configuration = JsonSerializer.Deserialize<ProjectConfiguration>(
+            json,
+            ProjectConfiguration.JsonOptions)!;
+
+        Assert.Equal(RoutingQuality.Balanced, configuration.Schematic.RoutingQuality);
+        Assert.True(configuration.Schematic.AutoDowngradeLargeGraphs);
+    }
+
+    [Fact]
+    public void SchematicConfiguration_RoundTripsRoutingQualityAsString()
+    {
+        ProjectConfiguration original = new()
+        {
+            TopModule = "alu",
+            Sources = ["alu.sv"],
+            Schematic = new SchematicConfiguration(
+                RoutingQuality: RoutingQuality.Production,
+                AutoDowngradeLargeGraphs: false),
+        };
+
+        string json = JsonSerializer.Serialize(original, ProjectConfiguration.JsonOptions);
+        ProjectConfiguration round = JsonSerializer.Deserialize<ProjectConfiguration>(
+            json,
+            ProjectConfiguration.JsonOptions)!;
+
+        Assert.Contains("\"routingQuality\": \"Production\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"autoDowngradeLargeGraphs\": false", json, StringComparison.Ordinal);
+        Assert.Equal(RoutingQuality.Production, round.Schematic.RoutingQuality);
+        Assert.False(round.Schematic.AutoDowngradeLargeGraphs);
+    }
+
+    [Fact]
     public void ValidatorReportsMissingSource()
     {
         ProjectConfiguration configuration = new()

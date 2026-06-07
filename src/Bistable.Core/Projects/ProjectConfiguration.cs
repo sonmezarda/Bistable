@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Bistable.Core.Projects;
 
@@ -42,6 +43,13 @@ public sealed record ProjectConfiguration
     public TraceConfiguration Trace { get; init; } = new();
 
     /// <summary>
+    /// Project-scoped schematic rendering preferences. Global preferences keep
+    /// personal UI choices such as theme; this section stores design-specific
+    /// knobs such as routing quality.
+    /// </summary>
+    public SchematicConfiguration Schematic { get; init; } = new();
+
+    /// <summary>
     /// Phase 5: optional CPU-style runtime metadata. When present, the GUI
     /// exposes a Run panel that drives reset cycles, loads program images
     /// into the probed memory paths, and ticks the clock through one of the
@@ -62,7 +70,8 @@ public sealed record ProjectConfiguration
     {
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
-        WriteIndented = true
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
     };
 
     public static async Task<ProjectConfiguration> LoadAsync(string path, CancellationToken cancellationToken = default)

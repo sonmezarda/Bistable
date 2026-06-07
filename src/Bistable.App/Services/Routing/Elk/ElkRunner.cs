@@ -12,14 +12,13 @@ namespace Bistable.App.Services.Routing.Elk;
 /// The process is started on first use and reused across layout calls,
 /// avoiding the ~150 ms Node.js startup overhead per request.
 /// </summary>
-public sealed class ElkRunner : IDisposable
+public sealed class ElkRunner : IElkRunner
 {
-    // Bumped from 8 s to 45 s as a band-aid for large designs (arnicomp tops 8 s on
-    // first layout). The proper fix is Phase 1+2's AST → primitive decoder which will
-    // produce a structurally smaller graph; Phase 6 moves layout off the UI thread but
-    // does NOT reduce ELK runtime. Override via the (nodeExecutable, scriptPath,
-    // responseTimeout) constructor if you need a different value.
-    private static readonly TimeSpan DefaultResponseTimeout = TimeSpan.FromSeconds(45);
+    // Phase 6.5 Wave 5: the user-facing timeout is no longer a 45 s kill
+    // switch. Gate-level windows run through SchematicLayoutService, which
+    // raises a soft warning at 10 s and lets the user cancel. This runner keeps
+    // only a 10-minute sanity cap for a truly wedged Node/ELK process.
+    private static readonly TimeSpan DefaultResponseTimeout = TimeSpan.FromMinutes(10);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -110,8 +109,23 @@ public sealed class ElkRunner : IDisposable
     {
         lock (_lock)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             _disposed = true;
             StopProcess();
+        }
+    }
+
+    public void Restart()
+    {
+        lock (_lock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            StopProcess();
+            EnsureProcessRunning();
         }
     }
 

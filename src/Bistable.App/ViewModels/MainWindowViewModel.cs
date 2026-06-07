@@ -130,8 +130,9 @@ public sealed class MainWindowViewModel : ViewModelBase
         ReleaseSelectedSchematicSignalCommand = new AsyncCommand(ReleaseSelectedSchematicSignalAsync);
         ReleasePathCommand = new ParameterizedAsyncCommand<string>(ReleasePathAsync);
         ReleaseAllForcedCommand = new AsyncCommand(ReleaseAllForcedAsync);
-        SaveSynthesisSettingsCommand = new AsyncCommand(SaveSynthesisSettingsAsync,
+        SaveProjectSettingsCommand = new AsyncCommand(SaveProjectSettingsAsync,
             () => _currentProject is not null && _currentProjectPath is not null);
+        SaveSynthesisSettingsCommand = SaveProjectSettingsCommand;
         RemoveSelectedWaveformSignalCommand = new RelayCommand(RemoveSelectedWaveformSignal);
         ClearWaveformCommand = new RelayCommand(ClearWaveform);
         // P2.7-5: chip-strip "Clear all" — fires through the wired action so the
@@ -427,12 +428,36 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public bool CanSaveSynthesisSettings => _currentProject is not null && _currentProjectPath is not null;
 
+    public bool CanSaveProjectSettings => CanSaveSynthesisSettings;
+
     public ICommand SaveSynthesisSettingsCommand { get; }
+
+    public ICommand SaveProjectSettingsCommand { get; }
 
     private static readonly SynthesisConfiguration DefaultSynthesis = new(Enabled: true);
 
+    private static readonly SchematicConfiguration DefaultSchematic = new();
+
     private SynthesisConfiguration CurrentSynthesis =>
         _currentProject?.Synthesis ?? DefaultSynthesis with { TopModule = TopModuleForSynthesisFallback() };
+
+    private SchematicConfiguration CurrentSchematic =>
+        _currentProject?.Schematic ?? DefaultSchematic;
+
+    public RoutingQuality GateRoutingQuality
+    {
+        get => CurrentSchematic.RoutingQuality;
+        set => UpdateSchematic(CurrentSchematic with { RoutingQuality = value });
+    }
+
+    public bool GateAutoDowngradeLargeGraphs
+    {
+        get => CurrentSchematic.AutoDowngradeLargeGraphs;
+        set => UpdateSchematic(CurrentSchematic with { AutoDowngradeLargeGraphs = value });
+    }
+
+    public IReadOnlyList<RoutingQuality> AvailableRoutingQualities { get; } =
+        Enum.GetValues<RoutingQuality>();
 
     public string SynthesisStatus
     {
@@ -537,14 +562,28 @@ public sealed class MainWindowViewModel : ViewModelBase
     }
 
     private async Task SaveSynthesisSettingsAsync(CancellationToken cancellationToken)
+        => await SaveProjectSettingsAsync(cancellationToken);
+
+    private void UpdateSchematic(SchematicConfiguration schematic)
+    {
+        if (_currentProject is null) return;
+        _currentProject = _currentProject with { Schematic = schematic };
+        RaiseSynthesisSettingsChanged();
+    }
+
+    private async Task SaveProjectSettingsAsync(CancellationToken cancellationToken)
     {
         if (_currentProject is null || _currentProjectPath is null) return;
         try
         {
-            _currentProject = _currentProject with { Synthesis = CurrentSynthesis };
+            _currentProject = _currentProject with
+            {
+                Synthesis = CurrentSynthesis,
+                Schematic = CurrentSchematic,
+            };
             string json = System.Text.Json.JsonSerializer.Serialize(_currentProject, ProjectConfiguration.JsonOptions);
             await File.WriteAllTextAsync(_currentProjectPath, json, cancellationToken);
-            SynthesisStatus = "Synthesis settings saved to project file.";
+            SynthesisStatus = "Project settings saved to project file.";
             RaiseSynthesisSettingsChanged();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
@@ -562,9 +601,14 @@ public sealed class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(SynthesisOutputVerilog));
         OnPropertyChanged(nameof(SynthesisGenericCells));
         OnPropertyChanged(nameof(SynthesisFlatten));
+        OnPropertyChanged(nameof(GateRoutingQuality));
+        OnPropertyChanged(nameof(GateAutoDowngradeLargeGraphs));
+        OnPropertyChanged(nameof(AvailableRoutingQualities));
         OnPropertyChanged(nameof(CanSaveSynthesisSettings));
+        OnPropertyChanged(nameof(CanSaveProjectSettings));
         ((AsyncCommand)SynthesizeCommand).RaiseCanExecuteChanged();
         ((AsyncCommand)SaveSynthesisSettingsCommand).RaiseCanExecuteChanged();
+        ((AsyncCommand)SaveProjectSettingsCommand).RaiseCanExecuteChanged();
     }
 
     private string TopModuleForSynthesisFallback() =>

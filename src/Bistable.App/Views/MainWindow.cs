@@ -14,6 +14,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Bistable.App.Infrastructure;
 using Bistable.App.ViewModels;
+using Bistable.Core.Projects;
 using Dock.Avalonia.Controls;
 using Dock.Model.Mvvm;
 using Dock.Model.Mvvm.Controls;
@@ -2625,7 +2626,11 @@ public sealed class MainWindow : Window
         {
             existing.Close();
         }
-        _gateLevelWindow = new GateLevelSchematicWindow(netlist);
+        RoutingQuality routingQuality = DataContext is MainWindowViewModel vm
+            ? vm.GateRoutingQuality
+            : RoutingQuality.Balanced;
+        bool autoDowngradeLargeGraphs = DataContext is not MainWindowViewModel model || model.GateAutoDowngradeLargeGraphs;
+        _gateLevelWindow = new GateLevelSchematicWindow(netlist, routingQuality, autoDowngradeLargeGraphs);
         _gateLevelWindow.Closed += (_, _) => _gateLevelWindow = null;
         _gateLevelWindow.Show(this);
     }

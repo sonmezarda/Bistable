@@ -3,8 +3,10 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Bistable.App.Services;
 using Bistable.App.Services.Routing.Elk;
+using Bistable.Core.Projects;
 using Bistable.Core.Synthesis;
 
 namespace Bistable.App.Views;
@@ -23,9 +25,31 @@ public sealed class GateLevelSchematicWindow : Window
     private static readonly IBrush BreadcrumbActive = SolidColorBrush.Parse("#ffd166");
 
     private readonly GateNetlist _netlist;
+    private readonly RoutingQuality _requestedRoutingQuality;
+    private readonly bool _autoDowngradeLargeGraphs;
     private readonly GateSchematicCanvas _canvas = new();
+    private readonly SchematicLayoutService _layoutService = new();
     private readonly List<string> _scopePath = new();
     private readonly HashSet<string> _expandedInstancePaths = new(StringComparer.Ordinal);
+    private readonly Border _routingOverlay;
+    private readonly TextBlock _routingOverlayText = new()
+    {
+        Text = "Routing schematic...",
+        Foreground = TextBrush,
+        FontSize = 13,
+        TextWrapping = TextWrapping.Wrap,
+    };
+    private readonly Button _routingCancelButton = new()
+    {
+        Content = "Cancel",
+        FontSize = 11,
+        Padding = new Thickness(10, 3),
+        Background = SurfaceBrush,
+        Foreground = TextBrush,
+        BorderBrush = BreadcrumbActive,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(3),
+    };
     private readonly StackPanel _breadcrumbStrip = new()
     {
         Orientation = Orientation.Horizontal,
@@ -61,16 +85,36 @@ public sealed class GateLevelSchematicWindow : Window
         Foreground = TextBrush,
     };
     private GateModule? _currentScopeModule;
+    private CancellationTokenSource? _activeLayoutCts;
+    private int _layoutGeneration;
 
     public GateLevelSchematicWindow(GateNetlist netlist)
+        : this(netlist, RoutingQuality.Balanced)
+    {
+    }
+
+    public GateLevelSchematicWindow(GateNetlist netlist, RoutingQuality routingQuality)
+        : this(netlist, routingQuality, autoDowngradeLargeGraphs: true)
+    {
+    }
+
+    public GateLevelSchematicWindow(
+        GateNetlist netlist,
+        RoutingQuality routingQuality,
+        bool autoDowngradeLargeGraphs)
     {
         _netlist = netlist;
+        _requestedRoutingQuality = routingQuality;
+        _autoDowngradeLargeGraphs = autoDowngradeLargeGraphs;
         Title = $"Gate-Level — {netlist.TopModule}";
         Width = 1200;
         Height = 760;
         Background = BackgroundBrush;
+        _routingOverlay = BuildRoutingOverlay();
         Content = BuildLayout();
         _scopePath.Add(netlist.TopModule);
+        _layoutService.LayoutStillRunning += OnLayoutStillRunning;
+        _routingCancelButton.Click += (_, _) => CancelActiveLayout();
         _canvas.SubModuleActivated += OnSubModuleActivated;
         _canvas.SubModuleExpansionToggled += OnSubModuleExpansionToggled;
         _canvas.NetSelected += OnNetSelected;
@@ -86,13 +130,57 @@ public sealed class GateLevelSchematicWindow : Window
 
     private Control BuildLayout()
     {
+        Grid shell = new();
         DockPanel root = new() { LastChildFill = true };
         root.Children.Add(BuildHeader());
         root.Children.Add(BuildBreadcrumb());
         root.Children.Add(BuildToolbar());
         root.Children.Add(BuildPropertiesPanel());
         root.Children.Add(_canvas);
-        return root;
+        shell.Children.Add(root);
+        shell.Children.Add(_routingOverlay);
+        return shell;
+    }
+
+    private Border BuildRoutingOverlay()
+    {
+        StackPanel card = new()
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 10,
+            MaxWidth = 360,
+        };
+        card.Children.Add(new TextBlock
+        {
+            Text = "Gate-level schematic",
+            Foreground = AccentBrush,
+            FontSize = 14,
+            FontWeight = FontWeight.SemiBold,
+        });
+        card.Children.Add(_routingOverlayText);
+        card.Children.Add(_routingCancelButton);
+
+        Border cardBorder = new()
+        {
+            Background = SurfaceBrush,
+            BorderBrush = StrokeBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(18, 14),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = card,
+        };
+
+        return new Border
+        {
+            IsVisible = false,
+            Background = new SolidColorBrush(Color.FromArgb(150, 14, 20, 28)),
+            Child = cardBorder,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Padding = new Thickness(16),
+        };
     }
 
     private Control BuildHeader()
@@ -331,27 +419,187 @@ public sealed class GateLevelSchematicWindow : Window
 
     private void LoadCurrentScope()
     {
+        CancelActiveLayout();
+
+        _activeLayoutCts?.Dispose();
+        _activeLayoutCts = new CancellationTokenSource();
+        int generation = ++_layoutGeneration;
+        _ = LoadCurrentScopeAsync(generation, _activeLayoutCts);
+    }
+
+    private async Task LoadCurrentScopeAsync(int generation, CancellationTokenSource layoutCts)
+    {
+        using CancellationTokenSource overlayCts =
+            CancellationTokenSource.CreateLinkedTokenSource(layoutCts.Token);
+        Task overlayTask = ShowRoutingOverlayAfterDelayAsync(generation, overlayCts.Token);
+
         try
         {
-            GateNetlistElkBuildResult build = GateNetlistElkBuilder.BuildScope(_netlist, _scopePath, _expandedInstancePaths);
-            ElkGraph laid = new ElkRunner().Layout(build.Graph);
-            GateModule scopeModule = ResolveScopeModule();
-            _currentScopeModule = scopeModule;
-            _canvas.SetGraph(laid, scopeModule);
-            _selectionStatus.Text = string.Empty;
-            RenderNoSelection();
-            RefreshSearchResults();
-            _headerStats.Text = $"{scopeModule.Cells.Count} cells · {scopeModule.Nets.Count} named nets · {scopeModule.Ports.Count} ports";
-            Title = $"Gate-Level — {string.Join(" / ", _scopePath)}";
-            RebuildBreadcrumb();
+            string[] scopeSnapshot = [.. _scopePath];
+            HashSet<string> expandedSnapshot = new(_expandedInstancePaths, StringComparer.Ordinal);
+            PendingScopeLayout pending = await Task.Run(
+                () => BuildPendingScopeLayout(scopeSnapshot, expandedSnapshot),
+                layoutCts.Token);
+
+            ElkGraph laid = await _layoutService.LayoutAsync(pending.Graph, layoutCts.Token);
+            if (!IsCurrentLayout(generation) || layoutCts.IsCancellationRequested)
+            {
+                return;
+            }
+
+            ApplyLaidOutScope(laid, pending);
+        }
+        catch (OperationCanceledException) when (layoutCts.IsCancellationRequested || !IsCurrentLayout(generation))
+        {
+            // User-triggered cancel or superseded request. Keep the previous
+            // successful schematic visible.
         }
         catch (SchematicRoutingException ex)
         {
-            Content = BuildErrorBanner("Layout failed: " + ex.Message);
+            if (IsCurrentLayout(generation))
+            {
+                _selectionStatus.Text = "Layout failed: " + ex.Message;
+            }
         }
         catch (System.InvalidOperationException ex)
         {
-            Content = BuildErrorBanner("Scope resolve failed: " + ex.Message);
+            if (IsCurrentLayout(generation))
+            {
+                _selectionStatus.Text = "Scope resolve failed: " + ex.Message;
+            }
+        }
+        finally
+        {
+            overlayCts.Cancel();
+            await ObserveOverlayTaskAsync(overlayTask);
+            if (IsCurrentLayout(generation))
+            {
+                HideRoutingOverlay();
+                if (ReferenceEquals(_activeLayoutCts, layoutCts))
+                {
+                    _activeLayoutCts = null;
+                }
+            }
+            layoutCts.Dispose();
+        }
+    }
+
+    private PendingScopeLayout BuildPendingScopeLayout(
+        IReadOnlyList<string> scopePath,
+        IReadOnlySet<string> expandedInstancePaths)
+    {
+        GateNetlistElkBuildResult build = GateNetlistElkBuilder.BuildScope(
+            _netlist,
+            scopePath,
+            expandedInstancePaths,
+            ElkLayoutOptionsFactory.For(_requestedRoutingQuality));
+
+        int routableNodeCount = CountRoutableNodes(build.Graph.Children);
+        SchematicLayoutDecision decision = SchematicRoutingQualityResolver.Resolve(
+            _requestedRoutingQuality,
+            _autoDowngradeLargeGraphs,
+            routableNodeCount);
+        if (decision.AutoDowngraded)
+        {
+            build.Graph.LayoutOptions = ElkLayoutOptionsFactory.For(decision.EffectiveQuality).ToElkOptions();
+        }
+
+        return new PendingScopeLayout(
+            build.Graph,
+            ResolveScopeModule(scopePath),
+            [.. scopePath],
+            decision,
+            routableNodeCount);
+    }
+
+    private void ApplyLaidOutScope(ElkGraph laid, PendingScopeLayout pending)
+    {
+        GateModule scopeModule = pending.ScopeModule;
+        _currentScopeModule = scopeModule;
+        _canvas.SetGraph(laid, scopeModule);
+        RenderNoSelection();
+        _selectionStatus.Text = pending.Decision.AutoDowngraded
+            ? $"Auto-switched to Fast preview for large graph ({pending.RoutableNodeCount} nodes)."
+            : string.Empty;
+        RefreshSearchResults();
+        _headerStats.Text = $"{scopeModule.Cells.Count} cells · {scopeModule.Nets.Count} named nets · {scopeModule.Ports.Count} ports";
+        Title = $"Gate-Level — {string.Join(" / ", pending.ScopePath)}";
+        RebuildBreadcrumb();
+    }
+
+    private static int CountRoutableNodes(IReadOnlyList<ElkNode>? nodes)
+    {
+        if (nodes is null) return 0;
+
+        int count = 0;
+        foreach (ElkNode node in nodes)
+        {
+            if (!node.Id.StartsWith("boundary_", StringComparison.Ordinal))
+            {
+                count++;
+            }
+            count += CountRoutableNodes(node.Children);
+        }
+        return count;
+    }
+
+    private async Task ShowRoutingOverlayAfterDelayAsync(int generation, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
+            if (IsCurrentLayout(generation) && !cancellationToken.IsCancellationRequested)
+            {
+                ShowRoutingOverlay("Routing schematic...");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Fast layouts complete before the overlay threshold; avoid flash.
+        }
+    }
+
+    private void ShowRoutingOverlay(string message)
+    {
+        _routingOverlayText.Text = message;
+        _routingOverlay.IsVisible = true;
+    }
+
+    private void HideRoutingOverlay()
+    {
+        _routingOverlay.IsVisible = false;
+        _routingOverlayText.Text = "Routing schematic...";
+    }
+
+    private void CancelActiveLayout()
+    {
+        _activeLayoutCts?.Cancel();
+    }
+
+    private bool IsCurrentLayout(int generation) => generation == _layoutGeneration;
+
+    private void OnLayoutStillRunning(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_activeLayoutCts is null || _activeLayoutCts.IsCancellationRequested || !_routingOverlay.IsVisible)
+            {
+                return;
+            }
+
+            _routingOverlayText.Text = "Routing is taking longer than usual. You can keep waiting or cancel.";
+        });
+    }
+
+    private static async Task ObserveOverlayTaskAsync(Task overlayTask)
+    {
+        try
+        {
+            await overlayTask;
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected for quick or cancelled layouts.
         }
     }
 
@@ -522,16 +770,29 @@ public sealed class GateLevelSchematicWindow : Window
     }
 
     private GateModule ResolveScopeModule()
+        => ResolveScopeModule(_scopePath);
+
+    private GateModule ResolveScopeModule(IReadOnlyList<string> scopePath)
     {
         // Same path walk BuildScope does, kept local so the window can pull
         // the resolved module out without re-throwing.
-        GateModule current = _netlist.Modules[_scopePath[0]];
-        for (int i = 1; i < _scopePath.Count; i++)
+        GateModule current = _netlist.Modules[scopePath[0]];
+        for (int i = 1; i < scopePath.Count; i++)
         {
-            GateCell inst = current.Cells.First(c => c.Name == _scopePath[i]);
+            GateCell inst = current.Cells.First(c => c.Name == scopePath[i]);
             current = _netlist.Modules[inst.Type];
         }
         return current;
+    }
+
+    protected override async void OnClosed(EventArgs e)
+    {
+        base.OnClosed(e);
+        _layoutService.LayoutStillRunning -= OnLayoutStillRunning;
+        CancelActiveLayout();
+        _activeLayoutCts?.Dispose();
+        _activeLayoutCts = null;
+        await _layoutService.DisposeAsync();
     }
 
     private Control BuildErrorBanner(string message)
@@ -549,4 +810,11 @@ public sealed class GateLevelSchematicWindow : Window
         banner.Child = stack;
         return banner;
     }
+
+    private sealed record PendingScopeLayout(
+        ElkGraph Graph,
+        GateModule ScopeModule,
+        IReadOnlyList<string> ScopePath,
+        SchematicLayoutDecision Decision,
+        int RoutableNodeCount);
 }

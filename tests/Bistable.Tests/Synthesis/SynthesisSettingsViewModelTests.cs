@@ -51,6 +51,23 @@ public sealed class SynthesisSettingsViewModelTests
     }
 
     [Fact]
+    public void RoutingQuality_UpdateProjectConfigurationInMemory()
+    {
+        using TempVm temp = CreateVm(new ProjectConfiguration
+        {
+            TopModule = "top",
+            Sources = ["top.sv"],
+        });
+
+        temp.ViewModel.GateRoutingQuality = RoutingQuality.FastPreview;
+        temp.ViewModel.GateAutoDowngradeLargeGraphs = false;
+
+        ProjectConfiguration project = ReadCurrentProject(temp.ViewModel);
+        Assert.Equal(RoutingQuality.FastPreview, project.Schematic.RoutingQuality);
+        Assert.False(project.Schematic.AutoDowngradeLargeGraphs);
+    }
+
+    [Fact]
     public async Task SaveSynthesisSettings_PersistsDefaultBlockWhenProjectHadNone()
     {
         using TempVm temp = CreateVm(new ProjectConfiguration
@@ -67,6 +84,27 @@ public sealed class SynthesisSettingsViewModelTests
         Assert.Equal("top", saved.Synthesis.TopModule);
         Assert.Equal(".bistable/synthesis/netlist.json", saved.Synthesis.OutputJson);
         Assert.Equal(".bistable/synthesis/netlist.sv", saved.Synthesis.OutputVerilog);
+    }
+
+    [Fact]
+    public async Task SaveProjectSettings_PersistsRoutingQuality()
+    {
+        using TempVm temp = CreateVm(new ProjectConfiguration
+        {
+            TopModule = "top",
+            Sources = ["top.sv"],
+        });
+        temp.ViewModel.GateRoutingQuality = RoutingQuality.Production;
+        temp.ViewModel.GateAutoDowngradeLargeGraphs = false;
+
+        await InvokeSaveProjectSettingsAsync(temp.ViewModel);
+
+        string json = await File.ReadAllTextAsync(temp.ProjectPath);
+        ProjectConfiguration saved = await ProjectConfiguration.LoadAsync(temp.ProjectPath, CancellationToken.None);
+        Assert.Contains("\"routingQuality\": \"Production\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"autoDowngradeLargeGraphs\": false", json, StringComparison.Ordinal);
+        Assert.Equal(RoutingQuality.Production, saved.Schematic.RoutingQuality);
+        Assert.False(saved.Schematic.AutoDowngradeLargeGraphs);
     }
 
     [Fact]
@@ -113,6 +151,14 @@ public sealed class SynthesisSettingsViewModelTests
     {
         MethodInfo method = typeof(MainWindowViewModel).GetMethod(
             "SaveSynthesisSettingsAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await (Task)method.Invoke(vm, [CancellationToken.None])!;
+    }
+
+    private static async Task InvokeSaveProjectSettingsAsync(MainWindowViewModel vm)
+    {
+        MethodInfo method = typeof(MainWindowViewModel).GetMethod(
+            "SaveProjectSettingsAsync",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
         await (Task)method.Invoke(vm, [CancellationToken.None])!;
     }
