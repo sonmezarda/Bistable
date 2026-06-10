@@ -67,12 +67,12 @@ public sealed class SchematicLayoutOptionsTests
     [Fact]
     public void For_FastPreview_PicksTheCheapestKnobs()
     {
-        // POLYLINE is dramatically cheaper than ORTHOGONAL on large graphs;
-        // thoroughness 1 is the floor; tight spacing keeps the rendered
-        // schematic compact when the user just wants to see "what's there".
+        // Gate schematics must remain orthogonal at every quality level;
+        // thoroughness 1 and tighter spacing provide the preview speed-up
+        // without producing misleading diagonal connectivity.
         SchematicLayoutOptions options = ElkLayoutOptionsFactory.For(RoutingQuality.FastPreview);
 
-        Assert.Equal("POLYLINE", options.EdgeRouting);
+        Assert.Equal("ORTHOGONAL", options.EdgeRouting);
         Assert.Equal(1, options.LayeredThoroughness);
         Assert.Equal(30, options.NodeNodeSpacing);
         Assert.Equal(50, options.NodeNodeSpacingBetweenLayers);

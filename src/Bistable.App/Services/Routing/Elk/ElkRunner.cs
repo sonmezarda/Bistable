@@ -31,7 +31,8 @@ public sealed class ElkRunner : IElkRunner
     private readonly string _nodeExecutable;
     private readonly string _scriptPath;
     private readonly TimeSpan _responseTimeout;
-    private readonly Lock _lock = new();
+    private readonly Lock _stateLock = new();
+    private readonly Lock _requestLock = new();
 
     private Process? _process;
     private bool _disposed;
@@ -66,11 +67,11 @@ public sealed class ElkRunner : IElkRunner
             throw new SchematicRoutingException("ELK request JSON must not contain embedded newlines.");
         }
 
-        lock (_lock)
+        lock (_requestLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            Process process = GetOrStartProcess();
             int dumpId = TryDumpJson("request", requestJson);
-            string responseLine = InvokeOnPersistentProcess(requestJson);
+            string responseLine = InvokeOnPersistentProcess(process, requestJson);
             if (dumpId > 0)
             {
                 TryDumpJson("response", responseLine, dumpId);
@@ -107,7 +108,8 @@ public sealed class ElkRunner : IElkRunner
 
     public void Dispose()
     {
-        lock (_lock)
+        Process? process;
+        lock (_stateLock)
         {
             if (_disposed)
             {
@@ -115,48 +117,71 @@ public sealed class ElkRunner : IElkRunner
             }
 
             _disposed = true;
-            StopProcess();
+            process = DetachProcess();
         }
+        StopProcess(process, force: true);
     }
 
     public void Restart()
     {
-        lock (_lock)
+        Process? process;
+        lock (_stateLock)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            StopProcess();
-            EnsureProcessRunning();
+            process = DetachProcess();
         }
+        StopProcess(process, force: true);
+        _ = GetOrStartProcess();
     }
 
-    private string InvokeOnPersistentProcess(string requestJson)
+    private string InvokeOnPersistentProcess(Process process, string requestJson)
     {
-        EnsureProcessRunning();
-
         try
         {
-            _process!.StandardInput.WriteLine(requestJson);
-            _process.StandardInput.Flush();
+            process.StandardInput.WriteLine(requestJson);
+            process.StandardInput.Flush();
         }
         catch (Exception ex)
         {
-            StopProcess();
+            InvalidateProcess(process);
             throw new SchematicRoutingException($"Failed to write to ELK router process: {ex.Message}", ex);
         }
 
-        Task<string?> readTask = _process.StandardOutput.ReadLineAsync();
-        if (!readTask.Wait(_responseTimeout))
+        Task<string?> readTask = process.StandardOutput.ReadLineAsync();
+        bool responseCompleted;
+        try
         {
-            StopProcess();
+            responseCompleted = readTask.Wait(_responseTimeout);
+        }
+        catch (AggregateException ex) when (
+            ex.InnerException is IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            InvalidateProcess(process);
+            throw new SchematicRoutingException("ELK router process was interrupted.", ex.InnerException);
+        }
+
+        if (!responseCompleted)
+        {
+            InvalidateProcess(process);
             throw new SchematicRoutingException($"ELK routing timed out after {_responseTimeout.TotalSeconds:0.#} seconds.");
         }
 
-        string? line = readTask.Result;
+        string? line;
+        try
+        {
+            line = readTask.GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            InvalidateProcess(process);
+            throw new SchematicRoutingException("ELK router process was interrupted.", ex);
+        }
+
         if (string.IsNullOrWhiteSpace(line))
         {
             // Process likely died — clear it so next call restarts.
-            string stderr = TryReadStderr();
-            StopProcess();
+            string stderr = TryReadStderr(process);
+            InvalidateProcess(process);
             throw new SchematicRoutingException(
                 string.IsNullOrWhiteSpace(stderr)
                     ? "ELK router returned an empty response."
@@ -198,56 +223,63 @@ public sealed class ElkRunner : IElkRunner
         }
     }
 
-    private void EnsureProcessRunning()
+    private Process GetOrStartProcess()
     {
-        if (_process is not null && !_process.HasExited)
+        lock (_stateLock)
         {
-            return;
-        }
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_process is not null && !_process.HasExited)
+            {
+                return _process;
+            }
 
-        StopProcess();
+            Process? staleProcess = DetachProcess();
+            StopProcess(staleProcess, force: true);
 
-        if (!File.Exists(_scriptPath))
-        {
-            throw new SchematicRoutingException(
-                $"ELK router script not found at '{_scriptPath}'. Run 'npm install' inside tools/elk-router/.");
-        }
+            if (!File.Exists(_scriptPath))
+            {
+                throw new SchematicRoutingException(
+                    $"ELK router script not found at '{_scriptPath}'. Run 'npm install' inside tools/elk-router/.");
+            }
 
-        ProcessStartInfo startInfo = new()
-        {
-            FileName = _nodeExecutable,
-            Arguments = $"\"{_scriptPath}\"",
-            WorkingDirectory = Path.GetDirectoryName(_scriptPath) ?? Environment.CurrentDirectory,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            StandardInputEncoding = Utf8NoBom,
-            StandardOutputEncoding = Utf8NoBom,
-            StandardErrorEncoding = Utf8NoBom
-        };
+            ProcessStartInfo startInfo = new()
+            {
+                FileName = _nodeExecutable,
+                Arguments = $"\"{_scriptPath}\"",
+                WorkingDirectory = Path.GetDirectoryName(_scriptPath) ?? Environment.CurrentDirectory,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                StandardInputEncoding = Utf8NoBom,
+                StandardOutputEncoding = Utf8NoBom,
+                StandardErrorEncoding = Utf8NoBom
+            };
 
-        try
-        {
-            _process = Process.Start(startInfo)
-                ?? throw new SchematicRoutingException("Failed to start the ELK router process.");
-        }
-        catch (Win32Exception ex)
-        {
-            throw new SchematicRoutingException(
-                $"Node.js executable '{_nodeExecutable}' not found. Install Node.js (>= 18) to enable the ELK router.", ex);
+            try
+            {
+                _process = Process.Start(startInfo)
+                    ?? throw new SchematicRoutingException("Failed to start the ELK router process.");
+                return _process;
+            }
+            catch (Win32Exception ex)
+            {
+                throw new SchematicRoutingException(
+                    $"Node.js executable '{_nodeExecutable}' not found. Install Node.js (>= 18) to enable the ELK router.", ex);
+            }
         }
     }
 
-    private string TryReadStderr()
+    private static string TryReadStderr(Process process)
     {
-        if (_process is null) return string.Empty;
         try
         {
-            // Non-blocking peek: only read what's already buffered.
-            _process.StandardError.BaseStream.ReadTimeout = 50;
-            return _process.StandardError.ReadToEnd();
+            if (!process.HasExited)
+            {
+                return string.Empty;
+            }
+            return process.StandardError.ReadToEnd();
         }
         catch
         {
@@ -255,28 +287,68 @@ public sealed class ElkRunner : IElkRunner
         }
     }
 
-    private void StopProcess()
+    private void InvalidateProcess(Process process)
     {
-        if (_process is null) return;
+        lock (_stateLock)
+        {
+            if (ReferenceEquals(_process, process))
+            {
+                _process = null;
+            }
+        }
+        StopProcess(process, force: true);
+    }
+
+    private Process? DetachProcess()
+    {
+        Process? process = _process;
+        _process = null;
+        return process;
+    }
+
+    private static void StopProcess(Process? process, bool force)
+    {
+        if (process is null) return;
         try
         {
-            if (!_process.HasExited)
+            if (!process.HasExited)
             {
-                _process.StandardInput.Close();
-                if (!_process.WaitForExit(500))
+                if (force)
                 {
-                    _process.Kill(entireProcessTree: true);
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(250);
+                }
+                else
+                {
+                    process.StandardInput.Close();
+                    if (!process.WaitForExit(250))
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
                 }
             }
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (
+            ex is InvalidOperationException or Win32Exception or NotSupportedException)
         {
-            // Process exited in the race window between HasExited check and Kill; nothing to terminate.
+            // Process exited in the race window or the platform could not kill
+            // the complete tree. Try the direct process as a final fallback.
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill();
+                }
+            }
+            catch
+            {
+                // Best effort teardown. The process handle is still disposed
+                // below and the next request starts a fresh router.
+            }
         }
         finally
         {
-            _process.Dispose();
-            _process = null;
+            process.Dispose();
         }
     }
 

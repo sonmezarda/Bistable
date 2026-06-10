@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Bistable.App.ViewModels;
+using Bistable.Core.Design.Schematic;
 
 namespace Bistable.App.Services.Routing.Elk;
 
@@ -16,34 +18,36 @@ public sealed class ElkSchematicEngine
     private const int CacheCapacity = 8;
 
     private readonly ElkGraphBuilder _builder = new();
-    private readonly ElkRunner _runner;
+    private readonly SchematicLayoutService _layoutService;
+    private readonly object _cacheGate = new();
     private readonly LinkedList<CacheEntry> _cache = new();
     private readonly Dictionary<string, LinkedListNode<CacheEntry>> _cacheIndex = new(StringComparer.Ordinal);
 
     public ElkSchematicEngine()
-        : this(new ElkRunner())
+        : this(new SchematicLayoutService())
     {
     }
 
-    public ElkSchematicEngine(ElkRunner runner)
+    public ElkSchematicEngine(SchematicLayoutService layoutService)
     {
-        _runner = runner ?? throw new ArgumentNullException(nameof(runner));
+        _layoutService = layoutService ?? throw new ArgumentNullException(nameof(layoutService));
     }
 
-    public ElkLayoutResult Compute(ElkScopeData scope, bool compactLayout)
+    public async Task<ElkLayoutResult> ComputeAsync(
+        ElkScopeData scope,
+        bool compactLayout,
+        CancellationToken cancellationToken = default)
     {
-        string key = ComputeCacheKey(scope, compactLayout);
-        if (_cacheIndex.TryGetValue(key, out LinkedListNode<CacheEntry>? hit))
+        string key = GetCacheKey(scope, compactLayout);
+        CacheEntry? cached = TryGetCached(key);
+        if (cached is not null)
         {
-            // LRU bump: most-recently-used at the front so eviction targets stale entries.
-            _cache.Remove(hit);
-            _cache.AddFirst(hit);
-            if (hit.Value.Result is { } cached)
+            if (cached.Result is { } result)
             {
-                return cached;
+                return result;
             }
 
-            if (hit.Value.Error is { } error)
+            if (cached.Error is { } error)
             {
                 throw new SchematicRoutingException(error);
             }
@@ -51,11 +55,19 @@ public sealed class ElkSchematicEngine
 
         try
         {
-            ElkBuildResult build = _builder.Build(scope, compactLayout);
-            ElkGraph layouted = _runner.Layout(build.Graph);
+            ElkBuildResult build = await Task.Run(
+                () => _builder.Build(scope, compactLayout),
+                cancellationToken).ConfigureAwait(false);
+            ElkGraph layouted = await _layoutService.LayoutAsync(
+                build.Graph,
+                cancellationToken).ConfigureAwait(false);
             ElkLayoutResult result = new(layouted, build.PortRefs);
             StoreInCache(key, new CacheEntry(result, null));
             return result;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (SchematicRoutingException ex)
         {
@@ -66,30 +78,46 @@ public sealed class ElkSchematicEngine
 
     private void StoreInCache(string key, CacheEntry entry)
     {
-        if (_cacheIndex.TryGetValue(key, out LinkedListNode<CacheEntry>? existing))
+        lock (_cacheGate)
         {
-            _cache.Remove(existing);
-            _cacheIndex.Remove(key);
+            if (_cacheIndex.TryGetValue(key, out LinkedListNode<CacheEntry>? existing))
+            {
+                _cache.Remove(existing);
+                _cacheIndex.Remove(key);
+            }
+
+            LinkedListNode<CacheEntry> node = _cache.AddFirst(entry);
+            _cacheIndex[key] = node;
+
+            while (_cache.Count > CacheCapacity)
+            {
+                LinkedListNode<CacheEntry>? oldest = _cache.Last;
+                if (oldest is null) break;
+                _cache.RemoveLast();
+                string? staleKey = _cacheIndex.FirstOrDefault(kv => ReferenceEquals(kv.Value, oldest)).Key;
+                if (staleKey is not null) _cacheIndex.Remove(staleKey);
+            }
         }
+    }
 
-        LinkedListNode<CacheEntry> node = _cache.AddFirst(entry);
-        _cacheIndex[key] = node;
-
-        while (_cache.Count > CacheCapacity)
+    private CacheEntry? TryGetCached(string key)
+    {
+        lock (_cacheGate)
         {
-            LinkedListNode<CacheEntry>? oldest = _cache.Last;
-            if (oldest is null) break;
-            _cache.RemoveLast();
-            // CacheEntry doesn't track the key, so we just clear-and-rebuild the index
-            // periodically. For CacheCapacity=8 the linear scan is trivial.
-            string? staleKey = _cacheIndex.FirstOrDefault(kv => ReferenceEquals(kv.Value, oldest)).Key;
-            if (staleKey is not null) _cacheIndex.Remove(staleKey);
+            if (!_cacheIndex.TryGetValue(key, out LinkedListNode<CacheEntry>? hit))
+            {
+                return null;
+            }
+
+            _cache.Remove(hit);
+            _cache.AddFirst(hit);
+            return hit.Value;
         }
     }
 
     private sealed record CacheEntry(ElkLayoutResult? Result, string? Error);
 
-    private static string ComputeCacheKey(ElkScopeData scope, bool compactLayout)
+    public static string GetCacheKey(ElkScopeData scope, bool compactLayout)
     {
         StringBuilder sb = new();
         sb.Append(compactLayout ? "C|" : "N|");
@@ -98,6 +126,8 @@ public sealed class ElkSchematicEngine
         AppendChildScopes(sb, scope.ChildScopes);
         AppendLocalSignals(sb, scope.LocalSignals);
         AppendContAssigns(sb, scope.ContAssigns);
+        AppendPrimitives(sb, scope.Primitives);
+        AppendPrimitiveCatalog(sb, scope.PrimitivesByModule);
 
         byte[] hash = SHA1.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexString(hash);
@@ -160,6 +190,34 @@ public sealed class ElkSchematicEngine
             }
 
             sb.Append('|');
+        }
+    }
+
+    private static void AppendPrimitives(
+        StringBuilder sb,
+        IReadOnlyList<SchematicPrimitive>? primitives)
+    {
+        if (primitives is null) return;
+        foreach (SchematicPrimitive primitive in primitives.OrderBy(static p => p.Id, StringComparer.Ordinal))
+        {
+            sb.Append("R:")
+                .Append(primitive.GetType().Name)
+                .Append(':')
+                .Append(JsonSerializer.Serialize(primitive, primitive.GetType()))
+                .Append('|');
+        }
+    }
+
+    private static void AppendPrimitiveCatalog(
+        StringBuilder sb,
+        IReadOnlyDictionary<string, IReadOnlyList<SchematicPrimitive>>? catalog)
+    {
+        if (catalog is null) return;
+        foreach ((string moduleName, IReadOnlyList<SchematicPrimitive> primitives) in
+                 catalog.OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            sb.Append("RM:").Append(moduleName).Append('|');
+            AppendPrimitives(sb, primitives);
         }
     }
 }

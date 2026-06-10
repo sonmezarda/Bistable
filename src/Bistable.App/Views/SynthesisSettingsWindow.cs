@@ -76,7 +76,7 @@ public sealed class SynthesisSettingsWindow : Window
             {
                 FlagCheckBox("Enabled", "SynthesisEnabled"),
                 FlagCheckBox("Generic cells", "SynthesisGenericCells"),
-                FlagCheckBox("Flatten", "SynthesisFlatten"),
+                FlagCheckBox("Flatten simulation netlist", "SynthesisFlatten"),
             }
         });
 

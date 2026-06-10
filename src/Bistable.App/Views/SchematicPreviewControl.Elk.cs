@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Bistable.App.Services;
 using Bistable.App.Services.Routing.Elk;
 using Bistable.App.ViewModels;
@@ -10,6 +11,10 @@ namespace Bistable.App.Views;
 public sealed partial class SchematicPreviewControl
 {
     private static readonly ElkSchematicEngine ElkEngine = new();
+    private string? _elkRequestedLayoutKey;
+    private ElkLayoutResult? _elkLayoutResult;
+    private string? _elkLayoutError;
+    private CancellationTokenSource? _elkLayoutCancellation;
 
     private void DrawElkScopePanel(
         DrawingContext context,
@@ -32,14 +37,18 @@ public sealed partial class SchematicPreviewControl
             ? []
             : new HashSet<string>(ExpandedScopePaths, StringComparer.OrdinalIgnoreCase);
         ElkScopeData scope = new(scopePorts, childScopes, localSignals, contAssigns, expandedPaths, scopePrimitives, scopePrimitivesByModule);
-        ElkLayoutResult layoutResult;
-        try
+        ElkLayoutResult? layoutResult = GetOrRequestElkLayout(scope, CompactLayout);
+        if (layoutResult is null)
         {
-            layoutResult = ElkEngine.Compute(scope, CompactLayout);
-        }
-        catch (SchematicRoutingException ex)
-        {
-            DrawElkErrorBanner(context, panel, ex.Message);
+            if (_elkLayoutError is { } error)
+            {
+                DrawElkErrorBanner(context, panel, error);
+            }
+            else
+            {
+                DrawElkLoadingBanner(context, panel);
+            }
+
             DrawScopeProbeSummary(context, panel, scopeSignals);
             return;
         }
@@ -55,6 +64,82 @@ public sealed partial class SchematicPreviewControl
         CollectConnectedPortIds(layoutResult.Graph);
         DrawElkNodeForegrounds(context, layoutResult.Graph, transform, labelPlacement);
         DrawScopeProbeSummary(context, panel, scopeSignals);
+    }
+
+    private ElkLayoutResult? GetOrRequestElkLayout(ElkScopeData scope, bool compactLayout)
+    {
+        string key = ElkSchematicEngine.GetCacheKey(scope, compactLayout);
+        if (string.Equals(_elkRequestedLayoutKey, key, StringComparison.Ordinal))
+        {
+            return _elkLayoutResult;
+        }
+
+        _elkLayoutCancellation?.Cancel();
+        _elkLayoutCancellation?.Dispose();
+        _elkLayoutCancellation = new CancellationTokenSource();
+        _elkRequestedLayoutKey = key;
+        _elkLayoutResult = null;
+        _elkLayoutError = null;
+        _ = ComputeElkLayoutAsync(scope, compactLayout, key, _elkLayoutCancellation.Token);
+        return null;
+    }
+
+    private async Task ComputeElkLayoutAsync(
+        ElkScopeData scope,
+        bool compactLayout,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            ElkLayoutResult result = await ElkEngine.ComputeAsync(
+                scope,
+                compactLayout,
+                cancellationToken);
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (cancellationToken.IsCancellationRequested
+                    || !string.Equals(_elkRequestedLayoutKey, key, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _elkLayoutResult = result;
+                _elkLayoutError = null;
+                InvalidateVisual();
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer scope/layout request superseded this one.
+        }
+        catch (SchematicRoutingException ex)
+        {
+            PublishElkLayoutError(key, cancellationToken, ex.Message);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            PublishElkLayoutError(key, cancellationToken, ex.Message);
+        }
+    }
+
+    private void PublishElkLayoutError(
+        string key,
+        CancellationToken cancellationToken,
+        string message)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (cancellationToken.IsCancellationRequested
+                || !string.Equals(_elkRequestedLayoutKey, key, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _elkLayoutResult = null;
+            _elkLayoutError = message;
+            InvalidateVisual();
+        });
     }
 
     private static Rect ComputeElkPanelRect(Rect bounds, Rect moduleRect)
@@ -84,6 +169,11 @@ public sealed partial class SchematicPreviewControl
     {
         DrawText(context, "ELK router error", panel.X + 18, panel.Y + 82, Palette.Selected, 12);
         DrawText(context, Ellipsize(message, 10, panel.Width - 36), panel.X + 18, panel.Y + 102, Palette.Text, 10);
+    }
+
+    private void DrawElkLoadingBanner(DrawingContext context, Rect panel)
+    {
+        DrawText(context, "Routing schematic...", panel.X + 18, panel.Y + 86, Palette.Muted, 11);
     }
 
     private static ElkTransform ComputeFitTransform(ElkGraph graph, Rect canvas)

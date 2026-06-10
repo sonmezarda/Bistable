@@ -24,7 +24,7 @@ public sealed class VcdTraceReader
 
         using StreamReader reader = new(
             new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
-        foreach (string rawLine in reader.ReadToEnd().Split('\n'))
+        while (reader.ReadLine() is { } rawLine)
         {
             string line = rawLine.Trim();
             if (line.Length == 0)

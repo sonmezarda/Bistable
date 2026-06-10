@@ -100,8 +100,12 @@ public static class GateNetlistElkBuilder
         // driver to N receivers — same shape ELK already routes in the RTL.
         Dictionary<string, List<ElkPortRef>> producers = new(StringComparer.Ordinal);
         Dictionary<string, List<ElkPortRef>> consumers = new(StringComparer.Ordinal);
+        // Side table: pinId → (baseName, bitIndex) so bundle inference can
+        // reconstruct bus membership from existing port labels without
+        // re-parsing them downstream.
+        Dictionary<string, PinBitContext> pinBitContexts = new(StringComparer.Ordinal);
 
-        AddBoundaryNodes(module, graph, producers, consumers, portRefs);
+        AddBoundaryNodes(module, graph, producers, consumers, portRefs, pinBitContexts);
         AddModuleCells(
             module,
             netlist,
@@ -112,12 +116,23 @@ public static class GateNetlistElkBuilder
             expandedInstancePaths,
             producers,
             consumers,
-            portRefs);
+            portRefs,
+            pinBitContexts);
 
-        EmitEdges(graph, producers, consumers);
+        IReadOnlyList<GateBusBundle> bundles = EmitEdges(graph, producers, consumers, pinBitContexts);
 
-        return new GateNetlistElkBuildResult(graph, portRefs);
+        return new GateNetlistElkBuildResult(graph, portRefs, bundles);
     }
+
+    // Per-pin bit identity captured at port creation. NetId is set when the
+    // bit is on a routable net; for constants it stays at the sentinel value
+    // so bundle inference can still group ordered bits that include literals.
+    private readonly record struct PinBitContext(
+        string NodeId,
+        string BaseName,
+        int BitIndex,
+        bool HasNetId,
+        int NetId);
 
     private static void AddModuleCells(
         GateModule module,
@@ -129,7 +144,8 @@ public static class GateNetlistElkBuilder
         IReadOnlySet<string> expandedInstancePaths,
         Dictionary<string, List<ElkPortRef>> producers,
         Dictionary<string, List<ElkPortRef>> consumers,
-        Dictionary<string, ElkPortRef> portRefs)
+        Dictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, PinBitContext> pinBitContexts)
     {
         int cellIndex = 0;
         foreach (GateCell cell in module.Cells)
@@ -154,11 +170,12 @@ public static class GateNetlistElkBuilder
                     expandedInstancePaths,
                     producers,
                     consumers,
-                    portRefs);
+                    portRefs,
+                    pinBitContexts);
             }
             else
             {
-                AddCellNode(cell, cellIndex++, ownerChildren, nodeIdPrefix, netScope, producers, consumers, portRefs);
+                AddCellNode(cell, cellIndex++, ownerChildren, nodeIdPrefix, netScope, producers, consumers, portRefs, pinBitContexts);
             }
         }
     }
@@ -170,13 +187,16 @@ public static class GateNetlistElkBuilder
         ElkGraph graph,
         Dictionary<string, List<ElkPortRef>> producers,
         Dictionary<string, List<ElkPortRef>> consumers,
-        Dictionary<string, ElkPortRef> portRefs)
+        Dictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, PinBitContext> pinBitContexts)
     {
         graph.Children ??= [];
         int inputRows = CountPortBitRows(module.Ports, isInputSide: true);
         int outputRows = CountPortBitRows(module.Ports, isInputSide: false);
-        ElkNode inputs  = NewBoundaryNode(ElkNodeIds.BoundaryIn, inputRows);
-        ElkNode outputs = NewBoundaryNode(ElkNodeIds.BoundaryOut, outputRows);
+        int inputLabelLength = LongestPortLabelLength(module.Ports, isInputSide: true);
+        int outputLabelLength = LongestPortLabelLength(module.Ports, isInputSide: false);
+        ElkNode inputs = NewBoundaryNode(ElkNodeIds.BoundaryIn, inputRows, inputLabelLength);
+        ElkNode outputs = NewBoundaryNode(ElkNodeIds.BoundaryOut, outputRows, outputLabelLength);
         graph.Children.Add(inputs);
         graph.Children.Add(outputs);
 
@@ -204,6 +224,12 @@ public static class GateNetlistElkBuilder
                 ElkPortRole role = isInput ? ElkPortRole.BoundaryInput : ElkPortRole.BoundaryOutput;
                 ElkPortRef portRef = new(owner.Id, pinId, role, Width: 1);
                 portRefs[pinId] = portRef;
+                pinBitContexts[pinId] = new PinBitContext(
+                    NodeId: owner.Id,
+                    BaseName: port.Name,
+                    BitIndex: bitOrdinal,
+                    HasNetId: bit.Kind == BitKind.Net,
+                    NetId: bit.Kind == BitKind.Net ? bit.NetId : 0);
 
                 if (bit.Kind == BitKind.Net)
                 {
@@ -222,10 +248,17 @@ public static class GateNetlistElkBuilder
         ports.Where(p => (p.Direction == GatePortDirection.Input) == isInputSide)
              .Sum(p => Math.Max(1, p.Bits.Count));
 
-    private static ElkNode NewBoundaryNode(string id, int rows) => new()
+    private static int LongestPortLabelLength(IReadOnlyList<GatePort> ports, bool isInputSide) =>
+        ports
+            .Where(port => (port.Direction == GatePortDirection.Input) == isInputSide)
+            .Select(port => port.Name.Length + BusRangeSuffixLength(port.Bits.Count))
+            .DefaultIfEmpty(0)
+            .Max();
+
+    private static ElkNode NewBoundaryNode(string id, int rows, int longestLabelLength) => new()
     {
         Id = id,
-        Width = 44,
+        Width = Math.Max(44, 18 + longestLabelLength * 7),
         Height = Math.Max(80, 28 + rows * 18),
         LayoutOptions = BoundaryLayoutOptions(),
         Ports = [],
@@ -249,7 +282,8 @@ public static class GateNetlistElkBuilder
         IReadOnlySet<string> expandedInstancePaths,
         Dictionary<string, List<ElkPortRef>> producers,
         Dictionary<string, List<ElkPortRef>> consumers,
-        Dictionary<string, ElkPortRef> portRefs)
+        Dictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, PinBitContext> pinBitContexts)
     {
         string nodeId = "inst_" + nodeIdPrefix + Sanitize(cell.Name) + "_" + cellIndex;
 
@@ -276,7 +310,27 @@ public static class GateNetlistElkBuilder
             }
         }
         int rowCount = Math.Max(inputRows, outputRows);
-        int longestLabel = Math.Max(cell.Name.Length, cell.Type.Length);
+        int longestInputLabel = 0;
+        int longestOutputLabel = 0;
+        foreach (GatePort port in childModule.Ports)
+        {
+            if (!cell.Connections.TryGetValue(port.Name, out GateConnection? connection))
+            {
+                continue;
+            }
+
+            int labelLength = port.Name.Length + BusRangeSuffixLength(connection.Bits.Count);
+            if (port.Direction == GatePortDirection.Output)
+            {
+                longestOutputLabel = Math.Max(longestOutputLabel, labelLength);
+            }
+            else
+            {
+                longestInputLabel = Math.Max(longestInputLabel, labelLength);
+            }
+        }
+        int titleWidth = 24 + Math.Max(cell.Name.Length, cell.Type.Length) * 8;
+        int pinLabelWidth = 44 + (longestInputLabel + longestOutputLabel) * 7;
         Dictionary<string, string> layoutOptions = FixedOrderPortConstraints();
         layoutOptions["elk.padding"] = expanded
             ? "[top=48,left=36,right=36,bottom=24]"
@@ -286,7 +340,7 @@ public static class GateNetlistElkBuilder
         ElkNode node = new()
         {
             Id = nodeId,
-            Width = Math.Max(170, 24 + longestLabel * 8),
+            Width = Math.Max(170, Math.Max(titleWidth, pinLabelWidth)),
             Height = Math.Max(80, 36 + rowCount * 18),
             LayoutOptions = layoutOptions,
             // labels[0] = instance display name (e.g. "u_imem"),
@@ -304,7 +358,7 @@ public static class GateNetlistElkBuilder
         ownerChildren.Add(node);
 
         PinPlacementContext ctx = new(node, nodeId, new CellPinSlots(),
-            parentNetScope, producers, consumers, portRefs);
+            parentNetScope, producers, consumers, portRefs, pinBitContexts);
 
         // Iterate the child module's declared ports in the order they were
         // emitted by Yosys; the instance pin name == the port name.
@@ -337,8 +391,12 @@ public static class GateNetlistElkBuilder
             expandedInstancePaths,
             producers,
             consumers,
-            portRefs);
+            portRefs,
+            pinBitContexts);
     }
+
+    private static int BusRangeSuffixLength(int bitCount) =>
+        bitCount <= 1 ? 0 : $"[{bitCount - 1}:0]".Length;
 
     private static void BridgeExpandedInstancePortsToChildNets(
         GateCell cell,
@@ -402,7 +460,8 @@ public static class GateNetlistElkBuilder
         string netScope,
         Dictionary<string, List<ElkPortRef>> producers,
         Dictionary<string, List<ElkPortRef>> consumers,
-        Dictionary<string, ElkPortRef> portRefs)
+        Dictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, PinBitContext> pinBitContexts)
     {
         GateCellDescriptor descriptor = GateCellLibrary.Lookup(cell.Type);
         string nodeId = BuildCellNodeId(cell, cellIndex, descriptor, nodeIdPrefix);
@@ -418,7 +477,7 @@ public static class GateNetlistElkBuilder
         ownerChildren.Add(node);
 
         PinPlacementContext ctx = new(node, nodeId, new CellPinSlots(),
-            netScope, producers, consumers, portRefs);
+            netScope, producers, consumers, portRefs, pinBitContexts);
         if (descriptor.IsUnknown)
         {
             AddUnknownCellPins(cell, ctx);
@@ -446,7 +505,8 @@ public static class GateNetlistElkBuilder
         string NetScope,
         Dictionary<string, List<ElkPortRef>> Producers,
         Dictionary<string, List<ElkPortRef>> Consumers,
-        Dictionary<string, ElkPortRef> PortRefs);
+        Dictionary<string, ElkPortRef> PortRefs,
+        Dictionary<string, PinBitContext> PinBitContexts);
 
     // Use the library's pin ordering so renderers (FF: D / C / Q) line up
     // with the existing RTL symbol expectations.
@@ -509,6 +569,12 @@ public static class GateNetlistElkBuilder
             });
             ElkPortRef portRef = new(ctx.NodeId, pinId, ResolveRole(isInput, isClock, isEnable), Width: 1);
             ctx.PortRefs[pinId] = portRef;
+            ctx.PinBitContexts[pinId] = new PinBitContext(
+                NodeId: ctx.NodeId,
+                BaseName: portName,
+                BitIndex: b,
+                HasNetId: bit.Kind == BitKind.Net,
+                NetId: bit.Kind == BitKind.Net ? bit.NetId : 0);
 
             if (bit.Kind == BitKind.Net)
             {
@@ -586,13 +652,21 @@ public static class GateNetlistElkBuilder
 
     // ── Edge emission ─────────────────────────────────────────────────────
 
-    private static void EmitEdges(
+    private static IReadOnlyList<GateBusBundle> EmitEdges(
         ElkGraph graph,
         Dictionary<string, List<ElkPortRef>> producers,
-        Dictionary<string, List<ElkPortRef>> consumers)
+        Dictionary<string, List<ElkPortRef>> consumers,
+        Dictionary<string, PinBitContext> pinBitContexts)
     {
         graph.Edges ??= [];
         int edgeId = 0;
+
+        // (sourceNodeId, sourceBase, targetNodeId, targetBase) → member entries.
+        // Edges are still emitted one-per-bit; this map only records which
+        // edges form a logical bus so the renderer can draw a trunk overlay
+        // without collapsing the underlying connectivity.
+        Dictionary<BundleKey, List<BundleMemberDraft>> drafts = new();
+
         foreach ((string netKey, List<ElkPortRef> sources) in producers)
         {
             if (!consumers.TryGetValue(netKey, out List<ElkPortRef>? targets)) continue;
@@ -600,16 +674,100 @@ public static class GateNetlistElkBuilder
             {
                 foreach (ElkPortRef target in targets)
                 {
-                    graph.Edges.Add(new ElkEdge
+                    string edgeIdStr = $"e{edgeId++}";
+                    ElkEdge edge = new()
                     {
-                        Id = $"e{edgeId++}",
+                        Id = edgeIdStr,
                         Sources = [source.PortId],
                         Targets = [target.PortId],
                         Labels = [new ElkLabel { Text = NetLabel(netKey) }],
-                    });
+                    };
+                    graph.Edges.Add(edge);
+
+                    if (pinBitContexts.TryGetValue(source.PortId, out PinBitContext srcCtx)
+                        && pinBitContexts.TryGetValue(target.PortId, out PinBitContext tgtCtx))
+                    {
+                        BundleKey key = new(
+                            srcCtx.NodeId, srcCtx.BaseName,
+                            tgtCtx.NodeId, tgtCtx.BaseName);
+                        if (!drafts.TryGetValue(key, out List<BundleMemberDraft>? list))
+                        {
+                            list = [];
+                            drafts[key] = list;
+                        }
+                        // Source bit index is authoritative for ordering; we use it
+                        // for both Msb/Lsb derivation and for the recorded member.
+                        list.Add(new BundleMemberDraft(
+                            BitIndex: srcCtx.BitIndex,
+                            NetId: srcCtx.HasNetId ? srcCtx.NetId : 0,
+                            SourcePortId: source.PortId,
+                            TargetPortId: target.PortId,
+                            Edge: edge));
+                    }
                 }
             }
         }
+
+        return BuildBundles(drafts);
+    }
+
+    private readonly record struct BundleKey(
+        string SourceNodeId, string SourceBaseName,
+        string TargetNodeId, string TargetBaseName);
+
+    private sealed record BundleMemberDraft(
+        int BitIndex,
+        int NetId,
+        string SourcePortId,
+        string TargetPortId,
+        ElkEdge Edge);
+
+    private static IReadOnlyList<GateBusBundle> BuildBundles(
+        Dictionary<BundleKey, List<BundleMemberDraft>> drafts)
+    {
+        if (drafts.Count == 0) return [];
+        List<GateBusBundle> bundles = new(drafts.Count);
+        int bundleSeq = 0;
+        foreach ((BundleKey key, List<BundleMemberDraft> members) in drafts)
+        {
+            // A single-bit "bundle" is not a bus — skip it so callers don't
+            // treat normal scalar wires as bundles in the UI.
+            if (members.Count < 2) continue;
+
+            // Stable, deterministic id usable as a layout option value.
+            string id = $"bundle:{key.SourceNodeId}.{key.SourceBaseName}->{key.TargetNodeId}.{key.TargetBaseName}#{bundleSeq++}";
+            int msb = members.Max(static m => m.BitIndex);
+            int lsb = members.Min(static m => m.BitIndex);
+            List<GateBusBundleMember> ordered = members
+                .OrderByDescending(static m => m.BitIndex)
+                .Select(static m => new GateBusBundleMember(
+                    BitIndex: m.BitIndex,
+                    NetId: m.NetId,
+                    SourcePortId: m.SourcePortId,
+                    TargetPortId: m.TargetPortId,
+                    EdgeId: m.Edge.Id))
+                .ToList();
+
+            // Tag every member edge with the bundle id. The canvas/hit-test
+            // can recover bundle membership for any clicked edge in O(1).
+            foreach (BundleMemberDraft member in members)
+            {
+                member.Edge.LayoutOptions ??= [];
+                member.Edge.LayoutOptions[GateBusBundleKeys.BundleIdLayoutOption] = id;
+            }
+
+            bundles.Add(new GateBusBundle(
+                Id: id,
+                LogicalName: key.SourceBaseName,
+                Msb: msb,
+                Lsb: lsb,
+                SourceNodeId: key.SourceNodeId,
+                SourceBaseName: key.SourceBaseName,
+                TargetNodeId: key.TargetNodeId,
+                TargetBaseName: key.TargetBaseName,
+                Members: ordered));
+        }
+        return bundles;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
@@ -661,4 +819,5 @@ public static class GateNetlistElkBuilder
 /// <summary>Result of <see cref="GateNetlistElkBuilder.Build"/>.</summary>
 public sealed record GateNetlistElkBuildResult(
     ElkGraph Graph,
-    IReadOnlyDictionary<string, ElkPortRef> PortRefs);
+    IReadOnlyDictionary<string, ElkPortRef> PortRefs,
+    IReadOnlyList<GateBusBundle> Bundles);

@@ -1,4 +1,6 @@
 using Bistable.App.Services.Routing.Elk;
+using Bistable.App.Views;
+using Bistable.Core.Design.Schematic;
 using Bistable.Core.Synthesis;
 using Bistable.Yosys;
 
@@ -142,6 +144,49 @@ public sealed class GateNetlistHierarchyTests
     }
 
     [Fact]
+    public void SubModuleInstance_WidthAccommodatesInputAndOutputPinLabels()
+    {
+        GateBit input = GateBit.Net(2);
+        GateBit output = GateBit.Net(3);
+        GateModule child = new(
+            "child",
+            [
+                new GatePort("very_long_input_operand_name", GatePortDirection.Input, [input]),
+                new GatePort("very_long_output_result_name", GatePortDirection.Output, [output]),
+            ],
+            [],
+            []);
+        GateCell instance = new(
+            "u_child",
+            "child",
+            new Dictionary<string, GateConnection>
+            {
+                ["very_long_input_operand_name"] = new("very_long_input_operand_name", [input]),
+                ["very_long_output_result_name"] = new("very_long_output_result_name", [output]),
+            },
+            new Dictionary<string, GatePortDirection>
+            {
+                ["very_long_input_operand_name"] = GatePortDirection.Input,
+                ["very_long_output_result_name"] = GatePortDirection.Output,
+            },
+            new Dictionary<string, string>(),
+            new Dictionary<string, string>());
+        GateNetlist netlist = new(
+            "top",
+            new Dictionary<string, GateModule>
+            {
+                ["top"] = new GateModule("top", [], [instance], []),
+                ["child"] = child,
+            });
+
+        GateNetlistElkBuildResult result = GateNetlistElkBuilder.Build(netlist);
+
+        ElkNode node = Assert.Single(result.Graph.Children!,
+            candidate => candidate.Id.StartsWith("inst_", StringComparison.Ordinal));
+        Assert.True(node.Width >= 430, $"Expected pin-aware width, got {node.Width}.");
+    }
+
+    [Fact]
     public void BoundaryNodes_SizeAndIndexByBitRowsNotDeclaredPorts()
     {
         GateBit[] bus = Bits(2, 8);
@@ -168,6 +213,33 @@ public sealed class GateNetlistHierarchyTests
     }
 
     [Fact]
+    public void BoundaryNodes_WidthAccommodatesLongPinLabels()
+    {
+        GateModule top = new(
+            "top",
+            [
+                new GatePort(
+                    "very_long_external_input_operand",
+                    GatePortDirection.Input,
+                    Bits(2, 32)),
+                new GatePort(
+                    "very_long_external_output_result",
+                    GatePortDirection.Output,
+                    Bits(100, 32)),
+            ],
+            [],
+            []);
+        GateNetlist netlist = new("top", new Dictionary<string, GateModule> { ["top"] = top });
+
+        GateNetlistElkBuildResult result = GateNetlistElkBuilder.Build(netlist);
+
+        ElkNode boundaryIn = Assert.Single(result.Graph.Children!, node => node.Id == "boundary_in");
+        ElkNode boundaryOut = Assert.Single(result.Graph.Children!, node => node.Id == "boundary_out");
+        Assert.True(boundaryIn.Width >= 260, $"Expected pin-aware input width, got {boundaryIn.Width}.");
+        Assert.True(boundaryOut.Width >= 260, $"Expected pin-aware output width, got {boundaryOut.Width}.");
+    }
+
+    [Fact]
     public void BuildScope_WithExpandedInstance_RendersChildCellsInsideCompound()
     {
         GateNetlist netlist = YosysJsonReader.Read(LoadFixture("hierarchy.json"));
@@ -186,6 +258,29 @@ public sealed class GateNetlistHierarchyTests
         Assert.Contains(middle.Children!, n => n.Id.StartsWith("gate_", StringComparison.Ordinal));
         Assert.Contains(result.Graph.Edges!, e =>
             e.Sources.Concat(e.Targets).Any(endpoint => endpoint.Contains("u_middle__", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void ExpandedPrimitive_MetadataDoesNotResolveToParentInstanceByNodeIdPrefix()
+    {
+        GateNetlist netlist = YosysJsonReader.Read(LoadFixture("hierarchy.json"));
+        GateNetlistElkBuildResult result = GateNetlistElkBuilder.BuildScope(
+            netlist,
+            ["top"],
+            new HashSet<string>(StringComparer.Ordinal) { "u_middle" });
+
+        ElkNode middle = Assert.Single(result.Graph.Children!,
+            node => node.Id.StartsWith("inst_", StringComparison.Ordinal));
+        ElkNode primitive = Assert.Single(middle.Children!,
+            node => node.Id.StartsWith("gate_", StringComparison.Ordinal));
+        IReadOnlyDictionary<string, GateCell> topCells =
+            netlist.Modules["top"].Cells.ToDictionary(static cell => cell.Name, StringComparer.Ordinal);
+
+        Assert.Null(GateSchematicCanvas.TryResolveCell(primitive, topCells));
+        GateCellDescriptor descriptor = GateSchematicCanvas.ResolveDescriptorFromLabels(primitive);
+        Assert.Equal(GateCellShape.Gate, descriptor.Shape);
+        Assert.Equal(GateKind.Or, descriptor.GateKind);
+        Assert.Equal("$_OR_", primitive.Labels![1].Text);
     }
 
     [Fact]

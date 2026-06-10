@@ -6,6 +6,7 @@ namespace Bistable.App.Services;
 public sealed class SimulationWorkerClient : IAsyncDisposable
 {
     private readonly Process _process;
+    private int _disposeState;
 
     public SimulationWorkerClient(string executablePath)
     {
@@ -39,6 +40,7 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
 
     public async Task<WorkerResponse> SendAsync(SimulationCommand command, CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
         if (_process.HasExited)
         {
             throw new InvalidOperationException($"Simulation worker exited with code {_process.ExitCode}.");
@@ -50,18 +52,29 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
         await _ioSemaphore.WaitAsync(cancellationToken);
         try
         {
-            await _process.StandardInput.WriteLineAsync(ProtocolJson.Serialize(command).AsMemory(), cancellationToken);
-            await _process.StandardInput.FlushAsync(cancellationToken);
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            string? line = await _process.StandardOutput.ReadLineAsync(cancellationToken);
+            // Once a command is written, its response must always be drained before
+            // another caller can use the stream. Cancelling the read would release
+            // the semaphore while the worker's response is still pending, causing
+            // the next command to consume the wrong response.
+            await _process.StandardInput.WriteLineAsync(
+                ProtocolJson.Serialize(command).AsMemory(),
+                CancellationToken.None);
+            await _process.StandardInput.FlushAsync(CancellationToken.None);
+
+            string? line = await _process.StandardOutput.ReadLineAsync(CancellationToken.None);
             if (line is null)
             {
-                string stderr = await _process.StandardError.ReadToEndAsync(cancellationToken);
+                string stderr = await _process.StandardError.ReadToEndAsync(CancellationToken.None);
                 throw new InvalidOperationException($"Simulation worker closed stdout. {stderr}");
             }
 
-            return ProtocolJson.Deserialize<WorkerResponse>(line)
+            WorkerResponse response = ProtocolJson.Deserialize<WorkerResponse>(line)
                 ?? throw new InvalidDataException("Simulation worker returned an invalid response.");
+            cancellationToken.ThrowIfCancellationRequested();
+            return response;
         }
         finally
         {
@@ -183,20 +196,30 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+        {
+            return;
+        }
+
         try
         {
             if (!_process.HasExited)
             {
-                await _process.StandardInput.WriteLineAsync(ProtocolJson.Serialize(new SimulationCommand(SimulationCommandType.Pause)));
                 _process.Kill(entireProcessTree: true);
             }
         }
         catch (InvalidOperationException)
         {
         }
-        finally
+
+        await _ioSemaphore.WaitAsync(CancellationToken.None);
+        try
         {
             _process.Dispose();
+        }
+        finally
+        {
+            _ioSemaphore.Release();
             _ioSemaphore.Dispose();
         }
     }

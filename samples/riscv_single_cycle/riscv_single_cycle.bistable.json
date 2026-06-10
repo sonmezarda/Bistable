@@ -26,6 +26,10 @@
     "format": "vcd",
     "depth": 3
   },
+  "schematic": {
+    "routingQuality": "Balanced",
+    "autoDowngradeLargeGraphs": true
+  },
   "runtime": {
     "reset": {
       "signal": "rst_n",
@@ -66,6 +70,6 @@
     "outputJson": ".bistable/synthesis/riscv_single_cycle_top.json",
     "outputVerilog": ".bistable/synthesis/netlist.sv",
     "genericCells": true,
-    "flatten": true
+    "flatten": false
   }
 }

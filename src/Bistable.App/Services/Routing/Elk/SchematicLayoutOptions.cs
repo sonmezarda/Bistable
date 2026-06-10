@@ -53,7 +53,7 @@ public static class ElkLayoutOptionsFactory
     public static SchematicLayoutOptions For(RoutingQuality quality) => quality switch
     {
         RoutingQuality.FastPreview => new SchematicLayoutOptions(
-            EdgeRouting: "POLYLINE",
+            EdgeRouting: "ORTHOGONAL",
             LayeredThoroughness: 1,
             NodeNodeSpacing: 30,
             NodeNodeSpacingBetweenLayers: 50),

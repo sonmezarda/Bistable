@@ -85,4 +85,54 @@ public sealed class YosysRoundTripIntegrationTests
             try { if (Directory.Exists(workDir)) Directory.Delete(workDir, recursive: true); } catch { /* best effort */ }
         }
     }
+
+    [Fact]
+    public async Task BuildScript_FlattenEnabled_PreservesViewerJsonHierarchy()
+    {
+        if (!YosysAvailable()) return;
+
+        string workDir = Path.Combine(Path.GetTempPath(), $"bistable-yosys-hierarchy-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workDir);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(workDir, "hierarchy.sv"), """
+                module child(input logic a, input logic b, output logic y);
+                    assign y = a & b;
+                endmodule
+
+                module top(input logic a, input logic b, output logic y);
+                    child u_child(.a(a), .b(b), .y(y));
+                endmodule
+                """);
+
+            ProjectConfiguration project = new()
+            {
+                TopModule = "top",
+                Sources = ["hierarchy.sv"],
+                Synthesis = new SynthesisConfiguration(
+                    Enabled: true,
+                    OutputJson: "hierarchy.json",
+                    OutputVerilog: "hierarchy_synth.sv",
+                    Flatten: true),
+            };
+
+            string script = YosysScriptBuilder.Build(project, project.Synthesis!, workDir);
+            string scriptPath = Path.Combine(workDir, "synth.ys");
+            await File.WriteAllTextAsync(scriptPath, script);
+            await new YosysTool().RunScriptAsync(scriptPath, workDir, CancellationToken.None);
+
+            GateNetlist netlist = await YosysJsonReader.ReadFileAsync(
+                Path.Combine(workDir, "hierarchy.json"),
+                CancellationToken.None);
+
+            Assert.Contains("child", netlist.Modules.Keys);
+            GateCell instance = Assert.Single(netlist.Modules["top"].Cells);
+            Assert.Equal("child", instance.Type);
+            Assert.True(File.Exists(Path.Combine(workDir, "hierarchy_synth.sv")));
+        }
+        finally
+        {
+            try { if (Directory.Exists(workDir)) Directory.Delete(workDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
 }

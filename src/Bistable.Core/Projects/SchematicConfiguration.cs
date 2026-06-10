@@ -8,7 +8,7 @@ namespace Bistable.Core.Projects;
 /// </summary>
 public enum RoutingQuality
 {
-    /// <summary>Cheapest route: POLYLINE edges and minimum layered thoroughness.</summary>
+    /// <summary>Cheapest route: orthogonal edges with minimum layered thoroughness.</summary>
     FastPreview,
 
     /// <summary>Default route: orthogonal edges with moderate layout cost.</summary>
@@ -18,6 +18,17 @@ public enum RoutingQuality
     Production,
 }
 
+public enum GatePinLabelMode
+{
+    Automatic,
+    Always,
+    Hidden,
+}
+
 public sealed record SchematicConfiguration(
     RoutingQuality RoutingQuality = RoutingQuality.Balanced,
-    bool AutoDowngradeLargeGraphs = true);
+    bool AutoDowngradeLargeGraphs = true,
+    GatePinLabelMode GatePinLabelMode = GatePinLabelMode.Automatic,
+    bool GroupGateBusPinLabels = true,
+    double GatePinLabelCompactZoom = 0.55,
+    double GatePinLabelDetailedZoom = 0.9);

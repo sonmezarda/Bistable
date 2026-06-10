@@ -70,7 +70,11 @@ public sealed class PreferencesWindow : Window
         {
             Background = BackgroundBrush,
             Padding = new Thickness(24, 20),
-            Child = BuildSchematicForm(),
+            Child = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = BuildSchematicForm(),
+            },
         };
         Grid.SetColumn(formHost, 1);
         grid.Children.Add(formHost);
@@ -110,6 +114,11 @@ public sealed class PreferencesWindow : Window
             "Gate routing quality",
             "Project-scoped ELK quality preset for synthesized gate-level schematics. Fast preview is intended for large RISC-V-scale designs.",
             BuildRoutingQualityEditor()));
+
+        root.Children.Add(BuildField(
+            "Gate pin labels",
+            "Controls hierarchical and primitive pin names. Automatic mode uses zoom-based LOD; bus grouping changes labels only and preserves bit-level connectivity.",
+            BuildGatePinLabelEditor()));
 
         return root;
     }
@@ -198,11 +207,81 @@ public sealed class PreferencesWindow : Window
         return row;
     }
 
+    private Control BuildGatePinLabelEditor()
+    {
+        Grid thresholds = new()
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(new GridLength(90)),
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(new GridLength(90)),
+            },
+            ColumnSpacing = 8,
+        };
+        thresholds.Children.Add(ThresholdLabel("Compact at"));
+        thresholds.Children.Add(ThresholdEditor("GatePinLabelCompactZoom", 1));
+        thresholds.Children.Add(ThresholdLabel("Detailed at", 2));
+        thresholds.Children.Add(ThresholdEditor("GatePinLabelDetailedZoom", 3));
+
+        StackPanel editor = new()
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 8,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        editor.Children.Add(BuildEnumComboBox<GatePinLabelMode>(
+            "AvailableGatePinLabelModes",
+            "GatePinLabelMode",
+            GatePinLabelModeDisplayName));
+        editor.Children.Add(new CheckBox
+        {
+            Content = "Group bus pin labels, for example data[31:0]",
+            Foreground = TextBrush,
+            [!ToggleButton.IsCheckedProperty] =
+                new Binding("GateGroupBusPinLabels", BindingMode.TwoWay),
+        });
+        editor.Children.Add(thresholds);
+        return editor;
+    }
+
+    private static TextBlock ThresholdLabel(string text, int column = 0) => new()
+    {
+        Text = text,
+        Foreground = MutedBrush,
+        FontSize = 11,
+        VerticalAlignment = VerticalAlignment.Center,
+        [Grid.ColumnProperty] = column,
+    };
+
+    private static NumericUpDown ThresholdEditor(string bindingPath, int column) => new()
+    {
+        Minimum = 0.05m,
+        Maximum = 8m,
+        Increment = 0.05m,
+        FormatString = "0.00",
+        MinHeight = 28,
+        Background = SurfaceAltBrush,
+        Foreground = TextBrush,
+        BorderBrush = StrokeBrush,
+        [!NumericUpDown.ValueProperty] = new Binding(bindingPath, BindingMode.TwoWay),
+        [Grid.ColumnProperty] = column,
+    };
+
     private static string RoutingQualityDisplayName(RoutingQuality quality) => quality switch
     {
         RoutingQuality.FastPreview => "Fast preview",
         RoutingQuality.Balanced => "Balanced",
         RoutingQuality.Production => "Production",
         _ => quality.ToString(),
+    };
+
+    private static string GatePinLabelModeDisplayName(GatePinLabelMode mode) => mode switch
+    {
+        GatePinLabelMode.Automatic => "Automatic (zoom LOD)",
+        GatePinLabelMode.Always => "Always show",
+        GatePinLabelMode.Hidden => "Hidden",
+        _ => mode.ToString(),
     };
 }

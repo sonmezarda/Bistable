@@ -23,6 +23,7 @@ public sealed class LiveProbeService
     private readonly Dictionary<string, MemorySnapshot> _memoryCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ProbeDescriptor> _descriptors = new(StringComparer.OrdinalIgnoreCase);
     private SimulationWorkerClient? _worker;
+    private long _workerGeneration;
 
     /// <summary>Raised on the calling task's context whenever a path's value changes from a prior cached value.</summary>
     public event EventHandler<ProbeValueUpdatedEventArgs>? ValueUpdated;
@@ -45,6 +46,7 @@ public sealed class LiveProbeService
         lock (_gate)
         {
             _worker = worker;
+            _workerGeneration++;
             _cache.Clear();
             _memoryCache.Clear();
             _descriptors.Clear();
@@ -58,8 +60,7 @@ public sealed class LiveProbeService
     /// </summary>
     public async Task RefreshDescriptorsAsync(CancellationToken cancellationToken)
     {
-        SimulationWorkerClient? worker;
-        lock (_gate) worker = _worker;
+        (SimulationWorkerClient? worker, long generation) = CaptureWorker();
         if (worker is null) return;
 
         IReadOnlyList<ProbeDescriptor> descriptors;
@@ -74,6 +75,7 @@ public sealed class LiveProbeService
 
         lock (_gate)
         {
+            if (!IsCurrentWorker(worker, generation)) return;
             _descriptors.Clear();
             foreach (ProbeDescriptor d in descriptors)
             {
@@ -88,13 +90,16 @@ public sealed class LiveProbeService
     /// </summary>
     public async Task<bool> WriteMemoryCellAsync(string path, ulong address, string value, CancellationToken cancellationToken)
     {
-        SimulationWorkerClient? worker;
-        lock (_gate) worker = _worker;
+        (SimulationWorkerClient? worker, long generation) = CaptureWorker();
         if (worker is null) return false;
         try
         {
             await worker.WriteMemoryAsync(path, address, value, cancellationToken);
-            lock (_gate) _memoryCache.Remove(path);
+            lock (_gate)
+            {
+                if (!IsCurrentWorker(worker, generation)) return false;
+                _memoryCache.Remove(path);
+            }
             return true;
         }
         catch (InvalidOperationException)
@@ -131,8 +136,7 @@ public sealed class LiveProbeService
 
     private async Task RefreshScalarPathsCoreAsync(IEnumerable<string> paths, CancellationToken cancellationToken)
     {
-        SimulationWorkerClient? worker;
-        lock (_gate) worker = _worker;
+        (SimulationWorkerClient? worker, long generation) = CaptureWorker();
         if (worker is null) return;
         foreach (string path in paths.Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -140,6 +144,7 @@ public sealed class LiveProbeService
             ProbeDescriptor? descriptor;
             lock (_gate)
             {
+                if (!IsCurrentWorker(worker, generation)) return;
                 _descriptors.TryGetValue(path, out descriptor);
             }
             if (descriptor is null || descriptor.IsMemory) continue;
@@ -149,10 +154,14 @@ public sealed class LiveProbeService
                 bool changed;
                 lock (_gate)
                 {
+                    if (!IsCurrentWorker(worker, generation)) return;
                     changed = !_cache.TryGetValue(path, out string? prior) || !string.Equals(prior, r.Value, StringComparison.Ordinal);
                     _cache[path] = r.Value;
                 }
-                if (changed) ValueUpdated?.Invoke(this, new ProbeValueUpdatedEventArgs(path, r.Value));
+                if (changed && IsCurrentWorkerSnapshot(worker, generation))
+                {
+                    ValueUpdated?.Invoke(this, new ProbeValueUpdatedEventArgs(path, r.Value));
+                }
             }
             catch (InvalidOperationException) { /* per-path miss, continue */ }
         }
@@ -212,8 +221,7 @@ public sealed class LiveProbeService
     public async Task<MemorySnapshot?> ReadMemoryAsync(string path, ulong startAddress, int count, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(path) || count <= 0) return null;
-        SimulationWorkerClient? worker;
-        lock (_gate) worker = _worker;
+        (SimulationWorkerClient? worker, long generation) = CaptureWorker();
         if (worker is null) return null;
 
         MemoryReadResult result;
@@ -231,11 +239,12 @@ public sealed class LiveProbeService
         bool changed;
         lock (_gate)
         {
+            if (!IsCurrentWorker(worker, generation)) return null;
             changed = !_memoryCache.TryGetValue(path, out MemorySnapshot? prior)
                 || !prior.Equals(snapshot);
             _memoryCache[path] = snapshot;
         }
-        if (changed)
+        if (changed && IsCurrentWorkerSnapshot(worker, generation))
         {
             MemoryUpdated?.Invoke(this, new MemorySnapshotUpdatedEventArgs(snapshot));
         }
@@ -254,8 +263,7 @@ public sealed class LiveProbeService
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
 
-        SimulationWorkerClient? worker;
-        lock (_gate) worker = _worker;
+        (SimulationWorkerClient? worker, long generation) = CaptureWorker();
         if (worker is null) return null;
 
         SignalReadResult result;
@@ -278,16 +286,36 @@ public sealed class LiveProbeService
         bool changed;
         lock (_gate)
         {
+            if (!IsCurrentWorker(worker, generation)) return null;
             changed = !_cache.TryGetValue(path, out string? prior) || !string.Equals(prior, result.Value, StringComparison.Ordinal);
             _cache[path] = result.Value;
         }
 
-        if (changed)
+        if (changed && IsCurrentWorkerSnapshot(worker, generation))
         {
             ValueUpdated?.Invoke(this, new ProbeValueUpdatedEventArgs(path, result.Value));
         }
         return result.Value;
     }
+
+    private (SimulationWorkerClient? Worker, long Generation) CaptureWorker()
+    {
+        lock (_gate)
+        {
+            return (_worker, _workerGeneration);
+        }
+    }
+
+    private bool IsCurrentWorkerSnapshot(SimulationWorkerClient worker, long generation)
+    {
+        lock (_gate)
+        {
+            return IsCurrentWorker(worker, generation);
+        }
+    }
+
+    private bool IsCurrentWorker(SimulationWorkerClient worker, long generation) =>
+        ReferenceEquals(_worker, worker) && _workerGeneration == generation;
 }
 
 public sealed class ProbeValueUpdatedEventArgs(string path, string value) : EventArgs

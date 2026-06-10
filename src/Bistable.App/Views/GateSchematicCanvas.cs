@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Bistable.App.Services.Routing.Elk;
 using Bistable.Core.Design.Schematic;
+using Bistable.Core.Projects;
 using Bistable.Core.Synthesis;
 using Bistable.Yosys;
 
@@ -24,13 +25,16 @@ namespace Bistable.App.Views;
 // deliberately stateless beyond pan/zoom so it can be replaced in-place.
 public sealed class GateSchematicCanvas : Control
 {
-    private const double MinZoom = 0.05;
+    private const double MinZoom = 0.005;
     private const double MaxZoom = 8.0;
     private const double FitPadding = 24;
     private static readonly IBrush CanvasBackground = SolidColorBrush.Parse("#0e141c");
 
     private ElkGraph? _graph;
     private GateModule? _module;
+    private IReadOnlyDictionary<string, GateCell> _cellByName =
+        new Dictionary<string, GateCell>(StringComparer.Ordinal);
+    private ElkEdgeCoordinateContext? _edgeCoordinateContext;
     private double _zoom = 1.0;
     private Point _pan;
     private Point _lastPointerPos;
@@ -38,6 +42,10 @@ public sealed class GateSchematicCanvas : Control
     private bool _fitPending = true;
     private int? _highlightedNetId;
     private string? _selectedCellName;
+    private string? _highlightedBundleId;
+    private IReadOnlyDictionary<string, GateBusBundle> _bundlesById =
+        new Dictionary<string, GateBusBundle>(StringComparer.Ordinal);
+    private GatePinLabelDisplayOptions _pinLabelOptions = GatePinLabelDisplayOptions.Default;
 
     /// <summary>
     /// Phase 6.5 Wave 2: raised when the user double-clicks (or single-clicks
@@ -57,6 +65,13 @@ public sealed class GateSchematicCanvas : Control
 
     public event EventHandler<GateCellSelection?>? CellSelected;
 
+    /// <summary>
+    /// Phase 6.5 follow-up: raised when the user clicks an edge that is part of
+    /// a bus bundle. Listeners can show the bundle's logical name + `[msb:lsb]`
+    /// in a properties panel without parsing edge labels themselves.
+    /// </summary>
+    public event EventHandler<GateBusBundleSelection?>? BundleSelected;
+
     public GateSchematicCanvas()
     {
         Focusable = true;
@@ -64,13 +79,30 @@ public sealed class GateSchematicCanvas : Control
     }
 
     /// <summary>Replace the rendered graph and force a re-fit on next draw.</summary>
-    public void SetGraph(ElkGraph graph, GateModule module)
+    public void SetGraph(
+        ElkGraph graph,
+        GateModule module,
+        IReadOnlyList<GateBusBundle>? bundles = null)
     {
         _graph = graph;
         _module = module;
+        _cellByName = module.Cells.ToDictionary(static cell => cell.Name, StringComparer.Ordinal);
+        _edgeCoordinateContext = BuildEdgeCoordinateContext(graph);
+        _bundlesById = bundles is null
+            ? new Dictionary<string, GateBusBundle>(StringComparer.Ordinal)
+            : bundles.ToDictionary(static b => b.Id, StringComparer.Ordinal);
         _highlightedNetId = null;
+        _highlightedBundleId = null;
         _selectedCellName = null;
         _fitPending = true;
+        InvalidateVisual();
+    }
+
+    public void HighlightBundle(string? bundleId)
+    {
+        _highlightedBundleId = bundleId is not null && _bundlesById.ContainsKey(bundleId)
+            ? bundleId
+            : null;
         InvalidateVisual();
     }
 
@@ -102,7 +134,8 @@ public sealed class GateSchematicCanvas : Control
     public void CenterOnNet(int netId)
     {
         if (_graph?.Edges is null) return;
-        ElkEdgeCoordinateContext coordinateContext = BuildEdgeCoordinateContext(_graph);
+        ElkEdgeCoordinateContext coordinateContext =
+            _edgeCoordinateContext ??= BuildEdgeCoordinateContext(_graph);
         foreach (ElkEdge edge in _graph.Edges)
         {
             if (TryGetEdgeNetId(edge) != netId || edge.Sections is not { Count: > 0 }) continue;
@@ -140,6 +173,24 @@ public sealed class GateSchematicCanvas : Control
         InvalidateVisual();
     }
 
+    /// <summary>
+    /// Moves the viewport without rebuilding or re-laying out the graph.
+    /// Used by dock/session restoration and performance regression coverage.
+    /// Pointer panning delegates to the same state update.
+    /// </summary>
+    public void PanBy(Vector delta)
+    {
+        _fitPending = false;
+        _pan = new Point(_pan.X + delta.X, _pan.Y + delta.Y);
+        InvalidateVisual();
+    }
+
+    public void SetPinLabelOptions(GatePinLabelDisplayOptions options)
+    {
+        _pinLabelOptions = options.Normalize();
+        InvalidateVisual();
+    }
+
     // ── Render ────────────────────────────────────────────────────────────
 
     public override void Render(DrawingContext context)
@@ -157,9 +208,26 @@ public sealed class GateSchematicCanvas : Control
             // erase anything beneath them), then wires (so they sit on top of
             // any compound/group backgrounds and aren't hidden by them), then
             // port dots + selection highlight on the very top.
-            DrawNodes(context, _graph, _module, _selectedCellName, RenderPass.Bodies);
-            DrawEdges(context, _graph);
-            DrawNodes(context, _graph, _module, _selectedCellName, RenderPass.Overlays);
+            bool overview = _zoom < 0.55;
+            DrawNodes(
+                context,
+                _graph,
+                _selectedCellName,
+                RenderPass.Bodies,
+                overview,
+                1.0 / Math.Max(_zoom, MinZoom),
+                _zoom,
+                _pinLabelOptions);
+            DrawEdges(context, _graph, _edgeCoordinateContext!, overview);
+            DrawNodes(
+                context,
+                _graph,
+                _selectedCellName,
+                RenderPass.Overlays,
+                overview,
+                1.0 / Math.Max(_zoom, MinZoom),
+                _zoom,
+                _pinLabelOptions);
         }
 
         // Overlay HUD with zoom percentage.
@@ -178,9 +246,7 @@ public sealed class GateSchematicCanvas : Control
         if (_graph is null || Bounds.Width <= 0 || Bounds.Height <= 0) return;
         double gw = Math.Max(1, _graph.Width);
         double gh = Math.Max(1, _graph.Height);
-        double availW = Math.Max(1, Bounds.Width - FitPadding * 2);
-        double availH = Math.Max(1, Bounds.Height - FitPadding * 2);
-        _zoom = Math.Clamp(Math.Min(availW / gw, availH / gh), MinZoom, MaxZoom);
+        _zoom = CalculateFitZoom(Bounds.Size, new Size(gw, gh));
         double renderedW = gw * _zoom;
         double renderedH = gh * _zoom;
         _pan = new Point(
@@ -189,22 +255,46 @@ public sealed class GateSchematicCanvas : Control
         _fitPending = false;
     }
 
+    internal static double CalculateFitZoom(Size viewport, Size graph)
+    {
+        double availW = Math.Max(1, viewport.Width - FitPadding * 2);
+        double availH = Math.Max(1, viewport.Height - FitPadding * 2);
+        double graphWidth = Math.Max(1, graph.Width);
+        double graphHeight = Math.Max(1, graph.Height);
+        return Math.Clamp(Math.Min(availW / graphWidth, availH / graphHeight), MinZoom, MaxZoom);
+    }
+
     // ── Edges ─────────────────────────────────────────────────────────────
 
     private static readonly IBrush WireBrush = SolidColorBrush.Parse("#65d889");
+    private static readonly IBrush OverviewWireBrush =
+        new SolidColorBrush(Color.FromArgb(120, 101, 216, 137));
     private static readonly IBrush HighlightWireBrush = SolidColorBrush.Parse("#ffd166");
     private static readonly Pen WirePen = new(WireBrush, 1.0);
     private static readonly Pen HighlightWirePen = new(HighlightWireBrush, 2.6);
 
-    private void DrawEdges(DrawingContext context, ElkGraph graph)
+    // Bundle trunk overlay: at overview zoom and below the detailed threshold
+    // we don't draw individual bit edges in a different colour, but we DO
+    // thicken bundle members so the user can see "this is a bus, not one
+    // scalar wire". Highlighted bundles win over net highlight so clicking a
+    // single bit also lights up the whole bus it belongs to.
+    private static readonly Pen BundleTrunkPen =
+        new(SolidColorBrush.Parse("#65d889"), 2.4);
+    private static readonly Pen BundleHighlightPen =
+        new(SolidColorBrush.Parse("#ffd166"), 3.4);
+
+    private void DrawEdges(
+        DrawingContext context,
+        ElkGraph graph,
+        ElkEdgeCoordinateContext coordinateContext,
+        bool overview)
     {
         if (graph.Edges is null) return;
-        ElkEdgeCoordinateContext coordinateContext = BuildEdgeCoordinateContext(graph);
+        Pen overviewPen = new(OverviewWireBrush, 0.65 / Math.Max(_zoom, MinZoom));
         foreach (ElkEdge edge in graph.Edges)
         {
-            bool highlighted = _highlightedNetId is { } netId && TryGetEdgeNetId(edge) == netId;
-            Pen pen = highlighted ? HighlightWirePen : WirePen;
             if (edge.Sections is null) continue;
+            Pen pen = ResolveEdgePen(edge, overview, overviewPen);
             Point offset = ResolveEdgeCoordinateOffset(edge, coordinateContext);
             foreach (ElkEdgeSection section in edge.Sections)
             {
@@ -223,6 +313,35 @@ public sealed class GateSchematicCanvas : Control
         }
     }
 
+    private Pen ResolveEdgePen(ElkEdge edge, bool overview, Pen overviewPen)
+    {
+        string? bundleId = TryGetEdgeBundleId(edge);
+        if (bundleId is not null && bundleId == _highlightedBundleId)
+        {
+            return BundleHighlightPen;
+        }
+        if (_highlightedNetId is { } netId && TryGetEdgeNetId(edge) == netId)
+        {
+            return HighlightWirePen;
+        }
+        if (bundleId is not null && !overview)
+        {
+            // Compact LOD: emphasise bus members so the user can tell a wide
+            // bus apart from a stack of unrelated parallel scalars.
+            return BundleTrunkPen;
+        }
+        return overview ? overviewPen : WirePen;
+    }
+
+    private static string? TryGetEdgeBundleId(ElkEdge edge)
+    {
+        if (edge.LayoutOptions is null) return null;
+        return edge.LayoutOptions.TryGetValue(
+                GateBusBundleKeys.BundleIdLayoutOption, out string? id)
+            ? id
+            : null;
+    }
+
     // ── Nodes ─────────────────────────────────────────────────────────────
 
     // GateNetlistElkBuilder tags sub-module instance nodes with this id prefix.
@@ -231,33 +350,47 @@ public sealed class GateSchematicCanvas : Control
     private static readonly IBrush NodeStroke = SolidColorBrush.Parse("#5dbcff");
     private static readonly IBrush NodeFill   = SolidColorBrush.Parse("#1b2230");
     private static readonly IBrush MutedBrush = SolidColorBrush.Parse("#8f9aad");
+    private static readonly IBrush PinLabelBackground =
+        new SolidColorBrush(Color.FromArgb(215, 14, 20, 28));
     private static readonly Pen NodePen = new(NodeStroke, 1.2);
 
     private enum RenderPass { Bodies, Overlays }
 
-    private static void DrawNodes(DrawingContext context, ElkGraph graph, GateModule module, string? selectedCellName, RenderPass pass)
+    private static void DrawNodes(
+        DrawingContext context,
+        ElkGraph graph,
+        string? selectedCellName,
+        RenderPass pass,
+        bool overview,
+        double inverseZoom,
+        double zoom,
+        GatePinLabelDisplayOptions pinLabelOptions)
     {
         if (graph.Children is null) return;
-
-        // Build a quick lookup from node-id → original GateCell so we can use
-        // GateCellLibrary to pick the right symbol painter.
-        Dictionary<string, GateCell> cellByPrefixedName = new(StringComparer.Ordinal);
-        foreach (GateCell cell in module.Cells)
-        {
-            cellByPrefixedName[cell.Name] = cell;
-        }
-
-        DrawNodesRecursive(context, graph.Children, selectedCellName, cellByPrefixedName, baseX: 0, baseY: 0, pass);
+        DrawNodesRecursive(
+            context,
+            graph.Children,
+            selectedCellName,
+            baseX: 0,
+            baseY: 0,
+            pass,
+            overview,
+            inverseZoom,
+            zoom,
+            pinLabelOptions);
     }
 
     private static void DrawNodesRecursive(
         DrawingContext context,
         IReadOnlyList<ElkNode> nodes,
         string? selectedCellName,
-        IReadOnlyDictionary<string, GateCell> cellByPrefixedName,
         double baseX,
         double baseY,
-        RenderPass pass)
+        RenderPass pass,
+        bool overview,
+        double inverseZoom,
+        double zoom,
+        GatePinLabelDisplayOptions pinLabelOptions)
     {
         foreach (ElkNode node in nodes)
         {
@@ -267,7 +400,14 @@ public sealed class GateSchematicCanvas : Control
             if (pass == RenderPass.Bodies)
             {
                 DrawNodeBackground(context, node, rect);
-                DrawNodeForeground(context, node, rect, cellByPrefixedName);
+                if (overview)
+                {
+                    DrawNodeOverview(context, node, rect, inverseZoom);
+                }
+                else
+                {
+                    DrawNodeForeground(context, node, rect);
+                }
             }
             else
             {
@@ -275,23 +415,56 @@ public sealed class GateSchematicCanvas : Control
                 {
                     context.DrawRectangle(null, new Pen(HighlightWireBrush, 2.2), rect.Inflate(4), 4, 4);
                 }
-                DrawPorts(context, node, absX, absY);
+                DrawPorts(
+                    context,
+                    node,
+                    absX,
+                    absY,
+                    zoom,
+                    pinLabelOptions,
+                    drawDots: !overview);
             }
             if (node.Children is { Count: > 0 })
             {
-                DrawNodesRecursive(context, node.Children, selectedCellName, cellByPrefixedName, absX, absY, pass);
+                DrawNodesRecursive(
+                    context,
+                    node.Children,
+                    selectedCellName,
+                    absX,
+                    absY,
+                    pass,
+                    overview,
+                    inverseZoom,
+                    zoom,
+                    pinLabelOptions);
             }
         }
     }
 
+    private static void DrawNodeOverview(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        double inverseZoom)
+    {
+        if (node.Id is "boundary_in" or "boundary_out")
+        {
+            return;
+        }
+
+        context.DrawRectangle(null, new Pen(NodeStroke, inverseZoom), rect, 2, 2);
+    }
+
     private static bool NodeRepresentsCell(ElkNode node, string cellName)
     {
-        if (node.Id.StartsWith(SubModuleIdPrefix, StringComparison.Ordinal))
+        if (node.Labels is { Count: > 2 })
         {
-            return node.Labels is { Count: > 0 }
-                   && string.Equals(node.Labels[0].Text, cellName, StringComparison.Ordinal);
+            string labelName = node.Id.StartsWith(SubModuleIdPrefix, StringComparison.Ordinal)
+                ? node.Labels[0].Text
+                : node.Labels[2].Text;
+            return string.Equals(labelName, cellName, StringComparison.Ordinal);
         }
-        return node.Id.Contains(Sanitize(cellName), StringComparison.Ordinal);
+        return false;
     }
 
     private static void DrawNodeBackground(DrawingContext ctx, ElkNode node, Rect rect)
@@ -322,8 +495,7 @@ public sealed class GateSchematicCanvas : Control
     private static void DrawNodeForeground(
         DrawingContext ctx,
         ElkNode node,
-        Rect rect,
-        IReadOnlyDictionary<string, GateCell> cellByName)
+        Rect rect)
     {
         if (node.Id is "boundary_in" or "boundary_out")
         {
@@ -343,10 +515,7 @@ public sealed class GateSchematicCanvas : Control
         // Find the original cell for this node — the builder's prefixes are
         // gate_/ff_/mux_/inv_/buf_/latch_/node_ followed by sanitized cell
         // name + cell index. We strip the prefix + trailing index when probing.
-        GateCell? cell = TryResolveCell(node.Id, cellByName);
-        GateCellDescriptor descriptor = cell is not null
-            ? GateCellLibrary.Lookup(cell.Type)
-            : ResolveDescriptorFromLabels(node);
+        GateCellDescriptor descriptor = ResolveDescriptorFromLabels(node);
 
         switch (descriptor.Shape)
         {
@@ -369,25 +538,30 @@ public sealed class GateSchematicCanvas : Control
                 DrawLatchBody(ctx, rect);
                 break;
             default:
-                DrawGenericBox(ctx, rect, cell?.Type ?? node.Id);
+                DrawGenericBox(ctx, rect, descriptor.CellType);
                 break;
         }
     }
 
-    private static GateCell? TryResolveCell(string nodeId, IReadOnlyDictionary<string, GateCell> cellByName)
+    internal static GateCell? TryResolveCell(
+        ElkNode node,
+        IReadOnlyDictionary<string, GateCell> cellByName)
     {
-        // Builder format: <prefix>_<sanitizedName>_<index>. The cell name
-        // itself may contain underscores; we can't recover the original 1:1
-        // mapping from the node id alone, so we settle for "first cell whose
-        // sanitized form is a substring" — works on Yosys-generated names.
-        foreach ((string name, GateCell cell) in cellByName)
+        // labels[2] is the builder's exact source cell name. Never infer the
+        // cell from a prefixed node id: nested ids contain their parent
+        // instance path (for example u_alu__), so substring matching turns
+        // every child primitive into the parent module instance.
+        if (node.Labels is not { Count: > 2 })
         {
-            if (nodeId.Contains(Sanitize(name), StringComparison.Ordinal)) return cell;
+            return null;
         }
-        return null;
+
+        return cellByName.TryGetValue(node.Labels[2].Text, out GateCell? cell)
+            ? cell
+            : null;
     }
 
-    private static GateCellDescriptor ResolveDescriptorFromLabels(ElkNode node)
+    internal static GateCellDescriptor ResolveDescriptorFromLabels(ElkNode node)
     {
         if (node.Labels is { Count: > 1 } && !string.IsNullOrWhiteSpace(node.Labels[1].Text))
         {
@@ -612,15 +786,51 @@ public sealed class GateSchematicCanvas : Control
 
     // ── Ports ─────────────────────────────────────────────────────────────
 
-    private static void DrawPorts(DrawingContext ctx, ElkNode node, double nodeAbsoluteX, double nodeAbsoluteY)
+    private static void DrawPorts(
+        DrawingContext ctx,
+        ElkNode node,
+        double nodeAbsoluteX,
+        double nodeAbsoluteY,
+        double zoom,
+        GatePinLabelDisplayOptions pinLabelOptions,
+        bool drawDots)
     {
         if (node.Ports is null) return;
-        foreach (ElkPort port in node.Ports)
+        if (drawDots)
         {
-            Point centre = new(nodeAbsoluteX + port.X, nodeAbsoluteY + port.Y);
-            ctx.DrawEllipse(WireBrush, null, centre, 1.8, 1.8);
+            foreach (ElkPort port in node.Ports)
+            {
+                Point centre = new(nodeAbsoluteX + port.X, nodeAbsoluteY + port.Y);
+                ctx.DrawEllipse(WireBrush, null, centre, 1.8, 1.8);
+            }
+        }
+
+        foreach (GatePinLabel label in GatePinLabelLayout.Resolve(node.Ports, zoom, pinLabelOptions))
+        {
+            Point centre = new(
+                nodeAbsoluteX + label.Port.X,
+                nodeAbsoluteY + label.Port.Y);
+            FormattedText text = CreatePinLabelText(label.Text);
+            double x = label.IsWestSide
+                ? centre.X + 5
+                : centre.X - 5 - text.Width;
+            double y = centre.Y - text.Height / 2;
+            ctx.FillRectangle(
+                PinLabelBackground,
+                new Rect(x - 2, y - 1, text.Width + 4, text.Height + 2),
+                2);
+            ctx.DrawText(text, new Point(x, y));
         }
     }
+
+    private static FormattedText CreatePinLabelText(string text) =>
+        new(
+            text,
+            System.Globalization.CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight,
+            new Typeface("monospace"),
+            8.5,
+            SolidColorBrush.Parse("#b7c4d8"));
 
     // ── Pan + zoom + keyboard ─────────────────────────────────────────────
 
@@ -662,27 +872,36 @@ public sealed class GateSchematicCanvas : Control
                 return;
             }
 
-            int? netId = HitTestNet(world);
-            if (netId is not null)
+            NetHit? hit = HitTestNet(world);
+            if (hit is { } netHit)
             {
-                HighlightNet(netId);
+                HighlightNet(netHit.NetId);
+                HighlightBundle(netHit.BundleId);
                 SelectCell(null);
-                NetSelected?.Invoke(this, new GateNetSelection(netId.Value, ResolveNetName(netId.Value)));
+                NetSelected?.Invoke(this, new GateNetSelection(netHit.NetId, ResolveNetName(netHit.NetId)));
                 CellSelected?.Invoke(this, null);
+                BundleSelected?.Invoke(this, netHit.BundleId is { } bid
+                    && _bundlesById.TryGetValue(bid, out GateBusBundle? bundle)
+                    ? new GateBusBundleSelection(bundle)
+                    : null);
             }
             else if (HitTestCell(world) is { } cell)
             {
                 HighlightNet(null);
+                HighlightBundle(null);
                 SelectCell(cell.Name);
                 NetSelected?.Invoke(this, null);
                 CellSelected?.Invoke(this, new GateCellSelection(cell));
+                BundleSelected?.Invoke(this, null);
             }
-            else if (_highlightedNetId is not null || _selectedCellName is not null)
+            else if (_highlightedNetId is not null || _selectedCellName is not null || _highlightedBundleId is not null)
             {
                 HighlightNet(null);
+                HighlightBundle(null);
                 SelectCell(null);
                 NetSelected?.Invoke(this, null);
                 CellSelected?.Invoke(this, null);
+                BundleSelected?.Invoke(this, null);
             }
             e.Handled = true;
         }
@@ -758,7 +977,9 @@ public sealed class GateSchematicCanvas : Control
         return node.Labels is { Count: > 0 } ? node.Labels[0].Text : node.Id;
     }
 
-    private int? HitTestNet(Point world)
+    private readonly record struct NetHit(int NetId, string? BundleId);
+
+    private NetHit? HitTestNet(Point world)
     {
         if (_graph is null) return null;
 
@@ -774,14 +995,18 @@ public sealed class GateSchematicCanvas : Control
                     if (Distance(world, centre) <= tolerance
                         && TryFindNetForPort(port.Id) is { } portNet)
                     {
-                        return portNet;
+                        // Port-dot hits don't disclose which member edge the
+                        // user meant, so leave the bundle field null — the
+                        // edge-segment branch below resolves it accurately.
+                        return new NetHit(portNet, BundleId: null);
                     }
                 }
             }
         }
 
         if (_graph.Edges is null) return null;
-        ElkEdgeCoordinateContext coordinateContext = BuildEdgeCoordinateContext(_graph);
+        ElkEdgeCoordinateContext coordinateContext =
+            _edgeCoordinateContext ??= BuildEdgeCoordinateContext(_graph);
         foreach (ElkEdge edge in _graph.Edges)
         {
             int? netId = TryGetEdgeNetId(edge);
@@ -795,12 +1020,14 @@ public sealed class GateSchematicCanvas : Control
                     foreach (ElkPoint bp in bends)
                     {
                         Point cur = OffsetPoint(bp, offset);
-                        if (DistanceToSegment(world, prev, cur) <= tolerance) return netId;
+                        if (DistanceToSegment(world, prev, cur) <= tolerance)
+                            return new NetHit(netId.Value, TryGetEdgeBundleId(edge));
                         prev = cur;
                     }
                 }
                 Point end = OffsetPoint(section.EndPoint, offset);
-                if (DistanceToSegment(world, prev, end) <= tolerance) return netId;
+                if (DistanceToSegment(world, prev, end) <= tolerance)
+                    return new NetHit(netId.Value, TryGetEdgeBundleId(edge));
             }
         }
         return null;
@@ -823,12 +1050,9 @@ public sealed class GateSchematicCanvas : Control
                     ?? BuildTransientCellFromLabels(node);
             }
 
-            foreach (GateCell cell in _module.Cells)
+            if (TryResolveCell(node, _cellByName) is { } sourceCell)
             {
-                if (node.Id.Contains(Sanitize(cell.Name), StringComparison.Ordinal))
-                {
-                    return cell;
-                }
+                return sourceCell;
             }
             if (BuildTransientCellFromLabels(node) is { } transient)
             {

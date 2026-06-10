@@ -2,6 +2,8 @@ using Bistable.Core.Design;
 using Bistable.Core.Design.Ast;
 using Bistable.Core.Projects;
 using Bistable.Verilator;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Bistable.App.Services;
 
@@ -24,7 +26,8 @@ public sealed class GateLevelWorkerBuildService(
         SynthesisConfiguration synthesis,
         string projectDirectory,
         CancellationToken cancellationToken = default,
-        IProgress<SimulationWorkerBuildProgress>? progress = null)
+        IProgress<SimulationWorkerBuildProgress>? progress = null,
+        DesignAst? rtlAst = null)
     {
         ArgumentNullException.ThrowIfNull(rtlProject);
         ArgumentNullException.ThrowIfNull(synthesis);
@@ -46,20 +49,44 @@ public sealed class GateLevelWorkerBuildService(
         DesignAst gateAst = gateDesign.Ast
             ?? throw new InvalidOperationException("Gate-level Verilator elaboration did not produce an AST.");
 
+        DesignAst? sourceAst = rtlAst;
+        if (sourceAst is null && gateProject.EnableInternalProbes)
+        {
+            DesignLoadResult rtlDesign = await _designLoader.ElaborateAsync(
+                rtlProject,
+                projectDirectory,
+                cancellationToken);
+            sourceAst = rtlDesign.Ast;
+        }
+
+        LoweredMemoryProbeMap memoryMap = sourceAst is not null && gateProject.EnableInternalProbes
+            ? LoweredMemoryProbeMapper.Build(sourceAst, gateAst, gateProject.TopModule)
+            : new LoweredMemoryProbeMap(
+                Array.Empty<ProbeEntry>(),
+                new GateRuntimeProbeManifest(gateProject.TopModule, Array.Empty<GateMemoryProbeMapping>()));
+        ValidateRuntimeMemoryBindings(rtlProject.Runtime, memoryMap.Manifest);
+
         SimulationWorkerBuildResult worker = await _workerBuilder.BuildAsync(
             gateProject,
             gateDesign.Metadata,
             projectDirectory,
             cancellationToken,
             progress,
-            gateAst);
+            gateAst,
+            memoryMap.SupplementalProbes);
+        string manifestPath = await WriteRuntimeManifestAsync(
+            worker.BuildDirectory,
+            memoryMap.Manifest,
+            cancellationToken);
 
         return new GateLevelWorkerBuildResult(
             gateProject,
             gateDesign.Design,
             gateAst,
             worker,
-            synthesizedVerilog);
+            synthesizedVerilog,
+            memoryMap.Manifest,
+            manifestPath);
     }
 
     public static ProjectConfiguration BuildGateLevelProject(
@@ -105,6 +132,48 @@ public sealed class GateLevelWorkerBuildService(
         }
         return options;
     }
+
+    private static void ValidateRuntimeMemoryBindings(
+        CpuRuntimeConfiguration? runtime,
+        GateRuntimeProbeManifest manifest)
+    {
+        if (runtime?.ProgramImages is not { Count: > 0 })
+        {
+            return;
+        }
+
+        Dictionary<string, GateMemoryProbeMapping> mappings = manifest.Memories
+            .ToDictionary(static memory => memory.LogicalPath, StringComparer.Ordinal);
+        foreach (ProgramImageBinding binding in runtime.ProgramImages)
+        {
+            if (!mappings.TryGetValue(binding.ProbePath, out GateMemoryProbeMapping? mapping))
+            {
+                throw new InvalidOperationException(
+                    $"Gate-level program memory '{binding.ProbePath}' is not present in the source design memory map.");
+            }
+            if (mapping.Kind == GateMemoryMappingKind.Unresolved)
+            {
+                throw new InvalidOperationException(
+                    $"Gate-level program memory '{binding.ProbePath}' is not addressable after synthesis. "
+                    + mapping.Diagnostic);
+            }
+        }
+    }
+
+    private static async Task<string> WriteRuntimeManifestAsync(
+        string buildDirectory,
+        GateRuntimeProbeManifest manifest,
+        CancellationToken cancellationToken)
+    {
+        string path = Path.Combine(buildDirectory, "gate-runtime-map.json");
+        string json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() },
+        });
+        await File.WriteAllTextAsync(path, json, cancellationToken);
+        return path;
+    }
 }
 
 public sealed record GateLevelWorkerBuildResult(
@@ -112,4 +181,6 @@ public sealed record GateLevelWorkerBuildResult(
     ElaboratedDesign Design,
     DesignAst Ast,
     SimulationWorkerBuildResult Worker,
-    string SynthesizedVerilogPath);
+    string SynthesizedVerilogPath,
+    GateRuntimeProbeManifest RuntimeProbeManifest,
+    string RuntimeProbeManifestPath);

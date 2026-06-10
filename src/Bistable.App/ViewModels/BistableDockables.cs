@@ -43,22 +43,36 @@ public sealed class BistableToolDockable : Tool
 public sealed class BistableDocumentDockable : Document
 {
     private readonly BistableDockableBase _content;
+    private readonly Action? _closed;
 
-    public BistableDocumentDockable(DockPanelKind panelKind, string id, string title, Func<Control> contentFactory)
+    public BistableDocumentDockable(
+        DockPanelKind panelKind,
+        string id,
+        string title,
+        Func<Control> contentFactory,
+        bool canClose = false,
+        Action? closed = null)
     {
         _content = new DockContent(panelKind, contentFactory);
+        _closed = closed;
         Id = id;
         Title = title;
-        CanClose = false;
-        CanDrag = false;
-        CanDrop = false;
-        CanFloat = false;
+        CanClose = canClose;
+        CanDrag = canClose;
+        CanDrop = canClose;
+        CanFloat = canClose;
         CanPin = false;
     }
 
     public DockPanelKind PanelKind => _content.PanelKind;
 
     public Control GetOrCreateContent() => _content.GetOrCreateContent();
+
+    public override bool OnClose()
+    {
+        _closed?.Invoke();
+        return base.OnClose();
+    }
 }
 
 file sealed class DockContent : BistableDockableBase

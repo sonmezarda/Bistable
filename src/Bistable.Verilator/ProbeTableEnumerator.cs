@@ -155,4 +155,5 @@ public sealed record ProbeEntry(
     bool IsSigned,
     bool IsRegistered,
     bool IsMemory,
-    int? MemoryDepth);
+    int? MemoryDepth,
+    IReadOnlyList<string>? MemoryElementFieldNames = null);

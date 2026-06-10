@@ -18,7 +18,8 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         string projectDirectory,
         CancellationToken cancellationToken = default,
         IProgress<SimulationWorkerBuildProgress>? progress = null,
-        Bistable.Core.Design.Ast.DesignAst? designAst = null)
+        Bistable.Core.Design.Ast.DesignAst? designAst = null,
+        IReadOnlyList<ProbeEntry>? supplementalProbes = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(metadata);
@@ -61,9 +62,10 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             // that maps hierarchical signal paths to model field accessors. When AST
             // is null (legacy callers) or probes are disabled, the probe-related
             // commands return ErrorResponse("probes disabled").
-            IReadOnlyList<ProbeEntry> probes = (designAst is not null && configuration.EnableInternalProbes)
-                ? ProbeTableEnumerator.Enumerate(designAst, configuration.TopModule).ToList()
-                : [];
+            IReadOnlyList<ProbeEntry> probes = BuildProbeList(
+                configuration,
+                designAst,
+                supplementalProbes);
             await File.WriteAllTextAsync(
                 wrapperPath,
                 GenerateWorkerSource(configuration.TopModule, metadata, options, probes),
@@ -116,6 +118,29 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
             | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
             | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+    }
+
+    private static IReadOnlyList<ProbeEntry> BuildProbeList(
+        ProjectConfiguration configuration,
+        Bistable.Core.Design.Ast.DesignAst? designAst,
+        IReadOnlyList<ProbeEntry>? supplementalProbes)
+    {
+        if (designAst is null || !configuration.EnableInternalProbes)
+        {
+            return [];
+        }
+
+        Dictionary<string, ProbeEntry> probes = ProbeTableEnumerator
+            .Enumerate(designAst, configuration.TopModule)
+            .ToDictionary(static probe => probe.Path, StringComparer.Ordinal);
+        if (supplementalProbes is not null)
+        {
+            foreach (ProbeEntry probe in supplementalProbes)
+            {
+                probes[probe.Path] = probe;
+            }
+        }
+        return probes.Values.ToArray();
     }
 
     private static string ResolveBuildDirectoryName(ProjectConfiguration configuration) =>
@@ -683,8 +708,16 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
                     builder.AppendLine($"        {p.Width}, {isSignedC}, false, true, {depth}");
                     builder.AppendLine("    };");
                     builder.AppendLine($"    memory_table[\"{pathEscaped}\"] = MemoryAccessor{{");
-                    builder.AppendLine($"        [r](std::size_t i) -> std::uint64_t {{ return (std::uint64_t)(r->{field}[i]); }},");
-                    builder.AppendLine($"        [r](std::size_t i, std::uint64_t v) {{ r->{field}[i] = decltype(r->{field}[i])(v); }},");
+                    if (p.MemoryElementFieldNames is { Count: > 0 } elementFields)
+                    {
+                        AppendLoweredMemoryReadAccessor(builder, elementFields);
+                        AppendLoweredMemoryWriteAccessor(builder, elementFields);
+                    }
+                    else
+                    {
+                        builder.AppendLine($"        [r](std::size_t i) -> std::uint64_t {{ return (std::uint64_t)(r->{field}[i]); }},");
+                        builder.AppendLine($"        [r](std::size_t i, std::uint64_t v) {{ r->{field}[i] = decltype(r->{field}[i])(v); }},");
+                    }
                     builder.AppendLine($"        {p.Width}, {depth}");
                     builder.AppendLine("    };");
                 }
@@ -758,6 +791,37 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("    std::cout << \"]}\" << std::endl;");
         builder.AppendLine("}");
         builder.AppendLine();
+    }
+
+    private static void AppendLoweredMemoryReadAccessor(
+        StringBuilder builder,
+        IReadOnlyList<string> elementFields)
+    {
+        builder.AppendLine("        [r](std::size_t i) -> std::uint64_t {");
+        builder.AppendLine("            switch (i) {");
+        for (int i = 0; i < elementFields.Count; i++)
+        {
+            builder.AppendLine($"                case {i}: return (std::uint64_t)(r->{elementFields[i]});");
+        }
+        builder.AppendLine("                default: return 0;");
+        builder.AppendLine("            }");
+        builder.AppendLine("        },");
+    }
+
+    private static void AppendLoweredMemoryWriteAccessor(
+        StringBuilder builder,
+        IReadOnlyList<string> elementFields)
+    {
+        builder.AppendLine("        [r](std::size_t i, std::uint64_t v) {");
+        builder.AppendLine("            switch (i) {");
+        for (int i = 0; i < elementFields.Count; i++)
+        {
+            string field = elementFields[i];
+            builder.AppendLine($"                case {i}: r->{field} = decltype(r->{field})(v); break;");
+        }
+        builder.AppendLine("                default: break;");
+        builder.AppendLine("            }");
+        builder.AppendLine("        },");
     }
 
     private static void AppendDriveClockFunction(StringBuilder builder, string modelType, ModuleMetadata metadata, bool traceEnabled)

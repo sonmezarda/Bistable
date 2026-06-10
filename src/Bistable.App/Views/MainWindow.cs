@@ -26,6 +26,7 @@ namespace Bistable.App.Views;
 public sealed class MainWindow : Window
 {
     private DockControl? _dockWorkspaceControl;
+    private Factory? _dockFactory;
     private RootDock? _dockRoot;
     private DocumentDock? _documentDock;
     private ToolDock? _leftToolDock;
@@ -54,7 +55,7 @@ public sealed class MainWindow : Window
     private PreferencesWindow? _preferencesWindow;
     private SynthesisSettingsWindow? _synthesisSettingsWindow;
     private DiagnosticsWindow? _diagnosticsWindow;
-    private GateLevelSchematicWindow? _gateLevelWindow;
+    private readonly Dictionary<string, GateDocumentSession> _gateDocuments = new(StringComparer.Ordinal);
     private WaveformStudioWindow? _waveformStudioWindow;
     private readonly Dictionary<string, MemoryViewerWindow> _memoryViewerWindows = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<DockPanelKind, ToolPanelWindow> _floatingToolWindows = [];
@@ -196,7 +197,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        Factory factory = new();
+        _dockFactory = new Factory();
 
         _projectDockable = new BistableToolDockable(
             DockPanelKind.Project,
@@ -274,7 +275,7 @@ public sealed class MainWindow : Window
             Windows = new List<DockCore.IDockWindow>()
         };
 
-        _dockWorkspaceControl.Factory = factory;
+        _dockWorkspaceControl.Factory = _dockFactory;
         _dockWorkspaceControl.Layout = _dockRoot;
     }
 
@@ -514,6 +515,8 @@ public sealed class MainWindow : Window
             Children =
             {
                 ToolbarButton("Build", "BuildCommand"),
+                ToolbarLabel("Target"),
+                ToolbarComboBox("AvailableSimulationTargets", "SelectedSimulationTarget", 92),
                 ToolbarButton("Eval", "EvalCommand"),
                 ToolbarButton("Tick", "TickCommand"),
                 ToolbarCheckBox("Live", "LiveModeEnabled"),
@@ -523,6 +526,8 @@ public sealed class MainWindow : Window
                 ToolbarTextBox("RunCyclesText", 72),
                 ToolbarButton("Run", "RunCyclesCommand"),
                 ToolbarButton("Reset", "ResetCommand"),
+                ToolbarButton("Cancel", "CancelSimulationCommand"),
+                ToolbarButton("Compare", "CompareRtlAndGateCommand"),
                 BuildCpuRunButton(),
                 BuildCpuLoadProgramButton(),
                 BuildCpuProgramNameTextBlock(),
@@ -2618,22 +2623,98 @@ public sealed class MainWindow : Window
         _diagnosticsWindow.Show(this);
     }
 
-    // Phase 6 P6-7: Yosys finished and produced a netlist — open (or replace)
-    // the gate-level schematic window. Single-instance per main window.
+    // Phase 6.5 P6.5-9: Yosys output opens as a dock document. Scope drill-in
+    // creates or activates another document, allowing RTL and multiple gate
+    // scopes to remain visible in the same workspace.
     private void OnGateNetlistReady(object? sender, Bistable.Core.Synthesis.GateNetlist netlist)
     {
-        if (_gateLevelWindow is { IsVisible: true } existing)
+        if (DataContext is not MainWindowViewModel vm)
         {
-            existing.Close();
+            return;
         }
-        RoutingQuality routingQuality = DataContext is MainWindowViewModel vm
-            ? vm.GateRoutingQuality
-            : RoutingQuality.Balanced;
-        bool autoDowngradeLargeGraphs = DataContext is not MainWindowViewModel model || model.GateAutoDowngradeLargeGraphs;
-        _gateLevelWindow = new GateLevelSchematicWindow(netlist, routingQuality, autoDowngradeLargeGraphs);
-        _gateLevelWindow.Closed += (_, _) => _gateLevelWindow = null;
-        _gateLevelWindow.Show(this);
+
+        CloseGateDocuments();
+        OpenGateDocument(
+            netlist,
+            [netlist.TopModule],
+            vm.GateSchematicSettings);
     }
+
+    private void OpenGateDocument(
+        Bistable.Core.Synthesis.GateNetlist netlist,
+        IReadOnlyList<string> scopePath,
+        SchematicConfiguration schematicSettings)
+    {
+        if (_documentDock is null || _dockFactory is null)
+        {
+            return;
+        }
+
+        string key = BuildGateDocumentKey(scopePath);
+        if (_gateDocuments.TryGetValue(key, out GateDocumentSession? existing))
+        {
+            _documentDock.ActiveDockable = existing.Dockable;
+            _documentDock.DefaultDockable = existing.Dockable;
+            _dockWorkspaceControl?.InvalidateVisual();
+            return;
+        }
+
+        GateLevelSchematicView view = new(
+            netlist,
+            schematicSettings,
+            scopePath);
+        view.DataContext = DataContext;
+        BistableDocumentDockable? dockable = null;
+        dockable = new BistableDocumentDockable(
+            DockPanelKind.Schematic,
+            "gate-" + key,
+            GateLevelSchematicView.BuildScopeTitle(scopePath),
+            () => view,
+            canClose: true,
+            closed: () => CloseGateDocument(key, view));
+        view.ScopeTitleChanged += (_, title) =>
+        {
+            dockable.Title = title;
+            _dockWorkspaceControl?.InvalidateVisual();
+        };
+        view.ScopeOpenRequested += (_, request) =>
+        {
+            request.Handled = true;
+            OpenGateDocument(
+                netlist,
+                request.ScopePath,
+                schematicSettings);
+        };
+
+        _gateDocuments[key] = new GateDocumentSession(dockable, view);
+        _dockFactory.AddDockable(_documentDock, dockable);
+        _documentDock.ActiveDockable = dockable;
+        _documentDock.DefaultDockable = dockable;
+        _dockWorkspaceControl?.InvalidateVisual();
+    }
+
+    private void CloseGateDocument(string key, GateLevelSchematicView view)
+    {
+        _gateDocuments.Remove(key);
+        _ = view.DisposeAsync();
+    }
+
+    private void CloseGateDocuments()
+    {
+        if (_dockFactory is null)
+        {
+            return;
+        }
+
+        foreach (GateDocumentSession session in _gateDocuments.Values.ToArray())
+        {
+            _dockFactory.CloseDockable(session.Dockable);
+        }
+        _gateDocuments.Clear();
+    }
+
+    private static string BuildGateDocumentKey(IReadOnlyList<string> scopePath) =>
+        string.Join("/", scopePath);
 
     private async void OnLoadCpuProgramRequested(object? sender, EventArgs e)
     {
@@ -2885,6 +2966,7 @@ public sealed class MainWindow : Window
         if (e is AvaloniaPropertyChangedEventArgs args
             && args.OldValue is MainWindowViewModel previousViewModel)
         {
+            CloseGateDocuments();
             previousViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             previousViewModel.MemoryViewerRequested -= OnMemoryViewerRequested;
             previousViewModel.LoadCpuProgramRequested -= OnLoadCpuProgramRequested;
@@ -2932,6 +3014,10 @@ public sealed class MainWindow : Window
             or nameof(MainWindowViewModel.BottomDockHeight))
         {
             SyncDockLayout(viewModel);
+        }
+        else if (e.PropertyName == nameof(MainWindowViewModel.ProjectName))
+        {
+            CloseGateDocuments();
         }
     }
 
@@ -3205,6 +3291,7 @@ public sealed class MainWindow : Window
 
     private void OnClosing(object? sender, WindowClosingEventArgs e)
     {
+        CloseGateDocuments();
         if (DataContext is not MainWindowViewModel viewModel)
         {
             return;
@@ -3246,4 +3333,8 @@ public sealed class MainWindow : Window
         public object? ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
             => Avalonia.Data.BindingOperations.DoNothing;
     }
+
+    private sealed record GateDocumentSession(
+        BistableDocumentDockable Dockable,
+        GateLevelSchematicView View);
 }

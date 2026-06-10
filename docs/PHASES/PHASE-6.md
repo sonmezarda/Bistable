@@ -176,10 +176,10 @@ Status legend: `todo`, `in_progress`, `done`, `blocked`
 | P6-4 | Parse Yosys JSON to `GateNetlist` | done | 4 d | `Bistable.Core.Synthesis.GateNetlist` data model + `Bistable.Yosys.YosysJsonReader.Read(string|JsonElement)` / `ReadFileAsync(path, ct)`. Handles port directions, ordered bit vectors, integer net ids vs string-encoded constants (`"0"/"1"/"x"/"z"`), cell connections + `port_directions` + `parameters`, and the top-module attribute. |
 | P6-5 | Add generic-cell primitive mapping | done | 4 d | `Bistable.Yosys.GateCellLibrary` maps `$_AND_`/`$_OR_`/`$_XOR_`/`$_NAND_`/`$_NOR_`/`$_XNOR_`/`$_NOT_`/`$_BUF_`/`$_MUX_`/`$_DFF_P_`/`$_DFF_N_`/`$_DLATCH_P_`/`$_DLATCH_N_` to renderer symbol families (Gate/Inverter/Buffer/Mux/FlipFlop/Latch) + pin role metadata (Inputs / Output / ClockPin / EnablePin). Unknown cells fall back to a generic descriptor instead of being dropped. |
 | P6-6 | Build gate-level schematic graph | done | 5 d | `GateNetlistElkBuilder.Build(netlist)` emits one ELK node per cell with the matching prefix (`gate_` / `ff_` / `mux_` / `inv_` / `buf_` / `latch_`) so the existing `SchematicPreviewControl` symbol dispatchers fire; boundary anchors per port; edges keyed off Yosys's shared bit ids with constants skipped. |
-| P6-7 | Gate-level GUI + worker build path | partial | 4 d | GUI side landed: VM `SynthesizeCommand` runs Yosys → parses JSON → raises `GateNetlistReady`. Toolbar **Synthesize** button (visible only when `Synthesis.Enabled`); single-instance `GateLevelSchematicWindow` renders the laid-out graph on a Canvas. Gate-level worker simulation deferred to a follow-up pass. |
-| P6-8 | RTL vs gate-level smoke comparison | todo | 4 d | Same inputs/program, compare outputs/final state. |
+| P6-7 | Gate-level GUI + worker build path | done | 4 d | `SynthesizeCommand` runs Yosys, opens the hierarchical gate viewer, builds a separate `top__gate` worker, and exposes RTL/Gate interactive simulation targets with Eval/Tick/Run/Reset. Source-AST-driven lowered-memory mapping preserves `ReadMemory`/`WriteMemory` across synthesis. |
+| P6-8 | RTL vs gate-level smoke comparison | done | 4 d | `RtlVsGateLevelComparator` drives both workers in lockstep; integration coverage verifies a sequential design and the RISC-V gate worker executes a program loaded through its logical instruction-memory path. |
 | P6-9 | Synthesis reports | todo | 2 d | Cell count, net count, unsupported cells, memory treatment. |
-| P6-10 | Tests and sample synthesis flow | todo | 5 d | Start with tiny combinational/sequential modules, then RV32I smoke. |
+| P6-10 | Tests and sample synthesis flow | done | 5 d | Tiny combinational/sequential Yosys → Verilator tests plus flattened arbitrary-memory and real RV32I program-execution coverage. |
 
 ---
 
@@ -401,4 +401,3 @@ Those are future professional features after generic gate-level works.
   - **RISC-V sample** (`samples/riscv_single_cycle/riscv_single_cycle.bistable.json`) gained a `"synthesis": { "enabled": true, "outputJson": ".bistable/synthesis/riscv_single_cycle_top.json", "genericCells": true }` block — one-click demo path.
   - **Tests**: +9 in `GateCellLibraryTests` (every supported cell type + unknown fallback), +6 in `GateNetlistElkBuilderTests` (boundary + cell nodes, label kind token, edge count, multi-FF bus, constants don't emit edges, missing-top-throws). Combined suite **700/700 green** (680 Tests + 14 Snapshots + 4 Regression + 2 UI).
   - **Remaining P6 work**: P6-7's worker-build path (gate-level Verilator compilation), P6-8 (RTL vs gate-level smoke compare), P6-9 (synthesis reports surfaced in the UI), P6-10 (sample synthesis flow tests). The current GUI surface is enough for the user to drive `Synthesize` against the RISC-V sample and see gates.
-

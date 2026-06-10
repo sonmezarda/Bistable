@@ -17,6 +17,8 @@ namespace Bistable.App.ViewModels;
 
 public sealed class MainWindowViewModel : ViewModelBase
 {
+    private const long SimulationRunChunkSize = 1024;
+
     private readonly BistableWorkspace _workspace;
     private readonly VcdTraceReader _traceReader = new();
     private string _status = "Ready. Open a project to inspect top-level ports.";
@@ -31,7 +33,11 @@ public sealed class MainWindowViewModel : ViewModelBase
     private string? _currentProjectDirectory;
     private SimulationWorkerClient? _worker;
     private SimulationWorkerClient? _gateLevelWorker;
+    private string? _gateLevelTraceFilePath;
+    private string? _rtlTraceFilePath;
+    private SimulationTarget _simulationTarget = SimulationTarget.Rtl;
     private readonly GateLevelWorkerBuildService _gateLevelWorkerBuilder = new();
+    private readonly RtlVsGateLevelComparator _rtlVsGateComparator = new();
     private readonly LiveProbeService _liveProbes = new();
     private readonly DockPanelViewModel _projectPanel = new(DockPanelKind.Project, "Project");
     private readonly DockPanelViewModel _waveformPanel = new(DockPanelKind.Waveform, "Waveform");
@@ -78,6 +84,12 @@ public sealed class MainWindowViewModel : ViewModelBase
     // P2.7-2: scope navigation history. Owned by ScopeNavigationHistory so the
     // back/forward bookkeeping can be unit-tested in isolation.
     private readonly ScopeNavigationHistory _scopeHistory = new();
+    private readonly SemaphoreSlim _simulationOperationGate = new(1, 1);
+    private readonly List<AsyncCommand> _simulationCommands = [];
+    private readonly RelayCommand _cancelSimulationCommand;
+    private CancellationTokenSource? _activeSimulationCancellation;
+    private bool _isSimulationBusy;
+    private string _simulationOperationName = string.Empty;
     private bool _suppressScopeHistoryPush;
     private bool _liveModeEnabled = true;
     private bool _suppressInputLiveUpdate;
@@ -108,12 +120,20 @@ public sealed class MainWindowViewModel : ViewModelBase
         _schematicThemePreset = prefs.SchematicTheme;
         _schematicTheme = SchematicThemePresets.Get(_schematicThemePreset);
         _schematicRouter = prefs.SchematicRouter;
-        LoadProjectCommand = new AsyncCommand(LoadProjectAsync);
-        BuildCommand = new AsyncCommand(BuildAsync);
-        EvalCommand = new AsyncCommand(EvaluateAsync);
-        TickCommand = new AsyncCommand(TickAsync);
-        RunCyclesCommand = new AsyncCommand(RunCyclesAsync);
-        ResetCommand = new AsyncCommand(ResetAsync);
+        _cancelSimulationCommand = new RelayCommand(
+            CancelActiveSimulationOperation,
+            () => IsSimulationBusy);
+        CancelSimulationCommand = _cancelSimulationCommand;
+        LoadProjectCommand = CreateSimulationCommand("Load project", LoadProjectAsync);
+        BuildCommand = CreateSimulationCommand("Build", BuildAsync);
+        EvalCommand = CreateSimulationCommand("Eval", EvaluateAsync);
+        TickCommand = CreateSimulationCommand("Tick", TickAsync);
+        RunCyclesCommand = CreateSimulationCommand("Run", RunCyclesAsync);
+        ResetCommand = CreateSimulationCommand("Reset", ResetAsync);
+        CompareRtlAndGateCommand = CreateSimulationCommand(
+            "RTL/Gate comparison",
+            CompareRtlAndGateAsync,
+            () => CanCompareRtlAndGate);
         AddSelectedWaveformSignalCommand = new RelayCommand(AddSelectedWaveformSignal);
         AddHierarchyScopeSignalsToWaveformCommand = new RelayCommand(AddHierarchyScopeSignalsToWaveform);
         SelectHierarchyScopeCommand = new ParameterizedRelayCommand<string>(SelectHierarchyScope);
@@ -121,15 +141,33 @@ public sealed class MainWindowViewModel : ViewModelBase
         // state so toolbar buttons disable when there's nothing to navigate to.
         NavigateScopeBackCommand    = new RelayCommand(NavigateScopeBack,    () => _scopeHistory.CanGoBack);
         NavigateScopeForwardCommand = new RelayCommand(NavigateScopeForward, () => _scopeHistory.CanGoForward);
-        EnterSubSimAtPathCommand = new ParameterizedAsyncCommand<string>(EnterSubSimAtPathAsync);
+        EnterSubSimAtPathCommand = new ParameterizedAsyncCommand<string>(
+            (path, cancellationToken) => ExecuteSimulationOperationAsync(
+                "Isolated simulation",
+                token => EnterSubSimAtPathAsync(path, token),
+                cancellationToken),
+            _ => !IsSimulationBusy);
         ToggleSchematicExpansionCommand = new ParameterizedRelayCommand<string>(ToggleSchematicExpansion);
         ToggleInputSignalCommand = new ParameterizedRelayCommand<string>(ToggleInputSignal);
         OpenMemoryViewerCommand = new RelayCommand(() => MemoryViewerRequested?.Invoke(this, EventArgs.Empty));
-        DriveSelectedSchematicInputCommand = new AsyncCommand(DriveSelectedSchematicSignalAsync);
-        ForceSelectedSchematicSignalCommand = new AsyncCommand(ForceSelectedSchematicSignalAsync);
-        ReleaseSelectedSchematicSignalCommand = new AsyncCommand(ReleaseSelectedSchematicSignalAsync);
-        ReleasePathCommand = new ParameterizedAsyncCommand<string>(ReleasePathAsync);
-        ReleaseAllForcedCommand = new AsyncCommand(ReleaseAllForcedAsync);
+        DriveSelectedSchematicInputCommand = CreateSimulationCommand(
+            "Drive signal",
+            DriveSelectedSchematicSignalAsync);
+        ForceSelectedSchematicSignalCommand = CreateSimulationCommand(
+            "Force signal",
+            ForceSelectedSchematicSignalAsync);
+        ReleaseSelectedSchematicSignalCommand = CreateSimulationCommand(
+            "Release signal",
+            ReleaseSelectedSchematicSignalAsync);
+        ReleasePathCommand = new ParameterizedAsyncCommand<string>(
+            (path, cancellationToken) => ExecuteSimulationOperationAsync(
+                "Release signal",
+                token => ReleasePathAsync(path, token),
+                cancellationToken),
+            _ => !IsSimulationBusy);
+        ReleaseAllForcedCommand = CreateSimulationCommand(
+            "Release forced signals",
+            ReleaseAllForcedAsync);
         SaveProjectSettingsCommand = new AsyncCommand(SaveProjectSettingsAsync,
             () => _currentProject is not null && _currentProjectPath is not null);
         SaveSynthesisSettingsCommand = SaveProjectSettingsCommand;
@@ -149,8 +187,13 @@ public sealed class MainWindowViewModel : ViewModelBase
         ToggleWaveformPaneCommand = new RelayCommand(() => IsWaveformPaneVisible = !IsWaveformPaneVisible);
         DockPanelCommand = new ParameterizedRelayCommand<DockCommandParameter>(request => MoveDockPanel(request.PanelKind, request.Zone));
         ToggleSchematicPaneCommand = new RelayCommand(() => IsSchematicPaneVisible = !IsSchematicPaneVisible);
-        EnterSubSimulationCommand = new AsyncCommand(EnterSubSimulationAsync, () => CanEnterSubSim);
-        ExitSubSimulationCommand  = new RelayCommand(ExitSubSimulation, () => _isSubSimActive);
+        EnterSubSimulationCommand = CreateSimulationCommand(
+            "Isolated simulation",
+            EnterSubSimulationAsync,
+            () => CanEnterSubSim);
+        ExitSubSimulationCommand  = new RelayCommand(
+            ExitSubSimulation,
+            () => _isSubSimActive && !IsSimulationBusy);
         FitWaveformCommand = new RelayCommand(() =>
         {
             WaveformZoom = 1;
@@ -324,6 +367,73 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ICommand ResetCommand { get; }
 
+    public ICommand CompareRtlAndGateCommand { get; }
+
+    public ICommand CancelSimulationCommand { get; }
+
+    public bool IsSimulationBusy
+    {
+        get => _isSimulationBusy;
+        private set
+        {
+            if (!SetProperty(ref _isSimulationBusy, value)) return;
+            OnPropertyChanged(nameof(SimulationOperationName));
+            _cancelSimulationCommand.RaiseCanExecuteChanged();
+            foreach (AsyncCommand command in _simulationCommands)
+            {
+                command.RaiseCanExecuteChanged();
+            }
+            ((ParameterizedAsyncCommand<string>)EnterSubSimAtPathCommand).RaiseCanExecuteChanged();
+            ((ParameterizedAsyncCommand<string>)ReleasePathCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ExitSubSimulationCommand).RaiseCanExecuteChanged();
+        }
+    }
+
+    public string SimulationOperationName
+    {
+        get => _simulationOperationName;
+        private set => SetProperty(ref _simulationOperationName, value);
+    }
+
+    public SimulationTarget SelectedSimulationTarget
+    {
+        get => _simulationTarget;
+        set
+        {
+            if (value == global::Bistable.App.ViewModels.SimulationTarget.GateLevel && _isSubSimActive)
+            {
+                Status = "Exit isolated simulation before selecting the gate-level target.";
+                OnPropertyChanged();
+                return;
+            }
+
+            if (value == global::Bistable.App.ViewModels.SimulationTarget.GateLevel && !IsGateLevelWorkerReady)
+            {
+                Status = "Gate-level simulation is not ready. Run Synthesize first.";
+                OnPropertyChanged();
+                return;
+            }
+
+            if (!SetProperty(ref _simulationTarget, value))
+            {
+                return;
+            }
+
+            ActivateSimulationTarget(value);
+        }
+    }
+
+    public IReadOnlyList<SimulationTarget> AvailableSimulationTargets { get; } =
+        Enum.GetValues<SimulationTarget>();
+
+    public bool IsGateLevelWorkerReady => _gateLevelWorker is not null;
+
+    public bool CanCompareRtlAndGate =>
+        !_isSubSimActive && _worker is not null && _gateLevelWorker is not null;
+
+    public string ActiveSimulationTargetLabel =>
+        _simulationTarget == global::Bistable.App.ViewModels.SimulationTarget.GateLevel ? "Gate" : "RTL";
+
     public ICommand AddSelectedWaveformSignalCommand { get; }
 
     public ICommand AddHierarchyScopeSignalsToWaveformCommand { get; }
@@ -456,8 +566,51 @@ public sealed class MainWindowViewModel : ViewModelBase
         set => UpdateSchematic(CurrentSchematic with { AutoDowngradeLargeGraphs = value });
     }
 
+    public GatePinLabelMode GatePinLabelMode
+    {
+        get => CurrentSchematic.GatePinLabelMode;
+        set => UpdateSchematic(CurrentSchematic with { GatePinLabelMode = value });
+    }
+
+    public bool GateGroupBusPinLabels
+    {
+        get => CurrentSchematic.GroupGateBusPinLabels;
+        set => UpdateSchematic(CurrentSchematic with { GroupGateBusPinLabels = value });
+    }
+
+    public double GatePinLabelCompactZoom
+    {
+        get => CurrentSchematic.GatePinLabelCompactZoom;
+        set
+        {
+            double compact = NormalizeZoomThreshold(value);
+            double detailed = Math.Max(compact, CurrentSchematic.GatePinLabelDetailedZoom);
+            UpdateSchematic(CurrentSchematic with
+            {
+                GatePinLabelCompactZoom = compact,
+                GatePinLabelDetailedZoom = detailed,
+            });
+        }
+    }
+
+    public double GatePinLabelDetailedZoom
+    {
+        get => CurrentSchematic.GatePinLabelDetailedZoom;
+        set => UpdateSchematic(CurrentSchematic with
+        {
+            GatePinLabelDetailedZoom = Math.Max(
+                CurrentSchematic.GatePinLabelCompactZoom,
+                NormalizeZoomThreshold(value)),
+        });
+    }
+
+    public SchematicConfiguration GateSchematicSettings => CurrentSchematic;
+
     public IReadOnlyList<RoutingQuality> AvailableRoutingQualities { get; } =
         Enum.GetValues<RoutingQuality>();
+
+    public IReadOnlyList<GatePinLabelMode> AvailableGatePinLabelModes { get; } =
+        Enum.GetValues<GatePinLabelMode>();
 
     public string SynthesisStatus
     {
@@ -486,7 +639,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private bool _isSynthesizing;
 
     public ICommand SynthesizeCommand =>
-        _synthesizeCommand ??= new AsyncCommand(SynthesizeAsync,
+        _synthesizeCommand ??= CreateSimulationCommand("Synthesis", SynthesizeAsync,
             () => !_isSynthesizing && IsSynthesisAvailable && SynthesisEnabled && _currentProjectDirectory is not null);
     private ICommand? _synthesizeCommand;
 
@@ -603,7 +756,13 @@ public sealed class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(SynthesisFlatten));
         OnPropertyChanged(nameof(GateRoutingQuality));
         OnPropertyChanged(nameof(GateAutoDowngradeLargeGraphs));
+        OnPropertyChanged(nameof(GatePinLabelMode));
+        OnPropertyChanged(nameof(GateGroupBusPinLabels));
+        OnPropertyChanged(nameof(GatePinLabelCompactZoom));
+        OnPropertyChanged(nameof(GatePinLabelDetailedZoom));
+        OnPropertyChanged(nameof(GateSchematicSettings));
         OnPropertyChanged(nameof(AvailableRoutingQualities));
+        OnPropertyChanged(nameof(AvailableGatePinLabelModes));
         OnPropertyChanged(nameof(CanSaveSynthesisSettings));
         OnPropertyChanged(nameof(CanSaveProjectSettings));
         ((AsyncCommand)SynthesizeCommand).RaiseCanExecuteChanged();
@@ -625,6 +784,9 @@ public sealed class MainWindowViewModel : ViewModelBase
         string trimmed = value.Trim();
         return string.IsNullOrWhiteSpace(trimmed) ? fallback : trimmed;
     }
+
+    private static double NormalizeZoomThreshold(double value) =>
+        double.IsFinite(value) ? Math.Clamp(value, 0.05, 8.0) : 0.55;
 
     private async Task BuildGateLevelWorkerAsync(
         SynthesisConfiguration synth,
@@ -648,15 +810,52 @@ public sealed class MainWindowViewModel : ViewModelBase
                 synth,
                 _currentProjectDirectory,
                 cancellationToken,
-                progress);
+                progress,
+                _currentAst);
 
             _gateLevelWorker = new SimulationWorkerClient(gateBuild.Worker.ExecutablePath);
+            _gateLevelTraceFilePath = gateBuild.Worker.TraceFilePath;
+            RaiseSimulationTargetChanged();
             SynthesisStatus = $"Gate-level worker ready: {Path.GetFileName(gateBuild.Worker.ExecutablePath)}.";
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             SynthesisStatus = $"Gate-level worker build failed: {ex.Message}";
         }
+    }
+
+    private SimulationWorkerClient? ActiveSimulationWorker =>
+        _simulationTarget == SimulationTarget.GateLevel
+            ? _gateLevelWorker
+            : _worker;
+
+    private void ActivateSimulationTarget(SimulationTarget target)
+    {
+        CancelLiveEvaluation();
+        _traceFilePath = target == SimulationTarget.GateLevel
+            ? _gateLevelTraceFilePath
+            : _rtlTraceFilePath;
+
+        SimulationWorkerClient? activeWorker = ActiveSimulationWorker;
+        _liveProbes.AttachWorker(activeWorker);
+        _ = _liveProbes.RefreshDescriptorsAsync(CancellationToken.None);
+        ForcedPaths.Clear();
+        _traceDocument = VcdTraceDocument.Empty;
+        Time = 0;
+        ClearWaveformSamples();
+        RaiseSimulationTargetChanged();
+        Status = $"{ActiveSimulationTargetLabel} simulation target selected.";
+    }
+
+    private void RaiseSimulationTargetChanged()
+    {
+        OnPropertyChanged(nameof(SelectedSimulationTarget));
+        OnPropertyChanged(nameof(AvailableSimulationTargets));
+        OnPropertyChanged(nameof(IsGateLevelWorkerReady));
+        OnPropertyChanged(nameof(CanCompareRtlAndGate));
+        OnPropertyChanged(nameof(ActiveSimulationTargetLabel));
+        ((AsyncCommand)CompareRtlAndGateCommand).RaiseCanExecuteChanged();
+        ((AsyncCommand)RunCpuPresetCommand).RaiseCanExecuteChanged();
     }
 
     /// <summary>
@@ -755,13 +954,14 @@ public sealed class MainWindowViewModel : ViewModelBase
     private bool _isCpuRunning;
 
     public ICommand RunCpuPresetCommand =>
-        _runCpuPresetCommand ??= new AsyncCommand(RunCpuPresetAsync, () =>
-            !_isCpuRunning && _worker is not null && CpuRuntime?.RunPresets is { Count: > 0 });
+        _runCpuPresetCommand ??= CreateSimulationCommand("CPU run", RunCpuPresetAsync, () =>
+            !_isCpuRunning && ActiveSimulationWorker is not null && CpuRuntime?.RunPresets is { Count: > 0 });
     private ICommand? _runCpuPresetCommand;
 
     private async Task RunCpuPresetAsync(CancellationToken cancellationToken)
     {
-        if (_worker is null || CpuRuntime is not { } runtime || _currentProjectDirectory is null) return;
+        SimulationWorkerClient? worker = ActiveSimulationWorker;
+        if (worker is null || CpuRuntime is not { } runtime || _currentProjectDirectory is null) return;
         var preset = runtime.RunPresets?.FirstOrDefault();
         if (preset is null) return;
 
@@ -773,7 +973,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             if (runtime.Reset is { } reset)
             {
                 CpuRunStatus = "Resetting…";
-                await engine.ApplyResetAsync(_worker, reset, preset.Clock, cancellationToken);
+                await engine.ApplyResetAsync(worker, reset, preset.Clock, cancellationToken);
             }
 
             // enable=1 is the canonical "let it run" gate — most CPU samples
@@ -781,7 +981,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             // we swallow it for non-CPU shapes).
             try
             {
-                await _worker.StepAsync(
+                await worker.StepAsync(
                     new SimulationCommand(SimulationCommandType.SetInput, "enable", "1"),
                     cancellationToken);
             }
@@ -812,7 +1012,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                         ? MemoryFileLoader.NumeralBase.Bin
                         : MemoryFileLoader.NumeralBase.Hex;
                     var image = MemoryFileLoader.LoadFromFile(filePath, width, depth: 0, imgFormat);
-                    var loaded = await engine.LoadProgramAsync(_worker, img, image, cancellationToken);
+                    var loaded = await engine.LoadProgramAsync(worker, img, image, cancellationToken);
                     if (loaded.Failed > 0)
                     {
                         CpuRunStatus = $"Program load partial: {loaded.Written} written, {loaded.Failed} failed";
@@ -822,13 +1022,13 @@ public sealed class MainWindowViewModel : ViewModelBase
             }
 
             CpuRunStatus = $"Running '{preset.Name}'…";
-            var result = await engine.RunAsync(_worker, preset, runtime.State, cancellationToken);
+            var result = await engine.RunAsync(worker, preset, runtime.State, cancellationToken);
 
             // P5-8: end the run with an Eval so the top-level snapshot (pc,
             // halted, debug_xN, …) is current. Without this, the toolbar shows
             // "Stopped after N cycles" but the output bindings still hold the
             // pre-run frame until the user manually presses Eval.
-            SimulationFrame frame = await _worker.StepAsync(
+            SimulationFrame frame = await worker.StepAsync(
                 new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
             ApplyFrame(frame);
 
@@ -1473,7 +1673,9 @@ public sealed class MainWindowViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(CanEnterSubSim));
                 OnPropertyChanged(nameof(SubSimStatusLabel));
+                OnPropertyChanged(nameof(CanCompareRtlAndGate));
                 ((RelayCommand)ExitSubSimulationCommand).RaiseCanExecuteChanged();
+                ((AsyncCommand)CompareRtlAndGateCommand).RaiseCanExecuteChanged();
             }
         }
     }
@@ -1977,6 +2179,10 @@ public sealed class MainWindowViewModel : ViewModelBase
             WaveformOffset = 0;
             WaveformCursorOrder = 0;
             _traceFilePath = null;
+            _rtlTraceFilePath = null;
+            _gateLevelTraceFilePath = null;
+            _simulationTarget = SimulationTarget.Rtl;
+            RaiseSimulationTargetChanged();
             _traceDocument = VcdTraceDocument.Empty;
             HierarchyRoot = null;
             SelectedHierarchyNode = null;
@@ -2061,7 +2267,9 @@ public sealed class MainWindowViewModel : ViewModelBase
             Samples.Add(new SampleProjectViewModel(
                 name,
                 path,
-                new AsyncCommand(cancellationToken => LoadProjectFromPathAsync(path, cancellationToken))));
+                CreateSimulationCommand(
+                    $"Load sample {name}",
+                    cancellationToken => LoadProjectFromPathAsync(path, cancellationToken))));
         }
 
     }
@@ -2095,14 +2303,14 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         _worker = new SimulationWorkerClient(build.ExecutablePath);
         _liveProbes.AttachWorker(_worker); _ = _liveProbes.RefreshDescriptorsAsync(CancellationToken.None);
-        // P5-8: the Run CPU button gates on `_worker is not null`. Refresh the
-        // command's CanExecute now that we just attached the worker.
-        ((AsyncCommand)RunCpuPresetCommand).RaiseCanExecuteChanged();
-        _traceFilePath = build.TraceFilePath;
+        _rtlTraceFilePath = build.TraceFilePath;
+        _traceFilePath = _rtlTraceFilePath;
+        _simulationTarget = SimulationTarget.Rtl;
+        RaiseSimulationTargetChanged();
         await PushInputsAsync(cancellationToken);
         SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
         ApplyFrame(frame);
-        RefreshTraceState();
+        await RefreshTraceStateAsync(cancellationToken);
         Status = $"Worker ready: {Path.GetFileName(build.ExecutablePath)}";
     }
 
@@ -2115,6 +2323,11 @@ public sealed class MainWindowViewModel : ViewModelBase
     private async Task EnterSubSimulationAsync(CancellationToken cancellationToken)
     {
         if (!CanEnterSubSim) return;
+
+        if (_simulationTarget == SimulationTarget.GateLevel)
+        {
+            SelectedSimulationTarget = SimulationTarget.Rtl;
+        }
 
         string moduleName = SelectedHierarchyNode!.ModuleName;
         if (!_currentDesign!.ModuleCatalog.TryGetValue(moduleName, out ModuleMetadata? subMeta))
@@ -2226,7 +2439,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         SimulationFrame frame = await _worker.StepAsync(
             new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
         ApplyFrame(frame);
-        RefreshTraceState();
+        await RefreshTraceStateAsync(cancellationToken);
 
         Status = $"Isolated simulation active: {buildLabel}. Drive inputs, then Eval / Tick.";
     }
@@ -2329,13 +2542,14 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        if (_worker is not null)
+        SimulationWorkerClient? worker = ActiveSimulationWorker;
+        if (worker is not null)
         {
             await PushInputsAsync(cancellationToken);
-            SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
+            SimulationFrame frame = await worker.StepAsync(new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
             ApplyFrame(frame);
-            RefreshTraceState();
-            Status = "Native eval completed.";
+            await RefreshTraceStateAsync(cancellationToken);
+            Status = $"{ActiveSimulationTargetLabel} eval completed.";
             return;
         }
 
@@ -2344,9 +2558,77 @@ public sealed class MainWindowViewModel : ViewModelBase
         Status = result.Message;
     }
 
+    private async Task CompareRtlAndGateAsync(CancellationToken cancellationToken)
+    {
+        if (!CanCompareRtlAndGate || _worker is null || _gateLevelWorker is null)
+        {
+            Status = "Build the RTL worker and run Synthesize before comparing.";
+            return;
+        }
+
+        if (!TryGetRunCycles(out long requestedCycles) || requestedCycles > int.MaxValue)
+        {
+            Status = "Compare cycles must be a positive 32-bit integer.";
+            return;
+        }
+
+        string? clock = ResolveActiveClockName();
+        if (string.IsNullOrWhiteSpace(clock))
+        {
+            Status = "Select a clock before comparing RTL and gate-level simulation.";
+            return;
+        }
+
+        List<SimulationCommand> setup = Inputs
+            .Select(input => new SimulationCommand(
+                SimulationCommandType.SetInput,
+                Signal: input.Name,
+                Value: input.Value))
+            .ToList();
+
+        Status = $"Comparing RTL and Gate for {requestedCycles} cycles...";
+        try
+        {
+            CompareReport report = await _rtlVsGateComparator.CompareProgramAsync(
+                _worker,
+                _gateLevelWorker,
+                new CompareProgram
+                {
+                    Clock = clock,
+                    Cycles = checked((int)requestedCycles),
+                    Setup = setup,
+                    SignalsToCompare = Outputs.Select(static output => output.Name).ToArray(),
+                },
+                cancellationToken);
+
+            Status = report.AllMatch
+                ? $"RTL/Gate comparison passed for {requestedCycles} cycles."
+                : $"RTL/Gate mismatch: {report.FormatSummary(maxLines: 3)}";
+
+            SimulationWorkerClient? activeWorker = ActiveSimulationWorker;
+            if (activeWorker is not null)
+            {
+                SimulationFrame frame = await activeWorker.StepAsync(
+                    new SimulationCommand(SimulationCommandType.Eval),
+                    cancellationToken);
+                ApplyFrame(frame);
+                await RefreshTraceStateAsync(cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Status = "RTL/Gate comparison cancelled.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"RTL/Gate comparison failed: {ex.Message}";
+        }
+    }
+
     private async Task TickAsync(CancellationToken cancellationToken)
     {
-        if (_worker is null)
+        SimulationWorkerClient? worker = ActiveSimulationWorker;
+        if (worker is null)
         {
             Time++;
             WaveformCursorOrder = _waveformOrder;
@@ -2356,16 +2638,17 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         await PushInputsAsync(cancellationToken);
         string? clock = ResolveActiveClockName();
-        SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.Tick, Signal: clock), cancellationToken);
+        SimulationFrame frame = await worker.StepAsync(new SimulationCommand(SimulationCommandType.Tick, Signal: clock), cancellationToken);
         ApplyFrame(frame);
-        RefreshTraceState();
+        await RefreshTraceStateAsync(cancellationToken);
         SetInputValueSilently(clock, "0");
-        Status = $"Native tick pulsed {clock ?? "clock"} 0->1->0 at t={Time}.";
+        Status = $"{ActiveSimulationTargetLabel} tick pulsed {clock ?? "clock"} 0->1->0 at t={Time}.";
     }
 
     private async Task RunCyclesAsync(CancellationToken cancellationToken)
     {
-        if (_worker is null)
+        SimulationWorkerClient? worker = ActiveSimulationWorker;
+        if (worker is null)
         {
             Time += 10;
             Status = $"Advanced 10 UI cycles to t={Time}. Build worker for native run.";
@@ -2380,27 +2663,47 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.RunCycles, Signal: clock, Cycles: cycles), cancellationToken);
+        SimulationFrame? frame = null;
+        long remaining = cycles;
+        while (remaining > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            long chunk = Math.Min(remaining, SimulationRunChunkSize);
+            frame = await worker.StepAsync(
+                new SimulationCommand(
+                    SimulationCommandType.RunCycles,
+                    Signal: clock,
+                    Cycles: chunk),
+                cancellationToken);
+            remaining -= chunk;
+        }
+
+        if (frame is null)
+        {
+            return;
+        }
+
         ApplyFrame(frame);
-        RefreshTraceState();
+        await RefreshTraceStateAsync(cancellationToken);
         SetInputValueSilently(clock, "0");
-        Status = $"Native run pulsed {clock ?? "clock"} for {cycles} cycles; t={Time}.";
+        Status = $"{ActiveSimulationTargetLabel} run pulsed {clock ?? "clock"} for {cycles} cycles; t={Time}.";
     }
 
     private async Task ResetAsync(CancellationToken cancellationToken)
     {
         Time = 0;
-        if (_worker is null)
+        SimulationWorkerClient? worker = ActiveSimulationWorker;
+        if (worker is null)
         {
             ClearWaveformSamples();
             Status = "Session reset.";
             return;
         }
 
-        SimulationFrame frame = await _worker.StepAsync(new SimulationCommand(SimulationCommandType.Reset), cancellationToken);
+        SimulationFrame frame = await worker.StepAsync(new SimulationCommand(SimulationCommandType.Reset), cancellationToken);
         ClearWaveformSamples();
         ApplyFrame(frame);
-        RefreshTraceState();
+        await RefreshTraceStateAsync(cancellationToken);
         string? reset = ActiveProject?.Resets.FirstOrDefault()?.Name;
         if (reset is not null)
         {
@@ -2408,7 +2711,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             SetInputValueSilently(reset, activeLevel == 0 ? "1" : "0");
         }
 
-        Status = "Native worker reset.";
+        Status = $"{ActiveSimulationTargetLabel} worker reset.";
     }
 
     private void ToggleInputSignal(string signalName)
@@ -2455,7 +2758,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
 
         HierarchyScopeLocalSignalViewModel? local = SelectedSchematicLocalSignal;
-        if (local?.ResolvedSignalName is { } path && _worker is not null)
+        SimulationWorkerClient? worker = ActiveSimulationWorker;
+        if (local?.ResolvedSignalName is { } path && worker is not null)
         {
             if (!TryParseValueForWidth(SchematicDriveValue, local.Width, out _, out string? err))
             {
@@ -2465,7 +2769,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             string trimmedValue = SchematicDriveValue.Trim();
             try
             {
-                await _worker.WriteSignalAsync(path, trimmedValue, cancellationToken);
+                await worker.WriteSignalAsync(path, trimmedValue, cancellationToken);
                 _liveProbes.InvalidateAll();
                 await _liveProbes.ReadAsync(path, cancellationToken);
                 _ = MarkLastSchematicWriteFreshAsync();
@@ -2489,7 +2793,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     private async Task ForceSelectedSchematicSignalAsync(CancellationToken cancellationToken)
     {
         HierarchyScopeLocalSignalViewModel? local = SelectedSchematicLocalSignal;
-        if (local?.ResolvedSignalName is not { } path || _worker is null)
+        SimulationWorkerClient? worker = ActiveSimulationWorker;
+        if (local?.ResolvedSignalName is not { } path || worker is null)
         {
             Status = "Select an internal probe signal first (force is not available for top-level inputs).";
             return;
@@ -2502,7 +2807,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         string trimmedValue = SchematicDriveValue.Trim();
         try
         {
-            await _worker.ForceSignalAsync(path, trimmedValue, cancellationToken);
+            await worker.ForceSignalAsync(path, trimmedValue, cancellationToken);
             AddForcedPath(path);
             OnPropertyChanged(nameof(IsSelectedSchematicSignalForced));
             _liveProbes.InvalidateAll();
@@ -2518,13 +2823,14 @@ public sealed class MainWindowViewModel : ViewModelBase
     /// <summary>Phase 3 release: drop a previously-forced signal back to simulation-driven behaviour.</summary>
     private async Task ReleaseSelectedSchematicSignalAsync(CancellationToken cancellationToken)
     {
-        if (SelectedSchematicLocalSignal?.ResolvedSignalName is not { } path || _worker is null)
+        SimulationWorkerClient? worker = ActiveSimulationWorker;
+        if (SelectedSchematicLocalSignal?.ResolvedSignalName is not { } path || worker is null)
         {
             return;
         }
         try
         {
-            await _worker.ReleaseSignalAsync(path, cancellationToken);
+            await worker.ReleaseSignalAsync(path, cancellationToken);
             RemoveForcedPath(path);
             OnPropertyChanged(nameof(IsSelectedSchematicSignalForced));
             _liveProbes.InvalidateAll();
@@ -2540,10 +2846,11 @@ public sealed class MainWindowViewModel : ViewModelBase
     /// <summary>Release a specific path (called from the Forced Signals list's per-row button).</summary>
     private async Task ReleasePathAsync(string path, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(path) || _worker is null) return;
+        SimulationWorkerClient? worker = ActiveSimulationWorker;
+        if (string.IsNullOrWhiteSpace(path) || worker is null) return;
         try
         {
-            await _worker.ReleaseSignalAsync(path, cancellationToken);
+            await worker.ReleaseSignalAsync(path, cancellationToken);
             RemoveForcedPath(path);
             OnPropertyChanged(nameof(IsSelectedSchematicSignalForced));
             _liveProbes.InvalidateAll();
@@ -2559,14 +2866,15 @@ public sealed class MainWindowViewModel : ViewModelBase
     /// <summary>Release every currently-forced signal in one batch.</summary>
     private async Task ReleaseAllForcedAsync(CancellationToken cancellationToken)
     {
-        if (_worker is null || ForcedPaths.Count == 0) return;
+        SimulationWorkerClient? worker = ActiveSimulationWorker;
+        if (worker is null || ForcedPaths.Count == 0) return;
         string[] paths = ForcedPaths.ToArray();
         int released = 0;
         foreach (string path in paths)
         {
             try
             {
-                await _worker.ReleaseSignalAsync(path, cancellationToken);
+                await worker.ReleaseSignalAsync(path, cancellationToken);
                 RemoveForcedPath(path);
                 released++;
             }
@@ -2579,17 +2887,17 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     private async Task PushInputsAsync(CancellationToken cancellationToken)
     {
-        if (_worker is null)
+        SimulationWorkerClient? worker = ActiveSimulationWorker;
+        if (worker is null)
         {
             return;
         }
 
         foreach (SignalViewModel input in Inputs)
         {
-            SimulationFrame frame = await _worker.StepAsync(
+            _ = await worker.StepAsync(
                 new SimulationCommand(SimulationCommandType.SetInput, input.Name, input.Value),
                 cancellationToken);
-            ApplyFrame(frame);
         }
     }
 
@@ -2863,7 +3171,12 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             await _worker.DisposeAsync();
             _worker = null;
-            _liveProbes.AttachWorker(null);
+            if (_simulationTarget == SimulationTarget.Rtl)
+            {
+                _liveProbes.AttachWorker(null);
+            }
+            _rtlTraceFilePath = null;
+            RaiseSimulationTargetChanged();
         }
     }
 
@@ -2871,8 +3184,17 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         if (_gateLevelWorker is not null)
         {
+            if (_simulationTarget == SimulationTarget.GateLevel)
+            {
+                _simulationTarget = SimulationTarget.Rtl;
+                _traceFilePath = _rtlTraceFilePath;
+                _liveProbes.AttachWorker(_worker);
+                _ = _liveProbes.RefreshDescriptorsAsync(CancellationToken.None);
+            }
             await _gateLevelWorker.DisposeAsync();
             _gateLevelWorker = null;
+            _gateLevelTraceFilePath = null;
+            RaiseSimulationTargetChanged();
         }
     }
 
@@ -2998,6 +3320,12 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        if (IsSimulationBusy)
+        {
+            _liveEvaluationPending = true;
+            return;
+        }
+
         if (_isLiveEvaluationInFlight)
         {
             _liveEvaluationPending = true;
@@ -3052,9 +3380,9 @@ public sealed class MainWindowViewModel : ViewModelBase
         try
         {
             await EvaluateAsync(cancellationToken);
-            Status = _worker is null
+            Status = ActiveSimulationWorker is null
                 ? "Live preview updated."
-                : "Live native eval updated.";
+                : $"Live {ActiveSimulationTargetLabel} eval updated.";
         }
         catch (OperationCanceledException)
         {
@@ -3129,7 +3457,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         return true;
     }
 
-    private void RefreshTraceState()
+    private async Task RefreshTraceStateAsync(CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(_traceFilePath) || string.IsNullOrWhiteSpace(TopModule))
         {
@@ -3140,7 +3468,22 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        _traceDocument = _traceReader.Load(_traceFilePath, TopModule);
+        string traceFilePath = _traceFilePath;
+        string topModule = TopModule;
+        VcdTraceDocument traceDocument = await Task.Run(
+            () => _traceReader.Load(traceFilePath, topModule),
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // A target switch can complete while the old trace is being parsed.
+        // Never publish an RTL document into a gate-level session (or vice versa).
+        if (!string.Equals(_traceFilePath, traceFilePath, StringComparison.Ordinal)
+            || !string.Equals(TopModule, topModule, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _traceDocument = traceDocument;
         SyncTraceSignalCatalog();
         RebuildHierarchyTraceScopeSummaries();
         RefreshHierarchyScopeSignals();
@@ -3535,6 +3878,67 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         cycles = 0;
         return false;
+    }
+
+    private AsyncCommand CreateSimulationCommand(
+        string operationName,
+        Func<CancellationToken, Task> execute,
+        Func<bool>? canExecute = null)
+    {
+        AsyncCommand command = new(
+            cancellationToken => ExecuteSimulationOperationAsync(
+                operationName,
+                execute,
+                cancellationToken),
+            () => !IsSimulationBusy && (canExecute?.Invoke() ?? true));
+        _simulationCommands.Add(command);
+        return command;
+    }
+
+    private async Task ExecuteSimulationOperationAsync(
+        string operationName,
+        Func<CancellationToken, Task> execute,
+        CancellationToken cancellationToken)
+    {
+        await _simulationOperationGate.WaitAsync(cancellationToken);
+        using CancellationTokenSource linkedCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        try
+        {
+            CancelLiveEvaluation();
+            _activeSimulationCancellation = linkedCancellation;
+            SimulationOperationName = operationName;
+            IsSimulationBusy = true;
+            await execute(linkedCancellation.Token);
+        }
+        catch (OperationCanceledException) when (linkedCancellation.IsCancellationRequested)
+        {
+            Status = $"{operationName} cancelled.";
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            Status = $"{operationName} failed: {ex.Message}";
+        }
+        finally
+        {
+            _activeSimulationCancellation = null;
+            SimulationOperationName = string.Empty;
+            IsSimulationBusy = false;
+            _simulationOperationGate.Release();
+
+            if (_liveEvaluationPending && LiveModeEnabled)
+            {
+                _liveEvaluationPending = false;
+                ScheduleLiveEvaluation();
+            }
+        }
+    }
+
+    private void CancelActiveSimulationOperation()
+    {
+        if (_activeSimulationCancellation is null) return;
+        Status = $"Cancelling {SimulationOperationName}...";
+        _activeSimulationCancellation.Cancel();
     }
 
     private static IEnumerable<string> ResolveAvailableClocks(ProjectConfiguration project, IEnumerable<SignalViewModel> inputs)

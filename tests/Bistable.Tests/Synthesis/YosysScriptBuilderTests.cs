@@ -69,6 +69,24 @@ public sealed class YosysScriptBuilderTests
     }
 
     [Fact]
+    public void Build_Flatten_WritesHierarchicalViewerJsonBeforeFlatteningSimulationVerilog()
+    {
+        string dir = Path.GetTempPath();
+        SynthesisConfiguration synth = new(Flatten: true);
+        string script = YosysScriptBuilder.Build(MinimalProject(dir), synth, dir);
+
+        int writeJson = script.IndexOf("write_json", StringComparison.Ordinal);
+        int flatten = script.IndexOf("flatten", StringComparison.Ordinal);
+        int writeVerilog = script.IndexOf("write_verilog", StringComparison.Ordinal);
+
+        Assert.True(writeJson >= 0);
+        Assert.True(flatten > writeJson,
+            "Viewer JSON must retain module hierarchy even when simulation output is flattened.");
+        Assert.True(writeVerilog > flatten,
+            "Flatten must still apply to the simulation Verilog artifact.");
+    }
+
+    [Fact]
     public void Build_SynthesisTopOverridesProjectTop()
     {
         string dir = Path.GetTempPath();

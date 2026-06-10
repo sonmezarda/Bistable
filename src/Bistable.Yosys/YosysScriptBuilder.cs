@@ -11,11 +11,14 @@ namespace Bistable.Yosys;
 ///
 /// Output stages: <c>read_verilog</c> → <c>hierarchy -top</c> → <c>proc</c>
 /// → <c>opt</c> → <c>fsm</c> → <c>opt</c> → <c>memory</c> → <c>opt</c> →
-/// (optional <c>flatten</c>) → (<c>techmap</c> when <c>genericCells</c> is true)
-/// → <c>opt</c> → <c>write_json</c> + <c>write_verilog</c>.
+/// (<c>techmap</c> when <c>genericCells</c> is true) → <c>opt</c> →
+/// <c>write_json</c> → (optional <c>flatten</c>) → <c>write_verilog</c>.
 ///
 /// `techmap` is what lowers high-level cells into the generic `$_AND_`,
 /// `$_OR_`, `$_DFF_*` etc. that the gate-level renderer expects.
+/// The JSON viewer artifact is intentionally written before flattening:
+/// hierarchy is required for incremental schematic navigation, while the
+/// simulation Verilog may still be flattened when requested.
 /// </summary>
 public static class YosysScriptBuilder
 {
@@ -56,12 +59,6 @@ public static class YosysScriptBuilder
         sb.AppendLine("memory");
         sb.AppendLine("opt");
 
-        if (synthesis.Flatten)
-        {
-            sb.AppendLine("flatten");
-            sb.AppendLine("opt");
-        }
-
         if (synthesis.GenericCells)
         {
             // Lower to the generic gate library so the schematic renderer can
@@ -75,6 +72,12 @@ public static class YosysScriptBuilder
             : Path.Combine(projectDirectory, synthesis.OutputJson);
         Directory.CreateDirectory(Path.GetDirectoryName(outputJson) ?? projectDirectory);
         sb.AppendLine($"write_json {EscapePath(outputJson)}");
+
+        if (synthesis.Flatten)
+        {
+            sb.AppendLine("flatten");
+            sb.AppendLine("opt");
+        }
 
         string outputVerilog = Path.IsPathRooted(synthesis.OutputVerilog)
             ? synthesis.OutputVerilog

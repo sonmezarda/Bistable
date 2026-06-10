@@ -33,38 +33,68 @@ public sealed class RtlVsGateLevelComparator
         ArgumentNullException.ThrowIfNull(gate);
         ArgumentNullException.ThrowIfNull(program);
 
-        // Reset both sides to a known state.
-        await rtl.StepAsync(new SimulationCommand(SimulationCommandType.Reset), cancellationToken);
-        await gate.StepAsync(new SimulationCommand(SimulationCommandType.Reset), cancellationToken);
+        // The workers are independent processes. Drive them concurrently so a
+        // comparison run costs roughly one worker round-trip per cycle instead
+        // of two while preserving lockstep at every command boundary.
+        await StepPairAsync(
+            rtl,
+            gate,
+            new SimulationCommand(SimulationCommandType.Reset),
+            cancellationToken);
 
         // Apply identical setup commands to both workers.
         foreach (SimulationCommand setup in program.Setup)
         {
-            await rtl.StepAsync(setup, cancellationToken);
-            await gate.StepAsync(setup, cancellationToken);
+            await StepPairAsync(rtl, gate, setup, cancellationToken);
         }
 
         // Eval both — the first frame is the pre-tick state we want to verify
         // before driving the clock; mismatches here are typically wiring bugs
         // (boundary port not exposed, default value drift).
-        SimulationFrame rtlFrame = await rtl.StepAsync(
-            new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
-        SimulationFrame gateFrame = await gate.StepAsync(
-            new SimulationCommand(SimulationCommandType.Eval), cancellationToken);
+        (SimulationFrame rtlFrame, SimulationFrame gateFrame) = await StepPairAsync(
+            rtl,
+            gate,
+            new SimulationCommand(SimulationCommandType.Eval),
+            cancellationToken);
 
         List<CycleComparison> cycles = new(capacity: program.Cycles + 1);
-        cycles.Add(BuildCycleComparison(0, rtlFrame, gateFrame, program.SignalsToCompare));
+        CycleComparison initial = BuildCycleComparison(0, rtlFrame, gateFrame, program.SignalsToCompare);
+        cycles.Add(initial);
+        if (program.StopOnFirstMismatch && initial.HasMismatch)
+        {
+            return new CompareReport(cycles);
+        }
 
         for (int cycle = 1; cycle <= program.Cycles; cycle++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             SimulationCommand tick = new(SimulationCommandType.Tick, Signal: program.Clock);
-            rtlFrame  = await rtl.StepAsync(tick, cancellationToken);
-            gateFrame = await gate.StepAsync(tick, cancellationToken);
-            cycles.Add(BuildCycleComparison(cycle, rtlFrame, gateFrame, program.SignalsToCompare));
+            (rtlFrame, gateFrame) = await StepPairAsync(rtl, gate, tick, cancellationToken);
+            CycleComparison comparison = BuildCycleComparison(
+                cycle,
+                rtlFrame,
+                gateFrame,
+                program.SignalsToCompare);
+            cycles.Add(comparison);
+            if (program.StopOnFirstMismatch && comparison.HasMismatch)
+            {
+                break;
+            }
         }
 
         return new CompareReport(cycles);
+    }
+
+    private static async Task<(SimulationFrame Rtl, SimulationFrame Gate)> StepPairAsync(
+        SimulationWorkerClient rtl,
+        SimulationWorkerClient gate,
+        SimulationCommand command,
+        CancellationToken cancellationToken)
+    {
+        Task<SimulationFrame> rtlTask = rtl.StepAsync(command, cancellationToken);
+        Task<SimulationFrame> gateTask = gate.StepAsync(command, cancellationToken);
+        await Task.WhenAll(rtlTask, gateTask);
+        return (await rtlTask, await gateTask);
     }
 
     /// <summary>
@@ -125,6 +155,13 @@ public sealed record CompareProgram
     /// both workers expose" (intersection of the two top-port sets).
     /// </summary>
     public IReadOnlyCollection<string>? SignalsToCompare { get; init; }
+
+    /// <summary>
+    /// Stop after the first divergent cycle. This is the production default:
+    /// subsequent gate state is no longer trustworthy after divergence and
+    /// continuing can allocate a large report without adding useful evidence.
+    /// </summary>
+    public bool StopOnFirstMismatch { get; init; } = true;
 }
 
 /// <summary>Per-cycle diff between RTL and gate-level workers.</summary>
