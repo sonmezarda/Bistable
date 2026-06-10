@@ -229,6 +229,15 @@ Each wave produces something the user can drive on the RISC-V sample. Wave 1 alo
   - Expanded-module primitive rendering now resolves exact cell metadata from ELK labels instead of substring-matching hierarchy-prefixed node IDs. ALU children render as AND/OR/XOR/MUX symbols rather than inheriting the parent `riscv_alu` module type.
   - Monolithic artifacts above the safety limits fail before entering ELK with an actionable re-synthesis diagnostic. The former flattened RISC-V graph measured 13,233 nodes, 47,381 ports, and 33,906 edges.
 
+- **2026-06-10 — Bus bundle render, selection, and shape coverage landed.**
+  - `GateSchematicCanvas.SetGraph` now accepts the bundle list and indexes it by id; `GateLevelSchematicView` plumbs `GateNetlistElkBuildResult.Bundles` through `PendingScopeLayout` to the canvas.
+  - Edge render thickens bundle members at compact LOD (BundleTrunkPen) so a wide bus reads as one trunk while remaining bit-accurate; the highlight path uses BundleHighlightPen so every member of the active bundle lights up together.
+  - Hit-test returns `(netId, bundleId?)` derived from each clicked member edge's `LayoutOptions["bistable.bundleId"]`; clicking any single bit of a bus surfaces the whole bundle.
+  - New `BundleSelected` event carries a `GateBusBundleSelection` payload. The properties panel renders Name / Range / Width / From / To and the selection status bar reports the bus identity. Net + cell flows are unchanged.
+  - `GateBusBundleTests` extended with reversed bit order, sparse buses (missing bit), two-input concatenation producing two distinct bundles, and partial fan-out to two child instances producing two bundles with shared source group but different targets.
+  - True trunk + fan-out *geometry* (consolidated centerline with synthetic join/split near endpoints) remains a follow-up Step C in the handoff; today's render is a thicker stroke on the existing per-bit edges.
+  - Verification: **807/807 tests green** (784 Tests + 14 Snapshots + 4 Regression + 5 UI); solution build has 0 warnings and 0 errors.
+
 - **2026-06-10 — Bus bundle metadata landed (non-destructive).**
   - `GateNetlistElkBuildResult` now carries a `Bundles` list of `GateBusBundle` records describing which per-bit edges form a logical bus, alongside the existing per-bit ELK ports and edges.
   - Bundle inference is structural, not name-based: edges from the same `(sourceNode, sourceBaseName)` group to the same `(targetNode, targetBaseName)` group on more than one bit form a bundle. `GatePort.Bits` ordering remains authoritative; constants and split fan-out do not collapse into spurious bundles.

@@ -175,21 +175,36 @@ Implement real bus presentation as metadata, not destructive graph rewriting.
 - Inference is structural (grouped by `(sourceNode, sourceBase) →
   (targetNode, targetBase)`); single-bit groups never produce bundles.
 - Member edges are tagged with `LayoutOptions["bistable.bundleId"]`.
-- `GateBusBundleTests` cover wide buses, edge tagging, per-bit preservation,
-  fan-out splits (no bundle), and constants thinning bundle membership.
 
-**Step B — remaining work:**
+**Step B — render + selection + bus-shape coverage (landed 2026-06-10):**
 
-- Let the renderer draw one trunk at overview/compact LOD and fan out near
-  endpoints. Read the bundle list from `GateNetlistElkBuildResult.Bundles`
-  and look member edges up via `LayoutOptions["bistable.bundleId"]`.
-- Preserve member edges for detailed LOD and hit testing.
-- Clicking a trunk should select the bundle; expanding selection should expose
-  individual bits.
-- Route bundles in the builder/ELK layer only after measuring whether ELK
-  hyperedges or synthetic join/split nodes produce stable orthogonal routes.
-- Add tests for reversed ranges, sparse bits, concatenations, and partial
-  buses on top of the existing constant-bit / scalar guard coverage.
+- `GateSchematicCanvas.SetGraph` accepts the bundle list and indexes it by id.
+- Edge render thickens bundle members at compact LOD (BundleTrunkPen) so a
+  wide bus visually reads as one trunk while remaining bit-accurate; selection
+  uses BundleHighlightPen so all members light up together.
+- `HitTestNet` now returns `(netId, bundleId?)` derived from the clicked
+  member edge's `LayoutOptions[bistable.bundleId]`; clicking any single bit of
+  a bus selects the whole bundle.
+- New `BundleSelected` event surfaces a `GateBusBundleSelection` payload (full
+  bundle record). `GateLevelSchematicView` renders Name / Range / Width /
+  From / To in the right-side properties panel and updates the selection
+  status bar.
+- Tests cover wide bus, edge tagging, per-bit preservation, single-bit guard,
+  fan-out split to different targets (no bundle), constant-bit thinning,
+  reversed bit order, sparse buses with a missing bit, two-input concatenation
+  producing two distinct bundles, and partial fan-out to two child instances.
+
+**Step C — remaining work:**
+
+- True trunk + fan-out *geometry*: today the trunk is rendered as a thicker
+  stroke on the existing per-bit edges. The next step is to draw one
+  consolidated centerline per bundle with synthetic fan-in / fan-out segments
+  near the endpoints, ideally backed by ELK hyperedges or synthetic
+  join/split nodes — measured against the RV32 sample before committing.
+- "Expand selection" affordance: from a selected bundle, surface a way to
+  drop down into the constituent bits (panel list / keyboard cycle).
+- "Show connected pins" / "Show all pins" interaction-override (separate
+  next-work item) should treat bundle membership when revealing labels.
 
 Do not infer buses only from names. Yosys `GatePort.Bits` ordering and net ids
 are authoritative.
