@@ -191,6 +191,10 @@ public sealed class GatePinInteractionTests
             Id = id,
             Sources = [source],
             Targets = [target],
-            Labels = [new ElkLabel { Text = $"net{netId}" }],
+            LayoutOptions = new Dictionary<string, string>
+            {
+                [GateEdgeMetadataKeys.NetIdLayoutOption] =
+                    netId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            },
         };
 }

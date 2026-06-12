@@ -29,6 +29,7 @@ public sealed class SchematicLayoutOptionsTests
         Assert.Equal("layered", dict["elk.algorithm"]);
         Assert.Equal("RIGHT", dict["elk.direction"]);
         Assert.Equal("INCLUDE_CHILDREN", dict["elk.hierarchyHandling"]);
+        Assert.Equal("NETWORK_SIMPLEX", dict["elk.layered.layering.strategy"]);
     }
 
     [Fact]
@@ -42,6 +43,7 @@ public sealed class SchematicLayoutOptionsTests
 
         Assert.Equal("POLYLINE", dict["elk.edgeRouting"]);
         Assert.Equal("5", dict["elk.layered.thoroughness"]);
+        Assert.Equal("NETWORK_SIMPLEX", dict["elk.layered.layering.strategy"]);
         Assert.Equal("25", dict["elk.spacing.nodeNode"]);
         Assert.Equal("60", dict["elk.layered.spacing.nodeNodeBetweenLayers"]);
     }
@@ -76,6 +78,7 @@ public sealed class SchematicLayoutOptionsTests
         Assert.Equal(1, options.LayeredThoroughness);
         Assert.Equal(30, options.NodeNodeSpacing);
         Assert.Equal(50, options.NodeNodeSpacingBetweenLayers);
+        Assert.Equal("LONGEST_PATH", options.NodeLayeringStrategy);
     }
 
     [Fact]
@@ -90,6 +93,7 @@ public sealed class SchematicLayoutOptionsTests
         Assert.Equal(3, options.LayeredThoroughness);
         Assert.Equal(40, options.NodeNodeSpacing);
         Assert.Equal(80, options.NodeNodeSpacingBetweenLayers);
+        Assert.Equal("NETWORK_SIMPLEX", options.NodeLayeringStrategy);
     }
 
     [Fact]
@@ -103,6 +107,7 @@ public sealed class SchematicLayoutOptionsTests
         Assert.Equal(7, options.LayeredThoroughness);
         Assert.Equal(50, options.NodeNodeSpacing);
         Assert.Equal(100, options.NodeNodeSpacingBetweenLayers);
+        Assert.Equal("NETWORK_SIMPLEX", options.NodeLayeringStrategy);
     }
 
     [Theory]
@@ -118,6 +123,7 @@ public sealed class SchematicLayoutOptionsTests
 
         Assert.NotEmpty(dict["elk.edgeRouting"]);
         Assert.NotEmpty(dict["elk.layered.thoroughness"]);
+        Assert.NotEmpty(dict["elk.layered.layering.strategy"]);
         Assert.NotEmpty(dict["elk.spacing.nodeNode"]);
         Assert.NotEmpty(dict["elk.layered.spacing.nodeNodeBetweenLayers"]);
     }
@@ -144,5 +150,63 @@ public sealed class SchematicLayoutOptionsTests
 
         Assert.True(fast.LayeredThoroughness <= balanced.LayeredThoroughness);
         Assert.True(balanced.LayeredThoroughness <= production.LayeredThoroughness);
+    }
+
+    [Fact]
+    public void Applicator_AppliesPresetToEveryCompoundParent_AndPreservesGeometryOptions()
+    {
+        ElkNode nested = new()
+        {
+            Id = "nested",
+            Children = [new ElkNode { Id = "leaf" }],
+            LayoutOptions = new Dictionary<string, string>
+            {
+                ["elk.padding"] = "[top=48,left=36,right=36,bottom=24]",
+            },
+        };
+        ElkNode compound = new()
+        {
+            Id = "compound",
+            Children = [nested],
+            LayoutOptions = new Dictionary<string, string>
+            {
+                ["elk.portConstraints"] = "FIXED_ORDER",
+            },
+        };
+        ElkGraph graph = new() { Children = [compound] };
+
+        ElkLayoutOptionsApplicator.Apply(
+            graph,
+            ElkLayoutOptionsFactory.For(RoutingQuality.FastPreview));
+
+        Assert.Equal("LONGEST_PATH", graph.LayoutOptions!["elk.layered.layering.strategy"]);
+        Assert.Equal("LONGEST_PATH", compound.LayoutOptions!["elk.layered.layering.strategy"]);
+        Assert.Equal("LONGEST_PATH", nested.LayoutOptions!["elk.layered.layering.strategy"]);
+        Assert.Equal("FIXED_ORDER", compound.LayoutOptions["elk.portConstraints"]);
+        Assert.Equal(
+            "[top=48,left=36,right=36,bottom=24]",
+            nested.LayoutOptions["elk.padding"]);
+    }
+
+    [Fact]
+    public void Applicator_Reapply_ReplacesPreviousPresetRecursively()
+    {
+        ElkNode compound = new()
+        {
+            Id = "compound",
+            Children = [new ElkNode { Id = "leaf" }],
+        };
+        ElkGraph graph = new() { Children = [compound] };
+
+        ElkLayoutOptionsApplicator.Apply(
+            graph,
+            ElkLayoutOptionsFactory.For(RoutingQuality.Production));
+        ElkLayoutOptionsApplicator.Apply(
+            graph,
+            ElkLayoutOptionsFactory.For(RoutingQuality.FastPreview));
+
+        Assert.Equal("1", graph.LayoutOptions!["elk.layered.thoroughness"]);
+        Assert.Equal("1", compound.LayoutOptions!["elk.layered.thoroughness"]);
+        Assert.Equal("LONGEST_PATH", compound.LayoutOptions["elk.layered.layering.strategy"]);
     }
 }

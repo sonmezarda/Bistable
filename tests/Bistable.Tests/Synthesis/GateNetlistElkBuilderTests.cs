@@ -1,4 +1,5 @@
 using Bistable.App.Services.Routing.Elk;
+using Bistable.App.Views;
 using Bistable.Core.Synthesis;
 using Bistable.Yosys;
 
@@ -62,18 +63,46 @@ public sealed class GateNetlistElkBuilderTests
     }
 
     [Fact]
-    public void Build_And2_EdgesCarryNetLabelsForHighlighting()
+    public void Build_And2_EdgesCarryNetMetadataWithoutLayoutLabels()
     {
         GateNetlist netlist = YosysJsonReader.Read(LoadFixture("and2.json"));
         GateNetlistElkBuildResult result = GateNetlistElkBuilder.Build(netlist);
 
         Assert.All(result.Graph.Edges!, edge =>
         {
-            string label = Assert.Single(edge.Labels!).Text;
-            Assert.StartsWith("net", label, StringComparison.Ordinal);
-            Assert.True(int.TryParse(label[3..], out int netId));
+            Assert.Null(edge.Labels);
+            Assert.NotNull(edge.LayoutOptions);
+            string value = edge.LayoutOptions![GateEdgeMetadataKeys.NetIdLayoutOption];
+            Assert.True(int.TryParse(value, out int netId));
             Assert.True(netId >= 2);
+            Assert.Equal(netId, GateSchematicCanvas.TryGetEdgeNetId(edge));
         });
+    }
+
+    [Fact]
+    public void EdgeNetId_LegacyLabel_RemainsReadableForCachedArtifacts()
+    {
+        ElkEdge legacy = new()
+        {
+            Labels = [new ElkLabel { Text = "net42" }],
+        };
+
+        Assert.Equal(42, GateSchematicCanvas.TryGetEdgeNetId(legacy));
+    }
+
+    [Fact]
+    public void EdgeNetId_MetadataTakesPrecedenceOverLegacyLabel()
+    {
+        ElkEdge edge = new()
+        {
+            LayoutOptions = new Dictionary<string, string>
+            {
+                [GateEdgeMetadataKeys.NetIdLayoutOption] = "73",
+            },
+            Labels = [new ElkLabel { Text = "net42" }],
+        };
+
+        Assert.Equal(73, GateSchematicCanvas.TryGetEdgeNetId(edge));
     }
 
     [Fact]

@@ -51,7 +51,9 @@ public sealed class GateBusBundleGeometryTests
                 new Dictionary<string, GateBusBundle> { [bundle.Id] = bundle },
                 GateElkGeometry.Build(graph))).Value;
 
-        Assert.Equal(representative.Labels!.Single().Text[3..], geometry.RepresentativeNetId.ToString());
+        Assert.Equal(
+            GateSchematicCanvas.TryGetEdgeNetId(representative),
+            geometry.RepresentativeNetId);
         Assert.Contains(
             geometry.TrunkSegments,
             segment => segment.Start == new Point(100, 76)

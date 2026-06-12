@@ -31,6 +31,27 @@ internal static class GateBusBundleKeys
     public const string BundleIdLayoutOption = "bistable.bundleId";
 }
 
+internal static class GateEdgeMetadataKeys
+{
+    // Application metadata, intentionally not an ELK label. ELK labels add
+    // dummy nodes and placement work even though gate schematics never render
+    // a label on each individual wire.
+    public const string NetIdLayoutOption = "bistable.netId";
+
+    // Marks edges introduced by the balanced high-fanout splitter tree. Every
+    // synthetic segment still carries NetIdLayoutOption, so selection and
+    // simulation cross-probe retain the original logical-net identity.
+    public const string SyntheticFanoutLayoutOption = "bistable.syntheticFanout";
+}
+
+internal static class GateSyntheticNodeIds
+{
+    public const string FanoutHubPrefix = "net_hub_";
+
+    public static bool IsFanoutHub(string nodeId) =>
+        nodeId.StartsWith(FanoutHubPrefix, StringComparison.Ordinal);
+}
+
 // Surfaced to UI listeners when the user clicks any wire that belongs to a
 // bus bundle. The full bundle record is included so a properties panel can
 // show the logical bus name, range, and member count without re-reading the

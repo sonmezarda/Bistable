@@ -149,7 +149,23 @@ Each wave produces something the user can drive on the RISC-V sample. Wave 1 alo
   - Routing-limit failures now distinguish an expanded parent scope, a large hierarchy-preserved scope, an intrinsically large leaf, and a genuinely monolithic top-level artifact.
   - Large leaf scopes no longer tell users to re-synthesize indefinitely. The diagnostic directs them back through `Up`/breadcrumb and records bounded logic-cone or multi-resolution macro rendering as the required production fallback.
   - The RISC-V register-file case was measured at 5,393 primitive cells. Its full-array asynchronous reset forces Yosys `mem2reg`, so hierarchy-preserving synthesis alone cannot reduce that leaf.
-  - Verification: solution build has 0 warnings and 0 errors; focused routing diagnostics and quality tests pass 14/14.
+  - Full in-place expansion was measured at 5,572 nodes, 20,196 ports, and 14,056 edges. FastPreview ELK routing completed in about 100 seconds, so the absolute safety limits were recalibrated to permit this graph while still rejecting the former flattened 13,233-node top.
+  - ELK phase profiling identified recursive `NETWORK_SIMPLEX` layering as the dominant cost. FastPreview options currently stop at the root graph and do not reach expanded compound parents.
+  - Controlled benchmarks reduced the same orthogonal route from about 95 seconds to 12.4 seconds by propagating FastPreview recursively, using `LONGEST_PATH` for the large preview, and removing layout-visible edge labels that are used only as application metadata.
+  - Both P0 optimizations are now implemented. The production builder emitted 14,056/14,056 metadata-tagged edges with zero edge labels and routed the full register-file expansion in 12.6 seconds.
+  - Net, bus, highlight, and hit-test identity now read `bistable.netId` metadata first; legacy `net{id}` labels remain readable for cached or older graph artifacts.
+  - Added a synthesis-session, memory-budgeted LRU shared by every gate document. Cache identity includes the structural netlist fingerprint, scope, expanded set, routing settings, and geometry version; cancellation and failures are never cached.
+  - Dynamic Gate documents now use Dock.Avalonia's active/focused document APIs and are appended to the same workspace tab group as Inspector, Waveform, and Schematic.
+  - Workspace dock collections are observable, so dragging document tabs now updates both model order and visible tab headers.
+  - Large expanded scopes now use recursive leaf-first layout. Child compounds are routed independently, parent ELK sees fixed-size/fixed-port macros, and internal geometry is restored afterward.
+  - Real register-file verification: first two-stage route 13.8 seconds; cached child-stage reuse 1.4 seconds; 14,056/14,056 edges retain routed sections.
+  - Extreme scalar fanout now uses invisible hierarchy-local balanced splitter trees above 64 sinks. Every segment retains the original net id; bus sources remain bit-accurate and unchanged.
+  - Real register-file verification with fanout trees: 5,732 nodes, 20,516 ports, 14,216 edges; maximum physical fanout fell from 992 to 36. Two cold routes completed in 10.25 and 10.05 seconds with 14,216/14,216 routed edges.
+  - Gate pin interaction now consumes the same `bistable.netId` metadata as wire selection, restoring selected-net endpoint labels and tooltip connectivity after edge labels were removed.
+  - Verification: solution build has 0 warnings and 0 errors; 867/867 tests pass (838 Tests + 14 Snapshots + 4 Regression + 11 UI).
+  - `POLYLINE`, `SIMPLE` placement, and direct ELK hyperedges were rejected: the first two produced unusably wide geometry and ELK.js 0.9.3 does not support the required hyperedges.
+  - The implementation and acceptance plan is recorded in `docs/ELK_ROUTING_PERFORMANCE_ANALYSIS.md`.
+  - Vivado-style pin/cell `Expand Cone` and multi-resolution macro views remain the next performance path, but no longer replace full expansion.
 
 - **2026-06-11 — Deterministic gate schematic visual regression landed.**
   - Switched UI tests from the null headless drawing backend to real Skia rasterization, so render tests now validate actual pixels while retaining the existing 2,000-cell performance budgets.

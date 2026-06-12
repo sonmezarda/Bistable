@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.Collections.ObjectModel;
 using Bistable.App.Services;
+using Bistable.App.Services.Routing.Elk;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -56,6 +58,7 @@ public sealed class MainWindow : Window
     private SynthesisSettingsWindow? _synthesisSettingsWindow;
     private DiagnosticsWindow? _diagnosticsWindow;
     private readonly Dictionary<string, GateDocumentSession> _gateDocuments = new(StringComparer.Ordinal);
+    private GateLevelLayoutCache? _gateLayoutCache;
     private WaveformStudioWindow? _waveformStudioWindow;
     private readonly Dictionary<string, MemoryViewerWindow> _memoryViewerWindows = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<DockPanelKind, ToolPanelWindow> _floatingToolWindows = [];
@@ -227,7 +230,7 @@ public sealed class MainWindow : Window
             Proportion = 0.22,
             ActiveDockable = _projectDockable,
             DefaultDockable = _projectDockable,
-            VisibleDockables = new List<DockCore.IDockable> { _projectDockable }
+            VisibleDockables = new ObservableCollection<DockCore.IDockable> { _projectDockable }
         };
 
         _documentDock = new DocumentDock
@@ -237,7 +240,7 @@ public sealed class MainWindow : Window
             Proportion = 0.78,
             ActiveDockable = _inspectorDockable,
             DefaultDockable = _inspectorDockable,
-            VisibleDockables = new List<DockCore.IDockable>
+            VisibleDockables = new ObservableCollection<DockCore.IDockable>
             {
                 _inspectorDockable,
                 _waveformDockable,
@@ -251,7 +254,7 @@ public sealed class MainWindow : Window
             Orientation = DockModelOrientation.Horizontal,
             ActiveDockable = _documentDock,
             DefaultDockable = _documentDock,
-            VisibleDockables = new List<DockCore.IDockable>
+            VisibleDockables = new ObservableCollection<DockCore.IDockable>
             {
                 _leftToolDock,
                 new ProportionalDockSplitter(),
@@ -266,13 +269,13 @@ public sealed class MainWindow : Window
             EnableAdaptiveGlobalDockTargets = true,
             ActiveDockable = main,
             DefaultDockable = main,
-            VisibleDockables = new List<DockCore.IDockable> { main },
-            HiddenDockables = new List<DockCore.IDockable>(),
-            LeftPinnedDockables = new List<DockCore.IDockable>(),
-            RightPinnedDockables = new List<DockCore.IDockable>(),
-            TopPinnedDockables = new List<DockCore.IDockable>(),
-            BottomPinnedDockables = new List<DockCore.IDockable>(),
-            Windows = new List<DockCore.IDockWindow>()
+            VisibleDockables = new ObservableCollection<DockCore.IDockable> { main },
+            HiddenDockables = new ObservableCollection<DockCore.IDockable>(),
+            LeftPinnedDockables = new ObservableCollection<DockCore.IDockable>(),
+            RightPinnedDockables = new ObservableCollection<DockCore.IDockable>(),
+            TopPinnedDockables = new ObservableCollection<DockCore.IDockable>(),
+            BottomPinnedDockables = new ObservableCollection<DockCore.IDockable>(),
+            Windows = new ObservableCollection<DockCore.IDockWindow>()
         };
 
         _dockWorkspaceControl.Factory = _dockFactory;
@@ -2634,6 +2637,7 @@ public sealed class MainWindow : Window
         }
 
         CloseGateDocuments();
+        _gateLayoutCache = new GateLevelLayoutCache(netlist);
         OpenGateDocument(
             netlist,
             [netlist.TopModule],
@@ -2653,8 +2657,10 @@ public sealed class MainWindow : Window
         string key = BuildGateDocumentKey(scopePath);
         if (_gateDocuments.TryGetValue(key, out GateDocumentSession? existing))
         {
-            _documentDock.ActiveDockable = existing.Dockable;
-            _documentDock.DefaultDockable = existing.Dockable;
+            DocumentDockCoordinator.Activate(
+                _dockFactory,
+                _documentDock,
+                existing.Dockable);
             _dockWorkspaceControl?.InvalidateVisual();
             return;
         }
@@ -2662,7 +2668,8 @@ public sealed class MainWindow : Window
         GateLevelSchematicView view = new(
             netlist,
             schematicSettings,
-            scopePath);
+            scopePath,
+            _gateLayoutCache ??= new GateLevelLayoutCache(netlist));
         view.DataContext = DataContext;
         BistableDocumentDockable? dockable = null;
         dockable = new BistableDocumentDockable(
@@ -2687,9 +2694,10 @@ public sealed class MainWindow : Window
         };
 
         _gateDocuments[key] = new GateDocumentSession(dockable, view);
-        _dockFactory.AddDockable(_documentDock, dockable);
-        _documentDock.ActiveDockable = dockable;
-        _documentDock.DefaultDockable = dockable;
+        DocumentDockCoordinator.AddAndActivate(
+            _dockFactory,
+            _documentDock,
+            dockable);
         _dockWorkspaceControl?.InvalidateVisual();
     }
 
@@ -2711,6 +2719,7 @@ public sealed class MainWindow : Window
             _dockFactory.CloseDockable(session.Dockable);
         }
         _gateDocuments.Clear();
+        _gateLayoutCache = null;
     }
 
     private static string BuildGateDocumentKey(IReadOnlyList<string> scopePath) =>

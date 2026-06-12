@@ -354,11 +354,16 @@ Remaining closure gates:
 2. Record labels hidden / grouped / detailed frame timings on that artifact.
 3. Manually accept RV32 pin readability, hover tooltip, bus trunk, and expanded
    module behavior.
-4. Add a bounded logic-cone or multi-resolution macro view for intrinsically
-   large leaf modules. The current RISC-V register file is hierarchy-preserved
-   but still contains 5,393 primitive cells because its full-array asynchronous
-   reset forces Yosys `mem2reg`; re-synthesis cannot make that leaf routable.
-5. Close Phase 6.5 only after those measurements and manual acceptance.
+4. P2 high-fanout routing is complete. Scalar nets above 64 sinks use
+   hierarchy-local balanced splitter trees (branching factor 16), preserving
+   `bistable.netId` on every segment. The full register-file route dropped from
+   the 13.8-second two-stage baseline to 10.25/10.05 seconds in two cold runs;
+   maximum physical fan-out dropped from 992 to 36. Continue with routing
+   diagnostics and the controlled ELK.js version benchmark.
+5. Add Vivado-style pin/cell `Expand Cone` and multi-resolution macro views for
+   faster focused inspection. These are performance features, not replacements
+   for full expansion.
+6. Close Phase 6.5 only after those measurements and manual acceptance.
 
 ## Vivado Reference Behavior
 

@@ -468,6 +468,11 @@ public sealed class GateSchematicCanvas : Control
     {
         foreach (ElkNode node in nodes)
         {
+            if (GateSyntheticNodeIds.IsFanoutHub(node.Id))
+            {
+                continue;
+            }
+
             double absX = baseX + node.X;
             double absY = baseY + node.Y;
             Rect rect = new(absX, absY, node.Width, node.Height);
@@ -1381,16 +1386,35 @@ public sealed class GateSchematicCanvas : Control
         return null;
     }
 
-    private static int? TryGetEdgeNetId(ElkEdge edge)
+    internal static int? TryGetEdgeNetId(ElkEdge edge)
     {
-        if (edge.Labels is null) return null;
-        foreach (ElkLabel label in edge.Labels)
+        if (edge.LayoutOptions is not null
+            && edge.LayoutOptions.TryGetValue(
+                GateEdgeMetadataKeys.NetIdLayoutOption,
+                out string? metadata)
+            && int.TryParse(
+                metadata,
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out int metadataNetId))
         {
-            string text = label.Text.Trim();
-            if (text.StartsWith("net", StringComparison.Ordinal)
-                && int.TryParse(text[3..], out int netId))
+            return metadataNetId;
+        }
+
+        if (edge.Labels is not null)
+        {
+            foreach (ElkLabel label in edge.Labels)
             {
-                return netId;
+                string text = label.Text.Trim();
+                if (text.StartsWith("net", StringComparison.Ordinal)
+                    && int.TryParse(
+                        text[3..],
+                        System.Globalization.NumberStyles.None,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out int legacyNetId))
+                {
+                    return legacyNetId;
+                }
             }
         }
         return null;

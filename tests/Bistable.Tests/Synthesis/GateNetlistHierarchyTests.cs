@@ -1,6 +1,7 @@
 using Bistable.App.Services.Routing.Elk;
 using Bistable.App.Views;
 using Bistable.Core.Design.Schematic;
+using Bistable.Core.Projects;
 using Bistable.Core.Synthesis;
 using Bistable.Yosys;
 
@@ -301,6 +302,35 @@ public sealed class GateNetlistHierarchyTests
               && n.Labels is { Count: > 0 } && n.Labels[0].Text == "u_inner");
         Assert.NotNull(inner.Children);
         Assert.Contains(inner.Children!, n => n.Id.StartsWith("gate_", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BuildScope_FastPreview_AppliesCheapLayeringToNestedCompoundParents()
+    {
+        GateNetlist netlist = YosysJsonReader.Read(LoadFixture("hierarchy.json"));
+
+        GateNetlistElkBuildResult result = GateNetlistElkBuilder.BuildScope(
+            netlist,
+            ["top"],
+            new HashSet<string>(StringComparer.Ordinal) { "u_middle", "u_middle/u_inner" },
+            ElkLayoutOptionsFactory.For(RoutingQuality.FastPreview));
+
+        ElkNode middle = Assert.Single(result.Graph.Children!,
+            node => node.Id.StartsWith("inst_", StringComparison.Ordinal));
+        ElkNode inner = Assert.Single(middle.Children!,
+            node => node.Id.StartsWith("inst_", StringComparison.Ordinal));
+
+        Assert.Equal(
+            "LONGEST_PATH",
+            result.Graph.LayoutOptions!["elk.layered.layering.strategy"]);
+        Assert.Equal(
+            "LONGEST_PATH",
+            middle.LayoutOptions!["elk.layered.layering.strategy"]);
+        Assert.Equal(
+            "LONGEST_PATH",
+            inner.LayoutOptions!["elk.layered.layering.strategy"]);
+        Assert.Equal("FIXED_ORDER", middle.LayoutOptions["elk.portConstraints"]);
+        Assert.Equal("FIXED_ORDER", inner.LayoutOptions["elk.portConstraints"]);
     }
 
     [Fact]

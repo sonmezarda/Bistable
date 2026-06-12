@@ -7,9 +7,15 @@ public static class SchematicRoutingQualityResolver
     public const int DefaultLargeGraphThreshold = 1000;
     public const int DefaultLargePortThreshold = 1500;
     public const int DefaultLargeEdgeThreshold = 1000;
-    public const int DefaultMonolithicNodeLimit = 5000;
-    public const int DefaultMonolithicPortLimit = 12000;
-    public const int DefaultMonolithicEdgeLimit = 10000;
+    // Absolute ELK safety limits, calibrated against real synthesized RV32
+    // scopes. A hierarchy-preserved register-file expansion at
+    // 5,572/20,196/14,056 completes under FastPreview (about 100 seconds on
+    // the development machine), so it must remain available to the user.
+    // The former flattened top at 13,233/47,381/33,906 still stays outside
+    // these bounds and is rejected before it can wedge the router.
+    public const int DefaultMonolithicNodeLimit = 10000;
+    public const int DefaultMonolithicPortLimit = 40000;
+    public const int DefaultMonolithicEdgeLimit = 30000;
 
     public static SchematicLayoutDecision Resolve(
         RoutingQuality requestedQuality,
@@ -64,6 +70,11 @@ public sealed record SchematicLayoutDecision(
 
 public sealed record SchematicGraphMetrics(int NodeCount, int PortCount, int EdgeCount)
 {
+    public bool RequiresExtendedRouting =>
+        NodeCount > 5000
+        || PortCount > 12000
+        || EdgeCount > 10000;
+
     public bool ExceedsMonolithicRoutingLimit =>
         NodeCount > SchematicRoutingQualityResolver.DefaultMonolithicNodeLimit
         || PortCount > SchematicRoutingQualityResolver.DefaultMonolithicPortLimit

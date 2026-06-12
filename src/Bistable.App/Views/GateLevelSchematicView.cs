@@ -31,8 +31,10 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
     private readonly GateNetlist _netlist;
     private readonly RoutingQuality _requestedRoutingQuality;
     private readonly bool _autoDowngradeLargeGraphs;
+    private readonly GateLevelLayoutCache _layoutCache;
     private readonly GateSchematicCanvas _canvas = new();
     private readonly SchematicLayoutService _layoutService = new();
+    private readonly GateHierarchicalLayoutEngine _hierarchicalLayoutEngine;
     private readonly List<string> _scopePath = new();
     private readonly HashSet<string> _expandedInstancePaths = new(StringComparer.Ordinal);
     private readonly Border _routingOverlay;
@@ -91,6 +93,7 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
     private GateModule? _currentScopeModule;
     private CancellationTokenSource? _activeLayoutCts;
     private int _layoutGeneration;
+    private string _routingProgressMessage = "Routing schematic...";
     private bool _isInitialized;
     private bool _isDisposed;
     private MainWindowViewModel? _observedViewModel;
@@ -136,9 +139,12 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
     public GateLevelSchematicView(
         GateNetlist netlist,
         SchematicConfiguration schematicSettings,
-        IReadOnlyList<string>? initialScopePath = null)
+        IReadOnlyList<string>? initialScopePath = null,
+        GateLevelLayoutCache? layoutCache = null)
     {
         _netlist = netlist;
+        _layoutCache = layoutCache ?? new GateLevelLayoutCache(netlist);
+        _hierarchicalLayoutEngine = new GateHierarchicalLayoutEngine(_layoutService, _layoutCache);
         _requestedRoutingQuality = schematicSettings.RoutingQuality;
         _autoDowngradeLargeGraphs = schematicSettings.AutoDowngradeLargeGraphs;
         _pinLabelOptions = ToPinLabelOptions(schematicSettings);
@@ -764,6 +770,7 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
     {
         CancelActiveLayout();
 
+        _routingProgressMessage = "Routing schematic...";
         _activeLayoutCts?.Dispose();
         _activeLayoutCts = new CancellationTokenSource();
         int generation = ++_layoutGeneration;
@@ -780,16 +787,66 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
         {
             string[] scopeSnapshot = [.. _scopePath];
             HashSet<string> expandedSnapshot = new(_expandedInstancePaths, StringComparer.Ordinal);
+            GateLevelLayoutCacheKey cacheKey = _layoutCache.CreateKey(
+                scopeSnapshot,
+                expandedSnapshot,
+                _requestedRoutingQuality,
+                _autoDowngradeLargeGraphs);
+
+            if (_layoutCache.TryGet(cacheKey, out GateLevelLayoutCacheEntry? cached)
+                && cached is not null)
+            {
+                PendingScopeLayout cachedPending = new(
+                    cached.Graph,
+                    ResolveScopeModule(scopeSnapshot),
+                    scopeSnapshot,
+                    cached.Decision,
+                    cached.Metrics,
+                    cached.Bundles);
+                if (IsCurrentLayout(generation) && !layoutCts.IsCancellationRequested)
+                {
+                    ApplyLaidOutScope(cached.Graph, cachedPending);
+                }
+                return;
+            }
+
             PendingScopeLayout pending = await Task.Run(
                 () => BuildPendingScopeLayout(scopeSnapshot, expandedSnapshot),
                 layoutCts.Token);
 
-            ElkGraph laid = await _layoutService.LayoutAsync(pending.Graph, layoutCts.Token);
+            if (pending.Metrics.RequiresExtendedRouting)
+            {
+                string quality = pending.Decision.EffectiveQuality == RoutingQuality.FastPreview
+                    ? "Fast preview"
+                    : pending.Decision.EffectiveQuality.ToString();
+                _routingProgressMessage =
+                    $"Routing a very large expanded scope ({pending.Metrics.NodeCount} nodes, "
+                    + $"{pending.Metrics.PortCount} ports, {pending.Metrics.EdgeCount} edges) "
+                    + $"with {quality}. This can take several seconds; you can keep waiting or cancel.";
+                if (_routingOverlay.IsVisible)
+                {
+                    _routingOverlayText.Text = _routingProgressMessage;
+                }
+            }
+
+            ElkGraph laid = await _hierarchicalLayoutEngine.LayoutAsync(
+                pending.Graph,
+                useHierarchicalLayout:
+                    pending.Metrics.RequiresExtendedRouting
+                    && expandedSnapshot.Count > 0,
+                layoutCts.Token);
             if (!IsCurrentLayout(generation) || layoutCts.IsCancellationRequested)
             {
                 return;
             }
 
+            _layoutCache.Store(
+                cacheKey,
+                new GateLevelLayoutCacheEntry(
+                    laid,
+                    pending.Decision,
+                    pending.Metrics,
+                    pending.Bundles));
             ApplyLaidOutScope(laid, pending);
         }
         catch (OperationCanceledException) when (layoutCts.IsCancellationRequested || !IsCurrentLayout(generation))
@@ -856,7 +913,9 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
             metrics);
         if (decision.AutoDowngraded)
         {
-            build.Graph.LayoutOptions = ElkLayoutOptionsFactory.For(decision.EffectiveQuality).ToElkOptions();
+            ElkLayoutOptionsApplicator.Apply(
+                build.Graph,
+                ElkLayoutOptionsFactory.For(decision.EffectiveQuality));
         }
 
         return new PendingScopeLayout(
@@ -907,7 +966,7 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
             await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
             if (IsCurrentLayout(generation) && !cancellationToken.IsCancellationRequested)
             {
-                ShowRoutingOverlay("Routing schematic...");
+                ShowRoutingOverlay(_routingProgressMessage);
             }
         }
         catch (OperationCanceledException)
@@ -944,7 +1003,9 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
                 return;
             }
 
-            _routingOverlayText.Text = "Routing is taking longer than usual. You can keep waiting or cancel.";
+            _routingOverlayText.Text = _routingProgressMessage == "Routing schematic..."
+                ? "Routing is taking longer than usual. You can keep waiting or cancel."
+                : _routingProgressMessage;
         });
     }
 

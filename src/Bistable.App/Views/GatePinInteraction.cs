@@ -214,7 +214,7 @@ internal sealed class GatePinInteractionIndex
 
         foreach (ElkEdge edge in edges)
         {
-            int? netId = ParseNetId(edge);
+            int? netId = GateSchematicCanvas.TryGetEdgeNetId(edge);
             if (!netId.HasValue)
             {
                 continue;
@@ -249,20 +249,6 @@ internal sealed class GatePinInteractionIndex
             }
         }
         return result;
-    }
-
-    private static int? ParseNetId(ElkEdge edge)
-    {
-        foreach (ElkLabel label in edge.Labels ?? [])
-        {
-            string text = label.Text.Trim();
-            if (text.StartsWith("net", StringComparison.Ordinal)
-                && int.TryParse(text.AsSpan(3), out int netId))
-            {
-                return netId;
-            }
-        }
-        return null;
     }
 
     private static IEnumerable<(ElkNode Node, double AbsoluteX, double AbsoluteY)> EnumerateNodes(

@@ -92,7 +92,7 @@ public static class GateNetlistElkBuilder
         // preset, so callers that haven't been migrated yet keep behaving
         // exactly as they did before Wave 5.
         SchematicLayoutOptions effective = layoutOptions ?? ElkLayoutOptionsFactory.For(RoutingQuality.Balanced);
-        ElkGraph graph = new() { Id = "root", LayoutOptions = effective.ToElkOptions() };
+        ElkGraph graph = new() { Id = "root" };
         Dictionary<string, ElkPortRef> portRefs = new(StringComparer.Ordinal);
 
         // Producer / consumer maps keyed by Yosys net id. We emit edges per
@@ -119,7 +119,13 @@ public static class GateNetlistElkBuilder
             portRefs,
             pinBitContexts);
 
-        IReadOnlyList<GateBusBundle> bundles = EmitEdges(graph, producers, consumers, pinBitContexts);
+        IReadOnlyList<GateBusBundle> bundles = EmitEdges(
+            graph,
+            producers,
+            consumers,
+            portRefs,
+            pinBitContexts);
+        ElkLayoutOptionsApplicator.Apply(graph, effective);
 
         return new GateNetlistElkBuildResult(graph, portRefs, bundles);
     }
@@ -656,10 +662,16 @@ public static class GateNetlistElkBuilder
         ElkGraph graph,
         Dictionary<string, List<ElkPortRef>> producers,
         Dictionary<string, List<ElkPortRef>> consumers,
+        Dictionary<string, ElkPortRef> portRefs,
         Dictionary<string, PinBitContext> pinBitContexts)
     {
         graph.Edges ??= [];
         int edgeId = 0;
+        GateHighFanoutRouter fanoutRouter = new(graph, portRefs);
+        IReadOnlyDictionary<(string NodeId, string BaseName), int> pinGroupWidths =
+            pinBitContexts.Values
+                .GroupBy(static context => (context.NodeId, context.BaseName))
+                .ToDictionary(static group => group.Key, static group => group.Count());
 
         // (sourceNodeId, sourceBase, targetNodeId, targetBase) → member entries.
         // Edges are still emitted one-per-bit; this map only records which
@@ -672,16 +684,28 @@ public static class GateNetlistElkBuilder
             if (!consumers.TryGetValue(netKey, out List<ElkPortRef>? targets)) continue;
             foreach (ElkPortRef source in sources)
             {
+                bool useFanoutTree = targets.Count > GateHighFanoutRouter.Threshold
+                    && IsScalarSource(source, pinBitContexts, pinGroupWidths);
+                if (useFanoutTree)
+                {
+                    fanoutRouter.Emit(
+                        graph.Edges,
+                        source,
+                        targets,
+                        NetIdValue(netKey),
+                        Sanitize(netKey),
+                        ref edgeId);
+                    continue;
+                }
+
                 foreach (ElkPortRef target in targets)
                 {
-                    string edgeIdStr = $"e{edgeId++}";
-                    ElkEdge edge = new()
-                    {
-                        Id = edgeIdStr,
-                        Sources = [source.PortId],
-                        Targets = [target.PortId],
-                        Labels = [new ElkLabel { Text = NetLabel(netKey) }],
-                    };
+                    ElkEdge edge = CreateEdge(
+                        source.PortId,
+                        target.PortId,
+                        NetIdValue(netKey),
+                        syntheticFanout: false,
+                        ref edgeId);
                     graph.Edges.Add(edge);
 
                     if (pinBitContexts.TryGetValue(source.PortId, out PinBitContext srcCtx)
@@ -709,6 +733,40 @@ public static class GateNetlistElkBuilder
         }
 
         return BuildBundles(drafts);
+    }
+
+    private static bool IsScalarSource(
+        ElkPortRef source,
+        IReadOnlyDictionary<string, PinBitContext> pinBitContexts,
+        IReadOnlyDictionary<(string NodeId, string BaseName), int> pinGroupWidths)
+    {
+        return pinBitContexts.TryGetValue(source.PortId, out PinBitContext context)
+            && pinGroupWidths.TryGetValue((context.NodeId, context.BaseName), out int width)
+            && width == 1;
+    }
+
+    private static ElkEdge CreateEdge(
+        string sourcePortId,
+        string targetPortId,
+        string netId,
+        bool syntheticFanout,
+        ref int edgeId)
+    {
+        Dictionary<string, string> options = new()
+        {
+            [GateEdgeMetadataKeys.NetIdLayoutOption] = netId,
+        };
+        if (syntheticFanout)
+        {
+            options[GateEdgeMetadataKeys.SyntheticFanoutLayoutOption] = "true";
+        }
+        return new ElkEdge
+        {
+            Id = $"e{edgeId++}",
+            Sources = [sourcePortId],
+            Targets = [targetPortId],
+            LayoutOptions = options,
+        };
     }
 
     private readonly record struct BundleKey(
@@ -803,12 +861,12 @@ public static class GateNetlistElkBuilder
     private static string NetKey(string scope, int netId) =>
         scope + "#" + netId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-    private static string NetLabel(string netKey)
+    private static string NetIdValue(string netKey)
     {
         int hash = netKey.LastIndexOf('#');
         return hash >= 0 && hash + 1 < netKey.Length
-            ? "net" + netKey[(hash + 1)..]
-            : "net" + netKey;
+            ? netKey[(hash + 1)..]
+            : netKey;
     }
 
     private static string Sanitize(string raw) =>

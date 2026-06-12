@@ -109,15 +109,38 @@ public sealed class SchematicRoutingQualityResolverTests
     }
 
     [Theory]
-    [InlineData(5001, 1, 1)]
-    [InlineData(1, 12001, 1)]
-    [InlineData(1, 1, 10001)]
+    [InlineData(10001, 1, 1)]
+    [InlineData(1, 40001, 1)]
+    [InlineData(1, 1, 30001)]
     public void Metrics_ExceedsMonolithicRoutingLimit_ForAnySafetyDimension(
         int nodes,
         int ports,
         int edges)
     {
         SchematicGraphMetrics metrics = new(nodes, ports, edges);
+
+        Assert.True(metrics.ExceedsMonolithicRoutingLimit);
+    }
+
+    [Fact]
+    public void Metrics_RegisterFileFullExpansion_RemainsRoutable()
+    {
+        SchematicGraphMetrics metrics = new(
+            NodeCount: 5572,
+            PortCount: 20196,
+            EdgeCount: 14056);
+
+        Assert.False(metrics.ExceedsMonolithicRoutingLimit);
+        Assert.True(metrics.RequiresExtendedRouting);
+    }
+
+    [Fact]
+    public void Metrics_FlattenedRiscVTop_StillExceedsSafetyLimit()
+    {
+        SchematicGraphMetrics metrics = new(
+            NodeCount: 13233,
+            PortCount: 47381,
+            EdgeCount: 33906);
 
         Assert.True(metrics.ExceedsMonolithicRoutingLimit);
     }

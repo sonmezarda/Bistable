@@ -1,4 +1,5 @@
 using Bistable.App.Services.Routing.Elk;
+using Bistable.App.Views;
 using Bistable.Core.Synthesis;
 
 namespace Bistable.Tests.Synthesis;
@@ -90,12 +91,14 @@ public sealed class GateBusBundleTests
 
         // 4 bits → 4 emitted edges, regardless of bundling.
         Assert.Equal(4, result.Graph.Edges!.Count);
-        // Each edge still carries its net{id} label so canvas hit-testing
-        // continues to resolve net ids.
+        // Each edge still carries its net id as application metadata so
+        // selection remains bit-accurate without making ELK place labels.
         Assert.All(result.Graph.Edges!, e =>
         {
-            string text = e.Labels!.Single().Text;
-            Assert.StartsWith("net", text);
+            Assert.Null(e.Labels);
+            Assert.NotNull(e.LayoutOptions);
+            Assert.True(e.LayoutOptions!.ContainsKey(GateEdgeMetadataKeys.NetIdLayoutOption));
+            Assert.NotNull(GateSchematicCanvas.TryGetEdgeNetId(e));
         });
     }
 
