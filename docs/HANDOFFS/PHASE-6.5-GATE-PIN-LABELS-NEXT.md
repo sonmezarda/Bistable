@@ -179,9 +179,9 @@ Implement real bus presentation as metadata, not destructive graph rewriting.
 **Step B — render + selection + bus-shape coverage (landed 2026-06-10):**
 
 - `GateSchematicCanvas.SetGraph` accepts the bundle list and indexes it by id.
-- Edge render thickens bundle members at compact LOD (BundleTrunkPen) so a
-  wide bus visually reads as one trunk while remaining bit-accurate; selection
-  uses BundleHighlightPen so all members light up together.
+- The initial compact presentation thickened bundle members while preserving
+  bit-accurate edges. Step C below supersedes that presentation with a real
+  consolidated centerline and endpoint collectors.
 - `HitTestNet` now returns `(netId, bundleId?)` derived from the clicked
   member edge's `LayoutOptions[bistable.bundleId]`; clicking any single bit of
   a bus selects the whole bundle.
@@ -194,62 +194,171 @@ Implement real bus presentation as metadata, not destructive graph rewriting.
   reversed bit order, sparse buses with a missing bit, two-input concatenation
   producing two distinct bundles, and partial fan-out to two child instances.
 
-**Step C — remaining work:**
+**Step C — true trunk geometry + bit drill-down (landed 2026-06-11):**
 
-- True trunk + fan-out *geometry*: today the trunk is rendered as a thicker
-  stroke on the existing per-bit edges. The next step is to draw one
-  consolidated centerline per bundle with synthetic fan-in / fan-out segments
-  near the endpoints, ideally backed by ELK hyperedges or synthetic
-  join/split nodes — measured against the RV32 sample before committing.
-- "Expand selection" affordance: from a selected bundle, surface a way to
-  drop down into the constituent bits (panel list / keyboard cycle).
-- "Show connected pins" / "Show all pins" interaction-override (separate
-  next-work item) should treat bundle membership when revealing labels.
+- `GateBusBundleGeometryBuilder` derives one consolidated centerline from the
+  representative member's routed ELK path, preserving ELK obstacle avoidance.
+- Synthetic orthogonal collectors connect all source/target bit pins to the
+  trunk near each endpoint. Geometry generation is post-layout and
+  non-destructive; the original per-bit edges remain the connectivity model.
+- Bundled LOD suppresses member-edge painting and draws one screen-stable trunk
+  plus thinner fan legs. If geometry cannot be produced, rendering
+  automatically falls back to the original per-bit edges.
+- Hit-testing covers both trunk and fan geometry. Bundle highlight remains
+  coherent in bundled and individual modes.
+- Added project-scoped `Automatic` / `Bundled` / `Individual` wire modes and an
+  adjustable trunk zoom threshold. Both gate toolbar and Preferences edit the
+  values, which persist under `schematic`.
+- The Bus properties panel now contains a virtualized constituent-bit list.
+  Selecting a bit drops into the exact member net and centers/highlights it.
+- Real RV32 artifact measurement: 179 top-level nodes, 1,138 edges, 21 bundles,
+  and 21/21 trunk geometries produced. Build took about 32 ms and FastPreview
+  ELK routing about 2.4 s on the development machine.
+
+Step C is complete. "Show connected pins" / "Show all pins" remains part of
+interaction overrides below.
+
+Step C verification:
+
+```text
+Build: 0 warnings, 0 errors
+Full project totals: 817/817 passed
+  - Bistable.Tests: 793
+  - Bistable.Snapshots: 14
+  - Bistable.Regression: 4
+  - Bistable.UiTests: 6
+```
+
+An earlier solution-wide parallel invocation briefly exceeded two pre-existing
+500 ms cancellation timing assertions under concurrent project load. Both
+tests passed in isolation (244 ms / 380 ms), and the final sequential project
+runs passed 817/817. No cancellation code changed in Step C.
 
 Do not infer buses only from names. Yosys `GatePort.Bits` ordering and net ids
 are authoritative.
 
 ### 2. Collision-aware label placement
 
-The current placement is deterministic and protected from wires by a background,
-but it is not a general occupancy solver.
+Completed on 2026-06-11.
 
-- Build a lightweight screen-space occupancy index per frame.
-- Candidate positions: inside-above, inside-below, outside-above, outside-below.
-- Prefer stable positions to prevent labels jumping while panning.
-- Give selected/hovered labels priority.
-- Avoid sub-module title, expand badge, ports, and neighboring labels.
-- Cap work at visible nodes only; do not scan the whole graph each frame.
+- Added a deterministic screen-space occupancy engine with stable candidate
+  order: inside-above, inside-below, outside-above, outside-below.
+- Sub-module titles, expand badges, primitive bodies, boundary headers, pin
+  dots, and already placed labels participate in collision checks.
+- Module labels may occupy their own body, while request-level ownership lets a
+  label ignore only its own pin dot rather than every pin on the same node.
+- Selected-cell labels are placed first and use a least-collision fallback.
+  Non-priority labels are hidden when no safe candidate exists.
+- A graph-scoped world-space node index is rebuilt only when `SetGraph` runs.
+  Each frame queries only the visible region plus a bounded margin, including
+  nested absolute coordinates and a guarded path for very large compounds.
+- Placement remains screen-space stable across zoom levels, while rendering and
+  hit-test connectivity remain unchanged.
+- Added shape tests for collision ordering, ownership, viewport culling,
+  determinism, nested offsets, large nodes, and stable deduplication.
+- The existing 2,000-cell render/pan budgets remain green. A dedicated dense
+  visible-label case (80 modules / 640 labels) also remains below its 1.5 s
+  initial-render budget.
 
-Benchmark against the existing 2,000-cell UI performance test.
+Verification:
+
+```text
+Build: 0 warnings, 0 errors
+Full project totals: 830/830 passed
+  - Bistable.Tests: 805
+  - Bistable.Snapshots: 14
+  - Bistable.Regression: 4
+  - Bistable.UiTests: 7
+```
+
+Hovered-pin priority is intentionally part of interaction overrides below,
+because it requires pointer-state and tooltip semantics rather than placement
+policy alone.
 
 ### 3. Interaction overrides
 
-- Hovering a pin should reveal its label regardless of automatic LOD.
-- Selected net/cell labels should remain visible.
-- Tooltip should distinguish:
-  - module pin name
-  - connected net name
-  - bit/range
-  - direction and width
-- Add `Show connected pins` / `Show all pins` equivalent behavior rather than
-  overloading `Always`.
+Completed on 2026-06-11.
+
+- Added a graph-scoped `GatePinInteractionIndex`, built once in `SetGraph`.
+  Pin-to-net lookup, selected-net endpoint lookup, direction, width/range, and
+  named-net metadata no longer require scanning every edge on pointer movement.
+- Hover hit-testing queries only nodes near the pointer through the existing
+  spatial index. A 350 ms delayed tooltip reports pin name, connected net,
+  bit/range, direction, and width.
+- A hovered pin gets an individual high-priority label even below Automatic
+  LOD. Selected-net endpoint labels and all selected-cell labels remain visible;
+  interaction overrides also work when the normal label mode is `Hidden`.
+- Added project-scoped `ConnectedOnly` / `All` visibility modes. The gate
+  toolbar and Preferences edit the setting, and `.bistable.json` persists it.
+  This scope is orthogonal to `Automatic` / `Always` / `Hidden` LOD policy.
+- Cell port directions come from Yosys `port_directions`; top-level boundary
+  direction uses module semantics rather than the visual WEST/EAST side.
+  Structural edge net ids and `GateNet.Bits` provide connectivity and names.
+- Wide-bus forced-label deduplication uses hash indexes, avoiding quadratic
+  work when selecting 512/1024-bit nets.
+
+Verification:
+
+```text
+Build: 0 warnings, 0 errors
+Full project totals: 834/834 passed
+  - Bistable.Tests: 809
+  - Bistable.Snapshots: 14
+  - Bistable.Regression: 4
+  - Bistable.UiTests: 7
+```
 
 ### 4. Visual regression coverage
 
-- Add deterministic headless screenshots at zoom values just below/above both
-  thresholds.
-- Cover grouped and ungrouped buses, WEST/EAST ports, boundaries, expanded
-  compounds, and long names.
-- Prefer small golden crops over full-window snapshots to reduce unrelated
-  churn.
+Completed on 2026-06-11.
+
+- UI tests now use the real Skia rasterizer rather than the null headless
+  drawing backend.
+- Added four deterministic 640x340 PNG crops at zoom `0.54`, `0.56`, `0.89`,
+  and `0.91`, immediately below/above compact `0.55` and detailed `0.90`.
+- One controlled fixture covers grouped and individual bus labels, WEST/EAST
+  ports, top-level boundaries, an expanded compound with a primitive child,
+  and long input/output names.
+- PNG bytes are compared exactly. A mismatch writes `.actual.png`; baseline
+  regeneration is an explicit conditional executable path and must be reviewed.
+- Two consecutive comparison runs produced byte-identical output.
+
+Verification:
+
+```text
+Build: 0 warnings, 0 errors
+Full project totals: 838/838 passed
+  - Bistable.Tests: 809
+  - Bistable.Snapshots: 14
+  - Bistable.Regression: 4
+  - Bistable.UiTests: 11
+```
 
 ### 5. Documentation and phase closure
 
-- Document the settings in user-facing schematic documentation.
-- Record performance measurements for labels enabled/disabled on the RISC-V
-  sample.
-- Update `docs/PHASES/PHASE-6.5.md` only after manual acceptance and full suite.
+In progress.
+
+- User-facing settings, navigation, interaction, routing, visual-regression,
+  and performance guidance is now in `docs/GATE_LEVEL_SCHEMATIC.md`.
+- Recorded the validated hierarchical RV32 baseline: 179 nodes, 2,013 ports,
+  1,138 edges, 21 bundles, graph build about 32 ms, FastPreview route about
+  2.4 s.
+- Real-Skia 2,000-cell pan and 80-module/640-label budgets remain green.
+- Exact labels-hidden versus labels-enabled RV32 frame timing is intentionally
+  not reported from the checked-in sample artifact: that JSON is currently
+  stale/flattened and does not represent the hierarchy-preserving viewer path.
+
+Remaining closure gates:
+
+1. Regenerate the RISC-V synthesis JSON through the current GUI/Yosys flow.
+2. Record labels hidden / grouped / detailed frame timings on that artifact.
+3. Manually accept RV32 pin readability, hover tooltip, bus trunk, and expanded
+   module behavior.
+4. Add a bounded logic-cone or multi-resolution macro view for intrinsically
+   large leaf modules. The current RISC-V register file is hierarchy-preserved
+   but still contains 5,393 primitive cells because its full-array asynchronous
+   reset forces Yosys `mem2reg`; re-synthesis cannot make that leaf routable.
+5. Close Phase 6.5 only after those measurements and manual acceptance.
 
 ## Vivado Reference Behavior
 

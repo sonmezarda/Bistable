@@ -82,17 +82,23 @@ public sealed class SynthesisSettingsViewModelTests
         temp.ViewModel.GateRoutingQuality = RoutingQuality.FastPreview;
         temp.ViewModel.GateAutoDowngradeLargeGraphs = false;
         temp.ViewModel.GatePinLabelMode = GatePinLabelMode.Always;
+        temp.ViewModel.GatePinVisibilityMode = GatePinVisibilityMode.ConnectedOnly;
         temp.ViewModel.GateGroupBusPinLabels = false;
         temp.ViewModel.GatePinLabelCompactZoom = 0.7;
         temp.ViewModel.GatePinLabelDetailedZoom = 1.2;
+        temp.ViewModel.GateBusVisualizationMode = GateBusVisualizationMode.Individual;
+        temp.ViewModel.GateBusTrunkMaxZoom = 0.75;
 
         ProjectConfiguration project = ReadCurrentProject(temp.ViewModel);
         Assert.Equal(RoutingQuality.FastPreview, project.Schematic.RoutingQuality);
         Assert.False(project.Schematic.AutoDowngradeLargeGraphs);
         Assert.Equal(GatePinLabelMode.Always, project.Schematic.GatePinLabelMode);
+        Assert.Equal(GatePinVisibilityMode.ConnectedOnly, project.Schematic.GatePinVisibilityMode);
         Assert.False(project.Schematic.GroupGateBusPinLabels);
         Assert.Equal(0.7, project.Schematic.GatePinLabelCompactZoom);
         Assert.Equal(1.2, project.Schematic.GatePinLabelDetailedZoom);
+        Assert.Equal(GateBusVisualizationMode.Individual, project.Schematic.GateBusVisualizationMode);
+        Assert.Equal(0.75, project.Schematic.GateBusTrunkMaxZoom);
     }
 
     [Fact]
@@ -125,9 +131,12 @@ public sealed class SynthesisSettingsViewModelTests
         temp.ViewModel.GateRoutingQuality = RoutingQuality.Production;
         temp.ViewModel.GateAutoDowngradeLargeGraphs = false;
         temp.ViewModel.GatePinLabelMode = GatePinLabelMode.Hidden;
+        temp.ViewModel.GatePinVisibilityMode = GatePinVisibilityMode.ConnectedOnly;
         temp.ViewModel.GateGroupBusPinLabels = false;
         temp.ViewModel.GatePinLabelCompactZoom = 0.65;
         temp.ViewModel.GatePinLabelDetailedZoom = 1.1;
+        temp.ViewModel.GateBusVisualizationMode = GateBusVisualizationMode.Bundled;
+        temp.ViewModel.GateBusTrunkMaxZoom = 1.25;
 
         await InvokeSaveProjectSettingsAsync(temp.ViewModel);
 
@@ -136,13 +145,18 @@ public sealed class SynthesisSettingsViewModelTests
         Assert.Contains("\"routingQuality\": \"Production\"", json, StringComparison.Ordinal);
         Assert.Contains("\"autoDowngradeLargeGraphs\": false", json, StringComparison.Ordinal);
         Assert.Contains("\"gatePinLabelMode\": \"Hidden\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"gatePinVisibilityMode\": \"ConnectedOnly\"", json, StringComparison.Ordinal);
         Assert.Contains("\"groupGateBusPinLabels\": false", json, StringComparison.Ordinal);
+        Assert.Contains("\"gateBusVisualizationMode\": \"Bundled\"", json, StringComparison.Ordinal);
         Assert.Equal(RoutingQuality.Production, saved.Schematic.RoutingQuality);
         Assert.False(saved.Schematic.AutoDowngradeLargeGraphs);
         Assert.Equal(GatePinLabelMode.Hidden, saved.Schematic.GatePinLabelMode);
+        Assert.Equal(GatePinVisibilityMode.ConnectedOnly, saved.Schematic.GatePinVisibilityMode);
         Assert.False(saved.Schematic.GroupGateBusPinLabels);
         Assert.Equal(0.65, saved.Schematic.GatePinLabelCompactZoom);
         Assert.Equal(1.1, saved.Schematic.GatePinLabelDetailedZoom);
+        Assert.Equal(GateBusVisualizationMode.Bundled, saved.Schematic.GateBusVisualizationMode);
+        Assert.Equal(1.25, saved.Schematic.GateBusTrunkMaxZoom);
     }
 
     [Fact]

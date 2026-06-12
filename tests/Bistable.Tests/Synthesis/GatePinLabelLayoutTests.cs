@@ -95,6 +95,7 @@ public sealed class GatePinLabelLayoutTests
 
         Assert.Equal(2.0, normalized.CompactZoom);
         Assert.Equal(2.0, normalized.DetailedZoom);
+        Assert.Equal(GatePinVisibilityMode.All, normalized.VisibilityMode);
     }
 
     private static IReadOnlyList<ElkPort> Ports(string baseName, int width) =>

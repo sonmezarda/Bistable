@@ -25,10 +25,26 @@ public enum GatePinLabelMode
     Hidden,
 }
 
+public enum GatePinVisibilityMode
+{
+    ConnectedOnly,
+    All,
+}
+
+public enum GateBusVisualizationMode
+{
+    Automatic,
+    Bundled,
+    Individual,
+}
+
 public sealed record SchematicConfiguration(
     RoutingQuality RoutingQuality = RoutingQuality.Balanced,
     bool AutoDowngradeLargeGraphs = true,
     GatePinLabelMode GatePinLabelMode = GatePinLabelMode.Automatic,
     bool GroupGateBusPinLabels = true,
     double GatePinLabelCompactZoom = 0.55,
-    double GatePinLabelDetailedZoom = 0.9);
+    double GatePinLabelDetailedZoom = 0.9,
+    GateBusVisualizationMode GateBusVisualizationMode = GateBusVisualizationMode.Automatic,
+    double GateBusTrunkMaxZoom = 0.9,
+    GatePinVisibilityMode GatePinVisibilityMode = GatePinVisibilityMode.All);

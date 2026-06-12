@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Headless;
+using Avalonia.Skia;
 using Bistable.App;
 using Bistable.UiTests;
 
@@ -14,8 +15,9 @@ public static class HeadlessTestAppBuilder
 {
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<BistableApplication>()
+            .UseSkia()
             .UseHeadless(new AvaloniaHeadlessPlatformOptions
             {
-                UseHeadlessDrawing = true,
+                UseHeadlessDrawing = false,
             });
 }

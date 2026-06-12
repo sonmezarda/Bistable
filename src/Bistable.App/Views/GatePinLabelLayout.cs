@@ -77,22 +77,8 @@ internal static class GatePinLabelLayout
             port.LayoutOptions?.GetValueOrDefault("elk.port.side"),
             "WEST",
             StringComparison.OrdinalIgnoreCase);
-        (string baseName, int? bitIndex) = ParseBitName(displayName);
+        (string baseName, int? bitIndex) = GatePinName.Parse(displayName);
         return new GatePinLabelCandidate(port, displayName, baseName, bitIndex, isWestSide);
-    }
-
-    private static (string BaseName, int? BitIndex) ParseBitName(string displayName)
-    {
-        int open = displayName.LastIndexOf('[');
-        if (open <= 0 || !displayName.EndsWith(']'))
-        {
-            return (displayName, null);
-        }
-
-        string indexText = displayName[(open + 1)..^1];
-        return int.TryParse(indexText, out int index)
-            ? (displayName[..open], index)
-            : (displayName, null);
     }
 
     private sealed record GatePinLabelCandidate(
@@ -112,7 +98,8 @@ public sealed record GatePinLabelDisplayOptions(
     GatePinLabelMode Mode,
     bool GroupBusPinLabels,
     double CompactZoom,
-    double DetailedZoom)
+    double DetailedZoom,
+    GatePinVisibilityMode VisibilityMode = GatePinVisibilityMode.All)
 {
     public static GatePinLabelDisplayOptions Default { get; } =
         new(GatePinLabelMode.Automatic, true, 0.55, 0.9);

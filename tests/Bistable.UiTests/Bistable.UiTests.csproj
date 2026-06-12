@@ -7,6 +7,17 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(GenerateVisualGoldens)' == 'true'">
+    <OutputType>Exe</OutputType>
+    <StartupObject>Bistable.UiTests.VisualGoldenGenerator</StartupObject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="VisualGoldenGenerator.cs" />
+    <Compile Include="VisualGoldenGenerator.cs"
+             Condition="'$(GenerateVisualGoldens)' == 'true'" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
@@ -25,6 +36,10 @@
     <ProjectReference Include="..\..\src\Bistable.Verilator\Bistable.Verilator.csproj" />
     <ProjectReference Include="..\..\src\Bistable.Protocol\Bistable.Protocol.csproj" />
     <ProjectReference Include="..\..\src\Bistable.App\Bistable.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="golden\**\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -578,6 +578,12 @@ public sealed class MainWindowViewModel : ViewModelBase
         set => UpdateSchematic(CurrentSchematic with { GroupGateBusPinLabels = value });
     }
 
+    public GatePinVisibilityMode GatePinVisibilityMode
+    {
+        get => CurrentSchematic.GatePinVisibilityMode;
+        set => UpdateSchematic(CurrentSchematic with { GatePinVisibilityMode = value });
+    }
+
     public double GatePinLabelCompactZoom
     {
         get => CurrentSchematic.GatePinLabelCompactZoom;
@@ -604,6 +610,21 @@ public sealed class MainWindowViewModel : ViewModelBase
         });
     }
 
+    public GateBusVisualizationMode GateBusVisualizationMode
+    {
+        get => CurrentSchematic.GateBusVisualizationMode;
+        set => UpdateSchematic(CurrentSchematic with { GateBusVisualizationMode = value });
+    }
+
+    public double GateBusTrunkMaxZoom
+    {
+        get => CurrentSchematic.GateBusTrunkMaxZoom;
+        set => UpdateSchematic(CurrentSchematic with
+        {
+            GateBusTrunkMaxZoom = NormalizeZoomThreshold(value),
+        });
+    }
+
     public SchematicConfiguration GateSchematicSettings => CurrentSchematic;
 
     public IReadOnlyList<RoutingQuality> AvailableRoutingQualities { get; } =
@@ -611,6 +632,12 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public IReadOnlyList<GatePinLabelMode> AvailableGatePinLabelModes { get; } =
         Enum.GetValues<GatePinLabelMode>();
+
+    public IReadOnlyList<GatePinVisibilityMode> AvailableGatePinVisibilityModes { get; } =
+        Enum.GetValues<GatePinVisibilityMode>();
+
+    public IReadOnlyList<GateBusVisualizationMode> AvailableGateBusVisualizationModes { get; } =
+        Enum.GetValues<GateBusVisualizationMode>();
 
     public string SynthesisStatus
     {
@@ -758,11 +785,16 @@ public sealed class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(GateAutoDowngradeLargeGraphs));
         OnPropertyChanged(nameof(GatePinLabelMode));
         OnPropertyChanged(nameof(GateGroupBusPinLabels));
+        OnPropertyChanged(nameof(GatePinVisibilityMode));
         OnPropertyChanged(nameof(GatePinLabelCompactZoom));
         OnPropertyChanged(nameof(GatePinLabelDetailedZoom));
+        OnPropertyChanged(nameof(GateBusVisualizationMode));
+        OnPropertyChanged(nameof(GateBusTrunkMaxZoom));
         OnPropertyChanged(nameof(GateSchematicSettings));
         OnPropertyChanged(nameof(AvailableRoutingQualities));
         OnPropertyChanged(nameof(AvailableGatePinLabelModes));
+        OnPropertyChanged(nameof(AvailableGatePinVisibilityModes));
+        OnPropertyChanged(nameof(AvailableGateBusVisualizationModes));
         OnPropertyChanged(nameof(CanSaveSynthesisSettings));
         OnPropertyChanged(nameof(CanSaveProjectSettings));
         ((AsyncCommand)SynthesizeCommand).RaiseCanExecuteChanged();

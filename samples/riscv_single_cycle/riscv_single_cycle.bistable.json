@@ -28,7 +28,14 @@
   },
   "schematic": {
     "routingQuality": "Balanced",
-    "autoDowngradeLargeGraphs": true
+    "autoDowngradeLargeGraphs": true,
+    "gatePinLabelMode": "Automatic",
+    "groupGateBusPinLabels": true,
+    "gatePinLabelCompactZoom": 0.55,
+    "gatePinLabelDetailedZoom": 0.9,
+    "gateBusVisualizationMode": "Automatic",
+    "gateBusTrunkMaxZoom": 0.9,
+    "gatePinVisibilityMode": "All"
   },
   "runtime": {
     "reset": {
@@ -70,6 +77,6 @@
     "outputJson": ".bistable/synthesis/riscv_single_cycle_top.json",
     "outputVerilog": ".bistable/synthesis/netlist.sv",
     "genericCells": true,
-    "flatten": false
+    "flatten": true
   }
 }

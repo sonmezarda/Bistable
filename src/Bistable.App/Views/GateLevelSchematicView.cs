@@ -95,10 +95,14 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
     private bool _isDisposed;
     private MainWindowViewModel? _observedViewModel;
     private GatePinLabelDisplayOptions _pinLabelOptions;
+    private GateBusDisplayOptions _busDisplayOptions;
     private readonly ComboBox _pinLabelModeBox = new();
+    private readonly ComboBox _pinVisibilityModeBox = new();
     private readonly CheckBox _groupBusPinLabelsCheckBox = new();
     private readonly NumericUpDown _compactZoomEditor = new();
     private readonly NumericUpDown _detailedZoomEditor = new();
+    private readonly ComboBox _busVisualizationModeBox = new();
+    private readonly NumericUpDown _busTrunkMaxZoomEditor = new();
     private bool _updatingPinControls;
 
     public event EventHandler<GateScopeOpenRequestedEventArgs>? ScopeOpenRequested;
@@ -138,6 +142,7 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
         _requestedRoutingQuality = schematicSettings.RoutingQuality;
         _autoDowngradeLargeGraphs = schematicSettings.AutoDowngradeLargeGraphs;
         _pinLabelOptions = ToPinLabelOptions(schematicSettings);
+        _busDisplayOptions = ToBusDisplayOptions(schematicSettings);
         Background = BackgroundBrush;
         _routingOverlay = BuildRoutingOverlay();
         Content = BuildLayout();
@@ -156,6 +161,7 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
         AttachedToVisualTree += OnAttachedToVisualTree;
         DataContextChanged += OnDataContextChanged;
         _canvas.SetPinLabelOptions(_pinLabelOptions);
+        _canvas.SetBusDisplayOptions(_busDisplayOptions);
     }
 
     private Control BuildLayout()
@@ -376,9 +382,20 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
                     TextWrapping = TextWrapping.Wrap,
                 },
                 _pinLabelModeBox,
+                _pinVisibilityModeBox,
                 _groupBusPinLabelsCheckBox,
                 BuildThresholdRow("Compact zoom", _compactZoomEditor),
                 BuildThresholdRow("Detailed zoom", _detailedZoomEditor),
+                new TextBlock
+                {
+                    Text = "Bus wires",
+                    Foreground = AccentBrush,
+                    FontWeight = FontWeight.SemiBold,
+                    FontSize = 12,
+                    Margin = new Thickness(0, 6, 0, 0),
+                },
+                _busVisualizationModeBox,
+                BuildThresholdRow("Trunk below zoom", _busTrunkMaxZoomEditor),
             },
         };
         Border flyoutSurface = new()
@@ -405,6 +422,14 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
         _pinLabelModeBox.BorderBrush = StrokeBrush;
         _pinLabelModeBox.SelectionChanged += (_, _) => ApplyPinSettingsFromControls();
 
+        _pinVisibilityModeBox.ItemsSource = Enum.GetValues<GatePinVisibilityMode>();
+        _pinVisibilityModeBox.SelectedItem = _pinLabelOptions.VisibilityMode;
+        _pinVisibilityModeBox.MinHeight = 28;
+        _pinVisibilityModeBox.Background = SurfaceBrush;
+        _pinVisibilityModeBox.Foreground = TextBrush;
+        _pinVisibilityModeBox.BorderBrush = StrokeBrush;
+        _pinVisibilityModeBox.SelectionChanged += (_, _) => ApplyPinSettingsFromControls();
+
         _groupBusPinLabelsCheckBox.Content = "Group bus labels";
         _groupBusPinLabelsCheckBox.IsChecked = _pinLabelOptions.GroupBusPinLabels;
         _groupBusPinLabelsCheckBox.Foreground = TextBrush;
@@ -414,6 +439,16 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
         ConfigureZoomEditor(_detailedZoomEditor, _pinLabelOptions.DetailedZoom);
         _compactZoomEditor.ValueChanged += (_, _) => ApplyPinSettingsFromControls();
         _detailedZoomEditor.ValueChanged += (_, _) => ApplyPinSettingsFromControls();
+
+        _busVisualizationModeBox.ItemsSource = Enum.GetValues<GateBusVisualizationMode>();
+        _busVisualizationModeBox.SelectedItem = _busDisplayOptions.Mode;
+        _busVisualizationModeBox.MinHeight = 28;
+        _busVisualizationModeBox.Background = SurfaceBrush;
+        _busVisualizationModeBox.Foreground = TextBrush;
+        _busVisualizationModeBox.BorderBrush = StrokeBrush;
+        _busVisualizationModeBox.SelectionChanged += (_, _) => ApplyPinSettingsFromControls();
+        ConfigureZoomEditor(_busTrunkMaxZoomEditor, _busDisplayOptions.TrunkMaxZoom);
+        _busTrunkMaxZoomEditor.ValueChanged += (_, _) => ApplyPinSettingsFromControls();
     }
 
     private static void ConfigureZoomEditor(NumericUpDown editor, double value)
@@ -463,15 +498,27 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
             mode,
             _groupBusPinLabelsCheckBox.IsChecked == true,
             (double)(_compactZoomEditor.Value ?? 0.55m),
-            (double)(_detailedZoomEditor.Value ?? 0.9m));
+            (double)(_detailedZoomEditor.Value ?? 0.9m),
+            _pinVisibilityModeBox.SelectedItem is GatePinVisibilityMode visibilityMode
+                ? visibilityMode
+                : GatePinVisibilityMode.All);
         ApplyPinLabelOptions(options);
+        GateBusDisplayOptions busOptions = new(
+            _busVisualizationModeBox.SelectedItem is GateBusVisualizationMode busMode
+                ? busMode
+                : GateBusVisualizationMode.Automatic,
+            (double)(_busTrunkMaxZoomEditor.Value ?? 0.9m));
+        ApplyBusDisplayOptions(busOptions);
 
         if (_observedViewModel is { } viewModel)
         {
             viewModel.GatePinLabelMode = options.Mode;
             viewModel.GateGroupBusPinLabels = options.GroupBusPinLabels;
+            viewModel.GatePinVisibilityMode = options.VisibilityMode;
             viewModel.GatePinLabelCompactZoom = options.CompactZoom;
             viewModel.GatePinLabelDetailedZoom = options.DetailedZoom;
+            viewModel.GateBusVisualizationMode = busOptions.Mode;
+            viewModel.GateBusTrunkMaxZoom = busOptions.TrunkMaxZoom;
         }
     }
 
@@ -479,6 +526,12 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
     {
         _pinLabelOptions = options.Normalize();
         _canvas.SetPinLabelOptions(_pinLabelOptions);
+    }
+
+    private void ApplyBusDisplayOptions(GateBusDisplayOptions options)
+    {
+        _busDisplayOptions = options.Normalize();
+        _canvas.SetBusDisplayOptions(_busDisplayOptions);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -498,8 +551,11 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
     {
         if (e.PropertyName is nameof(MainWindowViewModel.GatePinLabelMode)
             or nameof(MainWindowViewModel.GateGroupBusPinLabels)
+            or nameof(MainWindowViewModel.GatePinVisibilityMode)
             or nameof(MainWindowViewModel.GatePinLabelCompactZoom)
             or nameof(MainWindowViewModel.GatePinLabelDetailedZoom)
+            or nameof(MainWindowViewModel.GateBusVisualizationMode)
+            or nameof(MainWindowViewModel.GateBusTrunkMaxZoom)
             or nameof(MainWindowViewModel.GateSchematicSettings))
         {
             ApplySettingsFromViewModel();
@@ -509,14 +565,19 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
     private void ApplySettingsFromViewModel()
     {
         if (_observedViewModel is null) return;
-        ApplyPinLabelOptions(ToPinLabelOptions(_observedViewModel.GateSchematicSettings));
+        SchematicConfiguration settings = _observedViewModel.GateSchematicSettings;
+        ApplyPinLabelOptions(ToPinLabelOptions(settings));
+        ApplyBusDisplayOptions(ToBusDisplayOptions(settings));
         _updatingPinControls = true;
         try
         {
             _pinLabelModeBox.SelectedItem = _pinLabelOptions.Mode;
+            _pinVisibilityModeBox.SelectedItem = _pinLabelOptions.VisibilityMode;
             _groupBusPinLabelsCheckBox.IsChecked = _pinLabelOptions.GroupBusPinLabels;
             _compactZoomEditor.Value = (decimal)_pinLabelOptions.CompactZoom;
             _detailedZoomEditor.Value = (decimal)_pinLabelOptions.DetailedZoom;
+            _busVisualizationModeBox.SelectedItem = _busDisplayOptions.Mode;
+            _busTrunkMaxZoomEditor.Value = (decimal)_busDisplayOptions.TrunkMaxZoom;
         }
         finally
         {
@@ -529,7 +590,13 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
             settings.GatePinLabelMode,
             settings.GroupGateBusPinLabels,
             settings.GatePinLabelCompactZoom,
-            settings.GatePinLabelDetailedZoom).Normalize();
+            settings.GatePinLabelDetailedZoom,
+            settings.GatePinVisibilityMode).Normalize();
+
+    private static GateBusDisplayOptions ToBusDisplayOptions(SchematicConfiguration settings) =>
+        new GateBusDisplayOptions(
+            settings.GateBusVisualizationMode,
+            settings.GateBusTrunkMaxZoom).Normalize();
 
     private Button MiniButton(string content, Action onClick)
     {
@@ -587,11 +654,15 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
 
     private void OnSubModuleExpansionToggled(object? sender, string instancePath)
     {
-        if (!_expandedInstancePaths.Add(instancePath))
+        bool isExpanding = _expandedInstancePaths.Add(instancePath);
+        if (!isExpanding)
         {
             _expandedInstancePaths.Remove(instancePath);
             RemoveDescendantExpansions(instancePath);
         }
+        _selectionStatus.Text = isExpanding
+            ? $"Expanding module: {instancePath}"
+            : $"Collapsing module: {instancePath}";
         LoadCurrentScope();
     }
 
@@ -760,6 +831,7 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
         IReadOnlyList<string> scopePath,
         IReadOnlySet<string> expandedInstancePaths)
     {
+        GateModule scopeModule = ResolveScopeModule(scopePath);
         GateNetlistElkBuildResult build = GateNetlistElkBuilder.BuildScope(
             _netlist,
             scopePath,
@@ -770,9 +842,12 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
         if (metrics.ExceedsMonolithicRoutingLimit)
         {
             throw new SchematicRoutingException(
-                $"Scope is too large for monolithic routing "
-                + $"({metrics.NodeCount} nodes, {metrics.PortCount} ports, {metrics.EdgeCount} edges). "
-                + "Re-synthesize to regenerate the hierarchy-preserving schematic artifact.");
+                SchematicRoutingLimitDiagnostic.BuildMessage(
+                    scopeModule.Name,
+                    metrics,
+                    expandedInstancePaths,
+                    hasHierarchicalChildren: scopeModule.Cells.Any(cell => _netlist.Modules.ContainsKey(cell.Type)),
+                    isTopScope: scopePath.Count <= 1));
         }
 
         SchematicLayoutDecision decision = SchematicRoutingQualityResolver.Resolve(
@@ -786,7 +861,7 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
 
         return new PendingScopeLayout(
             build.Graph,
-            ResolveScopeModule(scopePath),
+            scopeModule,
             [.. scopePath],
             decision,
             metrics,
@@ -983,6 +1058,48 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
         AddProperty("Width", bundle.Members.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
         AddProperty("From", $"{bundle.SourceNodeId}.{bundle.SourceBaseName}");
         AddProperty("To",   $"{bundle.TargetNodeId}.{bundle.TargetBaseName}");
+        _propertiesStack.Children.Add(BuildBundleMemberExpander(bundle));
+    }
+
+    private Control BuildBundleMemberExpander(GateBusBundle bundle)
+    {
+        ListBox members = new()
+        {
+            MaxHeight = 260,
+            Background = SurfaceBrush,
+            Foreground = TextBrush,
+            FontFamily = FontFamily.Parse("monospace"),
+            FontSize = 10,
+            ItemsSource = bundle.Members
+                .Select(member => new GateBusBitItem(bundle, member))
+                .ToArray(),
+        };
+        members.SelectionChanged += (_, _) =>
+        {
+            if (members.SelectedItem is GateBusBitItem selected)
+            {
+                SelectBundleMember(selected.Bundle, selected.Member);
+            }
+        };
+
+        return new Expander
+        {
+            Header = $"Bits ({bundle.Members.Count})",
+            Foreground = TextBrush,
+            Margin = new Thickness(0, 8, 0, 0),
+            Content = members,
+        };
+    }
+
+    private void SelectBundleMember(GateBusBundle bundle, GateBusBundleMember member)
+    {
+        _canvas.HighlightBundle(null);
+        _canvas.HighlightNet(member.NetId);
+        _canvas.SelectCell(null);
+        _canvas.CenterOnNet(member.NetId);
+        string bitName = $"{bundle.LogicalName}[{member.BitIndex}]";
+        RenderNetSelection(new GateNetSelection(member.NetId, bitName));
+        _selectionStatus.Text = $"Selected bus bit: {bitName} (net{member.NetId})";
     }
 
     private void RenderCellProperties(GateCell cell)
@@ -1062,6 +1179,13 @@ public sealed class GateLevelSchematicView : UserControl, IAsyncDisposable
             new("net", name, "net" + netId, null, netId);
 
         public override string ToString() => $"{Kind}: {Label}  {Detail}";
+    }
+
+    private sealed record GateBusBitItem(
+        GateBusBundle Bundle,
+        GateBusBundleMember Member)
+    {
+        public override string ToString() => $"[{Member.BitIndex}]  net{Member.NetId}";
     }
 
     private GateModule ResolveScopeModule()

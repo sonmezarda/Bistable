@@ -120,6 +120,11 @@ public sealed class PreferencesWindow : Window
             "Controls hierarchical and primitive pin names. Automatic mode uses zoom-based LOD; bus grouping changes labels only and preserves bit-level connectivity.",
             BuildGatePinLabelEditor()));
 
+        root.Children.Add(BuildField(
+            "Gate bus wires",
+            "Controls whether multi-bit connections use one routed trunk with endpoint fan-out or remain as individual bit wires. Automatic switches by zoom.",
+            BuildGateBusWireEditor()));
+
         return root;
     }
 
@@ -235,6 +240,10 @@ public sealed class PreferencesWindow : Window
             "AvailableGatePinLabelModes",
             "GatePinLabelMode",
             GatePinLabelModeDisplayName));
+        editor.Children.Add(BuildEnumComboBox<GatePinVisibilityMode>(
+            "AvailableGatePinVisibilityModes",
+            "GatePinVisibilityMode",
+            GatePinVisibilityModeDisplayName));
         editor.Children.Add(new CheckBox
         {
             Content = "Group bus pin labels, for example data[31:0]",
@@ -243,6 +252,34 @@ public sealed class PreferencesWindow : Window
                 new Binding("GateGroupBusPinLabels", BindingMode.TwoWay),
         });
         editor.Children.Add(thresholds);
+        return editor;
+    }
+
+    private Control BuildGateBusWireEditor()
+    {
+        StackPanel editor = new()
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 8,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        editor.Children.Add(BuildEnumComboBox<GateBusVisualizationMode>(
+            "AvailableGateBusVisualizationModes",
+            "GateBusVisualizationMode",
+            GateBusVisualizationModeDisplayName));
+
+        Grid threshold = new()
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(new GridLength(90)),
+            },
+            ColumnSpacing = 8,
+        };
+        threshold.Children.Add(ThresholdLabel("Use trunks below zoom"));
+        threshold.Children.Add(ThresholdEditor("GateBusTrunkMaxZoom", 1));
+        editor.Children.Add(threshold);
         return editor;
     }
 
@@ -282,6 +319,21 @@ public sealed class PreferencesWindow : Window
         GatePinLabelMode.Automatic => "Automatic (zoom LOD)",
         GatePinLabelMode.Always => "Always show",
         GatePinLabelMode.Hidden => "Hidden",
+        _ => mode.ToString(),
+    };
+
+    private static string GatePinVisibilityModeDisplayName(GatePinVisibilityMode mode) => mode switch
+    {
+        GatePinVisibilityMode.ConnectedOnly => "Connected pins only",
+        GatePinVisibilityMode.All => "All pins",
+        _ => mode.ToString(),
+    };
+
+    private static string GateBusVisualizationModeDisplayName(GateBusVisualizationMode mode) => mode switch
+    {
+        GateBusVisualizationMode.Automatic => "Automatic (zoom LOD)",
+        GateBusVisualizationMode.Bundled => "Bundled trunks",
+        GateBusVisualizationMode.Individual => "Individual bit wires",
         _ => mode.ToString(),
     };
 }

@@ -145,6 +145,44 @@ Each wave produces something the user can drive on the RISC-V sample. Wave 1 alo
 
 ## 7. Recent activity
 
+- **2026-06-12 — Oversized gate-scope diagnostics corrected.**
+  - Routing-limit failures now distinguish an expanded parent scope, a large hierarchy-preserved scope, an intrinsically large leaf, and a genuinely monolithic top-level artifact.
+  - Large leaf scopes no longer tell users to re-synthesize indefinitely. The diagnostic directs them back through `Up`/breadcrumb and records bounded logic-cone or multi-resolution macro rendering as the required production fallback.
+  - The RISC-V register-file case was measured at 5,393 primitive cells. Its full-array asynchronous reset forces Yosys `mem2reg`, so hierarchy-preserving synthesis alone cannot reduce that leaf.
+  - Verification: solution build has 0 warnings and 0 errors; focused routing diagnostics and quality tests pass 14/14.
+
+- **2026-06-11 — Deterministic gate schematic visual regression landed.**
+  - Switched UI tests from the null headless drawing backend to real Skia rasterization, so render tests now validate actual pixels while retaining the existing 2,000-cell performance budgets.
+  - Added four reviewed 640x340 PNG goldens immediately below/above compact and detailed pin-label thresholds. The fixture covers grouped/individual buses, WEST/EAST pins, boundaries, expanded compounds, primitive symbols, and long names.
+  - Visual comparison is byte-exact, emits `.actual.png` on mismatch, and has an explicit conditional baseline generator. Consecutive runs were byte-identical.
+  - Added `docs/GATE_LEVEL_SCHEMATIC.md` with navigation, pin/bus LOD, tooltip, routing-quality, regression, and performance guidance.
+  - Verification: **838/838 tests green** (809 Tests + 14 Snapshots + 4 Regression + 11 UI); solution build has 0 warnings and 0 errors.
+  - Phase closure remains pending regenerated hierarchical RV32 labels-on/off frame measurements and manual visual acceptance; the checked-in sample synthesis JSON is stale/flattened and was not used for a misleading benchmark.
+
+- **2026-06-11 — Gate pin interaction overrides and structural tooltips landed.**
+  - Added a graph-scoped pin interaction index for O(1) pin/net metadata and selected-net endpoint lookup. Hover hit-testing is limited to spatially indexed nodes near the pointer rather than scanning the complete synthesized graph.
+  - Hovered pins reveal an individual priority label after a delayed rich tooltip showing pin, named net/net id, bit range, direction, and width. Selected-net endpoints and selected-cell pins remain visible independently of normal zoom LOD.
+  - Added project-scoped `ConnectedOnly` / `All` pin visibility, editable from both the gate toolbar and Preferences and persisted in `.bistable.json`. It remains separate from `Automatic` / `Always` / `Hidden` label LOD.
+  - Direction and connectivity metadata are structural: Yosys port directions, boundary semantics, ELK edge net ids, and `GateNet.Bits`; no pin or memory naming convention is used.
+  - Added interaction-index, nested-coordinate, named-net, unconnected-pin, boundary-direction, reverse-net-index, ViewModel, and JSON persistence regressions.
+  - Verification: **834/834 tests green** (809 Tests + 14 Snapshots + 4 Regression + 7 UI); solution build has 0 warnings and 0 errors.
+
+- **2026-06-11 — Collision-aware gate pin label placement landed.**
+  - Added a deterministic screen-space occupancy engine with inside/outside and above/below candidates. Selected-cell labels receive priority; ordinary labels are hidden rather than drawn through occupied UI when no safe candidate remains.
+  - Placement avoids neighboring labels, primitive bodies, module title strips, boundary headers, expand badges, and unrelated pin dots. Owner-aware obstacles still allow hierarchical labels inside their own module body.
+  - Added a graph-scoped world-space node index so per-frame label work is limited to the visible viewport plus margin, including nested compounds and very large nodes without indexing every covered cell.
+  - Added collision, ownership, deterministic ordering, viewport culling, spatial-index, and dense headless-render regressions. The existing 2,000-cell performance budgets remain green; the dedicated 80-module/640-label case remains below 1.5 seconds.
+  - Verification: **830/830 tests green** (805 Tests + 14 Snapshots + 4 Regression + 7 UI); solution build has 0 warnings and 0 errors.
+
+- **2026-06-11 — True bus trunk geometry and configurable wire LOD landed.**
+  - Added a post-layout `GateBusBundleGeometryBuilder` that reuses a representative member's ELK-routed orthogonal path as the consolidated trunk and creates synthetic orthogonal source/target collectors for all constituent pins.
+  - Bundled rendering now suppresses only successfully materialized member edges; failed/incomplete geometry automatically falls back to bit-level routes. Original edge/net metadata remains untouched for simulation and cross-probe.
+  - Added project-scoped `Automatic` / `Bundled` / `Individual` wire modes plus an adjustable trunk zoom threshold, editable live from the gate toolbar and persistently from Preferences.
+  - Trunk and fan legs participate in bundle-aware hit-testing and highlighting. The properties panel exposes a virtualized constituent-bit list for selecting and centering an exact member net.
+  - RV32 synthesized artifact check: 179 nodes, 1,138 edges, 21 bundles, 21/21 trunk geometries; graph build about 32 ms and FastPreview ELK route about 2.4 s.
+  - Added orthogonality, representative-route, nested-offset, fallback, LOD, persistence, and headless Avalonia render regressions.
+  - Verification: **817/817 tests green** (793 Tests + 14 Snapshots + 4 Regression + 6 UI); solution build has 0 warnings and 0 errors.
+
 - **2026-06-04 — Wave 1/2 baseline confirmed from branch state.**
   - `GateSchematicCanvas` is the active custom DrawingContext renderer with pan/zoom and symbol painters.
   - `GateLevelSchematicWindow` owns scope path, breadcrumb, Up navigation, and double-click drill-in through `SubModuleActivated`.

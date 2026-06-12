@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Bistable.App.Services.Routing.Elk;
 using Bistable.Core.Design.Schematic;
 using Bistable.Core.Projects;
@@ -34,7 +35,10 @@ public sealed class GateSchematicCanvas : Control
     private GateModule? _module;
     private IReadOnlyDictionary<string, GateCell> _cellByName =
         new Dictionary<string, GateCell>(StringComparer.Ordinal);
-    private ElkEdgeCoordinateContext? _edgeCoordinateContext;
+    private GateElkGeometry? _geometry;
+    private GateNodeSpatialIndex _nodeSpatialIndex = GateNodeSpatialIndex.Build(null);
+    private GatePinInteractionIndex _pinInteractionIndex =
+        GatePinInteractionIndex.Build(null, null);
     private double _zoom = 1.0;
     private Point _pan;
     private Point _lastPointerPos;
@@ -45,7 +49,17 @@ public sealed class GateSchematicCanvas : Control
     private string? _highlightedBundleId;
     private IReadOnlyDictionary<string, GateBusBundle> _bundlesById =
         new Dictionary<string, GateBusBundle>(StringComparer.Ordinal);
+    private IReadOnlyDictionary<string, GateBusBundleGeometry> _bundleGeometryById =
+        new Dictionary<string, GateBusBundleGeometry>(StringComparer.Ordinal);
     private GatePinLabelDisplayOptions _pinLabelOptions = GatePinLabelDisplayOptions.Default;
+    private GateBusDisplayOptions _busDisplayOptions = GateBusDisplayOptions.Default;
+    private readonly DispatcherTimer _pinToolTipTimer;
+    private readonly TextBlock _pinToolTipContent = new()
+    {
+        FontFamily = FontFamily.Parse("monospace"),
+        FontSize = 11,
+    };
+    private string? _hoveredPortId;
 
     /// <summary>
     /// Phase 6.5 Wave 2: raised when the user double-clicks (or single-clicks
@@ -76,6 +90,12 @@ public sealed class GateSchematicCanvas : Control
     {
         Focusable = true;
         ClipToBounds = true;
+        _pinToolTipTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(350),
+        };
+        _pinToolTipTimer.Tick += (_, _) => OpenPinToolTip();
+        ToolTip.SetTip(this, _pinToolTipContent);
     }
 
     /// <summary>Replace the rendered graph and force a re-fit on next draw.</summary>
@@ -87,13 +107,20 @@ public sealed class GateSchematicCanvas : Control
         _graph = graph;
         _module = module;
         _cellByName = module.Cells.ToDictionary(static cell => cell.Name, StringComparer.Ordinal);
-        _edgeCoordinateContext = BuildEdgeCoordinateContext(graph);
+        _geometry = GateElkGeometry.Build(graph);
+        _nodeSpatialIndex = GateNodeSpatialIndex.Build(graph.Children);
+        _pinInteractionIndex = GatePinInteractionIndex.Build(graph, module);
         _bundlesById = bundles is null
             ? new Dictionary<string, GateBusBundle>(StringComparer.Ordinal)
             : bundles.ToDictionary(static b => b.Id, StringComparer.Ordinal);
+        _bundleGeometryById = GateBusBundleGeometryBuilder.Build(
+            graph,
+            _bundlesById,
+            _geometry);
         _highlightedNetId = null;
         _highlightedBundleId = null;
         _selectedCellName = null;
+        ClearHoveredPin();
         _fitPending = true;
         InvalidateVisual();
     }
@@ -134,18 +161,16 @@ public sealed class GateSchematicCanvas : Control
     public void CenterOnNet(int netId)
     {
         if (_graph?.Edges is null) return;
-        ElkEdgeCoordinateContext coordinateContext =
-            _edgeCoordinateContext ??= BuildEdgeCoordinateContext(_graph);
+        GateElkGeometry geometry = _geometry ??= GateElkGeometry.Build(_graph);
         foreach (ElkEdge edge in _graph.Edges)
         {
             if (TryGetEdgeNetId(edge) != netId || edge.Sections is not { Count: > 0 }) continue;
-            ElkEdgeSection section = edge.Sections[0];
-            Point offset = ResolveEdgeCoordinateOffset(edge, coordinateContext);
-            Point start = OffsetPoint(section.StartPoint, offset);
-            Point end = section.BendPoints is { Count: > 0 } bends
-                ? OffsetPoint(bends[0], offset)
-                : OffsetPoint(section.EndPoint, offset);
-            CenterOnWorldPoint(new Point((start.X + end.X) / 2, (start.Y + end.Y) / 2));
+            IReadOnlyList<GateBusGeometrySegment> segments = geometry.GetEdgeSegments(edge);
+            if (segments.Count == 0) continue;
+            GateBusGeometrySegment segment = segments[0];
+            CenterOnWorldPoint(new Point(
+                (segment.Start.X + segment.End.X) / 2,
+                (segment.Start.Y + segment.End.Y) / 2));
             return;
         }
     }
@@ -173,6 +198,14 @@ public sealed class GateSchematicCanvas : Control
         InvalidateVisual();
     }
 
+    internal void SetViewportTransform(double zoom, Point pan)
+    {
+        _zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        _pan = pan;
+        _fitPending = false;
+        InvalidateVisual();
+    }
+
     /// <summary>
     /// Moves the viewport without rebuilding or re-laying out the graph.
     /// Used by dock/session restoration and performance regression coverage.
@@ -191,6 +224,12 @@ public sealed class GateSchematicCanvas : Control
         InvalidateVisual();
     }
 
+    public void SetBusDisplayOptions(GateBusDisplayOptions options)
+    {
+        _busDisplayOptions = options.Normalize();
+        InvalidateVisual();
+    }
+
     // ── Render ────────────────────────────────────────────────────────────
 
     public override void Render(DrawingContext context)
@@ -200,6 +239,9 @@ public sealed class GateSchematicCanvas : Control
         if (_graph is null || _module is null) return;
 
         if (_fitPending) ApplyFit();
+        Rect worldViewport = GetWorldViewport();
+        IReadOnlyDictionary<string, IReadOnlyList<RenderedPinLabel>> pinLabelsByNode =
+            BuildPinLabelPlacements(worldViewport);
 
         using (context.PushTransform(Matrix.CreateTranslation(_pan.X, _pan.Y)))
         using (context.PushTransform(Matrix.CreateScale(_zoom, _zoom)))
@@ -217,8 +259,9 @@ public sealed class GateSchematicCanvas : Control
                 overview,
                 1.0 / Math.Max(_zoom, MinZoom),
                 _zoom,
-                _pinLabelOptions);
-            DrawEdges(context, _graph, _edgeCoordinateContext!, overview);
+                pinLabelsByNode,
+                worldViewport);
+            DrawEdges(context, _graph, _geometry!, overview);
             DrawNodes(
                 context,
                 _graph,
@@ -227,7 +270,8 @@ public sealed class GateSchematicCanvas : Control
                 overview,
                 1.0 / Math.Max(_zoom, MinZoom),
                 _zoom,
-                _pinLabelOptions);
+                pinLabelsByNode,
+                worldViewport);
         }
 
         // Overlay HUD with zoom percentage.
@@ -255,6 +299,16 @@ public sealed class GateSchematicCanvas : Control
         _fitPending = false;
     }
 
+    private Rect GetWorldViewport()
+    {
+        double zoom = Math.Max(_zoom, MinZoom);
+        return new Rect(
+            -_pan.X / zoom,
+            -_pan.Y / zoom,
+            Bounds.Width / zoom,
+            Bounds.Height / zoom);
+    }
+
     internal static double CalculateFitZoom(Size viewport, Size graph)
     {
         double availW = Math.Max(1, viewport.Width - FitPadding * 2);
@@ -272,63 +326,80 @@ public sealed class GateSchematicCanvas : Control
     private static readonly IBrush HighlightWireBrush = SolidColorBrush.Parse("#ffd166");
     private static readonly Pen WirePen = new(WireBrush, 1.0);
     private static readonly Pen HighlightWirePen = new(HighlightWireBrush, 2.6);
-
-    // Bundle trunk overlay: at overview zoom and below the detailed threshold
-    // we don't draw individual bit edges in a different colour, but we DO
-    // thicken bundle members so the user can see "this is a bus, not one
-    // scalar wire". Highlighted bundles win over net highlight so clicking a
-    // single bit also lights up the whole bus it belongs to.
-    private static readonly Pen BundleTrunkPen =
-        new(SolidColorBrush.Parse("#65d889"), 2.4);
-    private static readonly Pen BundleHighlightPen =
-        new(SolidColorBrush.Parse("#ffd166"), 3.4);
+    private static readonly Pen BundleMemberHighlightPen = new(HighlightWireBrush, 3.4);
 
     private void DrawEdges(
         DrawingContext context,
         ElkGraph graph,
-        ElkEdgeCoordinateContext coordinateContext,
+        GateElkGeometry geometry,
         bool overview)
     {
         if (graph.Edges is null) return;
+        bool useBundleGeometry = _busDisplayOptions.UsesTrunks(_zoom);
         Pen overviewPen = new(OverviewWireBrush, 0.65 / Math.Max(_zoom, MinZoom));
         foreach (ElkEdge edge in graph.Edges)
         {
             if (edge.Sections is null) continue;
-            Pen pen = ResolveEdgePen(edge, overview, overviewPen);
-            Point offset = ResolveEdgeCoordinateOffset(edge, coordinateContext);
-            foreach (ElkEdgeSection section in edge.Sections)
+            string? bundleId = TryGetEdgeBundleId(edge);
+            if (useBundleGeometry
+                && bundleId is not null
+                && _bundleGeometryById.ContainsKey(bundleId))
             {
-                Point prev = OffsetPoint(section.StartPoint, offset);
-                if (section.BendPoints is { } bends)
-                {
-                    foreach (ElkPoint bp in bends)
-                    {
-                        Point cur = OffsetPoint(bp, offset);
-                        context.DrawLine(pen, prev, cur);
-                        prev = cur;
-                    }
-                }
-                context.DrawLine(pen, prev, OffsetPoint(section.EndPoint, offset));
+                continue;
+            }
+
+            Pen pen = ResolveEdgePen(edge, overview, overviewPen);
+            foreach (GateBusGeometrySegment segment in geometry.GetEdgeSegments(edge))
+            {
+                context.DrawLine(pen, segment.Start, segment.End);
+            }
+        }
+
+        if (useBundleGeometry)
+        {
+            DrawBundleGeometry(context);
+        }
+    }
+
+    private void DrawBundleGeometry(DrawingContext context)
+    {
+        double inverseZoom = 1.0 / Math.Max(_zoom, MinZoom);
+        Pen normalTrunkPen = new(WireBrush, 2.4 * inverseZoom);
+        Pen highlightedTrunkPen = new(HighlightWireBrush, 3.4 * inverseZoom);
+        Pen normalFanPen = new(WireBrush, 1.4 * inverseZoom);
+        Pen highlightedFanPen = new(HighlightWireBrush, 2.4 * inverseZoom);
+        foreach (GateBusBundleGeometry geometry in _bundleGeometryById.Values)
+        {
+            bool highlighted = string.Equals(
+                geometry.BundleId,
+                _highlightedBundleId,
+                StringComparison.Ordinal);
+            Pen trunkPen = highlighted ? highlightedTrunkPen : normalTrunkPen;
+            Pen fanPen = highlighted ? highlightedFanPen : normalFanPen;
+            foreach (GateBusGeometrySegment segment in geometry.TrunkSegments)
+            {
+                context.DrawLine(trunkPen, segment.Start, segment.End);
+            }
+            foreach (GateBusGeometrySegment segment in geometry.FanSegments)
+            {
+                context.DrawLine(fanPen, segment.Start, segment.End);
             }
         }
     }
 
     private Pen ResolveEdgePen(ElkEdge edge, bool overview, Pen overviewPen)
     {
-        string? bundleId = TryGetEdgeBundleId(edge);
-        if (bundleId is not null && bundleId == _highlightedBundleId)
+        if (_highlightedBundleId is not null
+            && string.Equals(
+                TryGetEdgeBundleId(edge),
+                _highlightedBundleId,
+                StringComparison.Ordinal))
         {
-            return BundleHighlightPen;
+            return BundleMemberHighlightPen;
         }
         if (_highlightedNetId is { } netId && TryGetEdgeNetId(edge) == netId)
         {
             return HighlightWirePen;
-        }
-        if (bundleId is not null && !overview)
-        {
-            // Compact LOD: emphasise bus members so the user can tell a wide
-            // bus apart from a stack of unrelated parallel scalars.
-            return BundleTrunkPen;
         }
         return overview ? overviewPen : WirePen;
     }
@@ -364,7 +435,8 @@ public sealed class GateSchematicCanvas : Control
         bool overview,
         double inverseZoom,
         double zoom,
-        GatePinLabelDisplayOptions pinLabelOptions)
+        IReadOnlyDictionary<string, IReadOnlyList<RenderedPinLabel>> pinLabelsByNode,
+        Rect worldViewport)
     {
         if (graph.Children is null) return;
         DrawNodesRecursive(
@@ -377,7 +449,8 @@ public sealed class GateSchematicCanvas : Control
             overview,
             inverseZoom,
             zoom,
-            pinLabelOptions);
+            pinLabelsByNode,
+            worldViewport);
     }
 
     private static void DrawNodesRecursive(
@@ -390,13 +463,18 @@ public sealed class GateSchematicCanvas : Control
         bool overview,
         double inverseZoom,
         double zoom,
-        GatePinLabelDisplayOptions pinLabelOptions)
+        IReadOnlyDictionary<string, IReadOnlyList<RenderedPinLabel>> pinLabelsByNode,
+        Rect worldViewport)
     {
         foreach (ElkNode node in nodes)
         {
             double absX = baseX + node.X;
             double absY = baseY + node.Y;
             Rect rect = new(absX, absY, node.Width, node.Height);
+            if (!rect.Inflate(160 / Math.Max(zoom, MinZoom)).Intersects(worldViewport))
+            {
+                continue;
+            }
             if (pass == RenderPass.Bodies)
             {
                 DrawNodeBackground(context, node, rect);
@@ -420,8 +498,7 @@ public sealed class GateSchematicCanvas : Control
                     node,
                     absX,
                     absY,
-                    zoom,
-                    pinLabelOptions,
+                    pinLabelsByNode,
                     drawDots: !overview);
             }
             if (node.Children is { Count: > 0 })
@@ -436,7 +513,8 @@ public sealed class GateSchematicCanvas : Control
                     overview,
                     inverseZoom,
                     zoom,
-                    pinLabelOptions);
+                    pinLabelsByNode,
+                    worldViewport);
             }
         }
     }
@@ -791,8 +869,7 @@ public sealed class GateSchematicCanvas : Control
         ElkNode node,
         double nodeAbsoluteX,
         double nodeAbsoluteY,
-        double zoom,
-        GatePinLabelDisplayOptions pinLabelOptions,
+        IReadOnlyDictionary<string, IReadOnlyList<RenderedPinLabel>> pinLabelsByNode,
         bool drawDots)
     {
         if (node.Ports is null) return;
@@ -805,21 +882,17 @@ public sealed class GateSchematicCanvas : Control
             }
         }
 
-        foreach (GatePinLabel label in GatePinLabelLayout.Resolve(node.Ports, zoom, pinLabelOptions))
+        if (!pinLabelsByNode.TryGetValue(node.Id, out IReadOnlyList<RenderedPinLabel>? labels))
         {
-            Point centre = new(
-                nodeAbsoluteX + label.Port.X,
-                nodeAbsoluteY + label.Port.Y);
-            FormattedText text = CreatePinLabelText(label.Text);
-            double x = label.IsWestSide
-                ? centre.X + 5
-                : centre.X - 5 - text.Width;
-            double y = centre.Y - text.Height / 2;
+            return;
+        }
+        foreach (RenderedPinLabel label in labels)
+        {
             ctx.FillRectangle(
                 PinLabelBackground,
-                new Rect(x - 2, y - 1, text.Width + 4, text.Height + 2),
+                label.BackgroundBounds,
                 2);
-            ctx.DrawText(text, new Point(x, y));
+            ctx.DrawText(label.Text, label.TextOrigin);
         }
     }
 
@@ -831,6 +904,176 @@ public sealed class GateSchematicCanvas : Control
             new Typeface("monospace"),
             8.5,
             SolidColorBrush.Parse("#b7c4d8"));
+
+    private IReadOnlyDictionary<string, IReadOnlyList<RenderedPinLabel>> BuildPinLabelPlacements(
+        Rect worldViewport)
+    {
+        if (_graph?.Children is not { Count: > 0 })
+        {
+            return new Dictionary<string, IReadOnlyList<RenderedPinLabel>>(StringComparer.Ordinal);
+        }
+
+        double margin = 160 / Math.Max(_zoom, MinZoom);
+        Rect visibleNodeViewport = worldViewport.Inflate(margin);
+        List<GatePinLabelPlacementRequest> requests = [];
+        List<GatePinLabelObstacle> obstacles = [];
+        Dictionary<string, PinLabelDraft> drafts = new(StringComparer.Ordinal);
+        IReadOnlySet<string> selectedNetPortIds =
+            _pinInteractionIndex.GetPortIdsForNet(_highlightedNetId);
+
+        foreach (GateVisibleNode visible in _nodeSpatialIndex.Query(visibleNodeViewport))
+        {
+            ElkNode node = visible.Node;
+            double absX = visible.AbsoluteX;
+            double absY = visible.AbsoluteY;
+            Rect nodeBounds = visible.Bounds;
+
+            AddNodeObstacles(node, nodeBounds, obstacles);
+            if (node.Ports is not { Count: > 0 })
+            {
+                continue;
+            }
+
+            bool selectedCell = _selectedCellName is not null
+                && NodeRepresentsCell(node, _selectedCellName);
+            IReadOnlyList<ElkPort> eligiblePorts = selectedCell
+                || _pinLabelOptions.VisibilityMode == GatePinVisibilityMode.All
+                ? node.Ports
+                : node.Ports
+                    .Where(port => _pinInteractionIndex.Get(port.Id)?.IsConnected == true)
+                    .ToArray();
+            GatePinLabelDisplayOptions normalOptions = selectedCell
+                ? _pinLabelOptions with { Mode = GatePinLabelMode.Always }
+                : _pinLabelOptions;
+            List<GatePinLabel> labels =
+            [
+                .. GatePinLabelLayout.Resolve(
+                    eligiblePorts,
+                    _zoom,
+                    normalOptions),
+            ];
+            HashSet<string> labelledPortIds = labels
+                .Select(static label => label.Port.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (ElkPort port in node.Ports)
+            {
+                bool forced = string.Equals(port.Id, _hoveredPortId, StringComparison.Ordinal)
+                    || selectedNetPortIds.Contains(port.Id);
+                if (!forced || labelledPortIds.Contains(port.Id))
+                {
+                    continue;
+                }
+                IReadOnlyList<GatePinLabel> forcedLabels = GatePinLabelLayout.Resolve(
+                    [port],
+                    _zoom,
+                    _pinLabelOptions with
+                    {
+                        Mode = GatePinLabelMode.Always,
+                        GroupBusPinLabels = false,
+                    });
+                labels.AddRange(forcedLabels);
+                foreach (GatePinLabel label in forcedLabels)
+                {
+                    labelledPortIds.Add(label.Port.Id);
+                }
+            }
+
+            Dictionary<string, string> requestIdByPortId = new(StringComparer.Ordinal);
+            foreach (GatePinLabel label in labels)
+            {
+                bool priority = selectedCell
+                    || string.Equals(label.Port.Id, _hoveredPortId, StringComparison.Ordinal)
+                    || selectedNetPortIds.Contains(label.Port.Id);
+                FormattedText text = CreatePinLabelText(label.Text);
+                string id = BuildPinLabelPlacementId(node, label);
+                GatePinLabelPlacementRequest request = new(
+                    id,
+                    node.Id,
+                    new Point(absX + label.Port.X, absY + label.Port.Y),
+                    label.IsWestSide,
+                    new Size(text.Width, text.Height),
+                    priority);
+                requests.Add(request);
+                drafts[id] = new PinLabelDraft(node.Id, text);
+                requestIdByPortId[label.Port.Id] = id;
+            }
+
+            foreach (ElkPort port in node.Ports)
+            {
+                Point centre = new(absX + port.X, absY + port.Y);
+                obstacles.Add(new GatePinLabelObstacle(
+                    new Rect(centre.X - 3, centre.Y - 3, 6, 6),
+                    AllowedRequestId: requestIdByPortId.GetValueOrDefault(port.Id)));
+            }
+        }
+
+        IReadOnlyDictionary<string, GatePinLabelPlacement> placements =
+            GatePinLabelPlacementEngine.Place(
+                requests,
+                obstacles,
+                worldViewport,
+                _zoom);
+        Dictionary<string, List<RenderedPinLabel>> mutable = new(StringComparer.Ordinal);
+        foreach ((string id, GatePinLabelPlacement placement) in placements)
+        {
+            PinLabelDraft draft = drafts[id];
+            if (!mutable.TryGetValue(draft.NodeId, out List<RenderedPinLabel>? labels))
+            {
+                labels = [];
+                mutable[draft.NodeId] = labels;
+            }
+            labels.Add(new RenderedPinLabel(
+                draft.Text,
+                placement.TextOrigin,
+                placement.TextBounds));
+        }
+
+        return mutable.ToDictionary(
+            static pair => pair.Key,
+            static pair => (IReadOnlyList<RenderedPinLabel>)pair.Value,
+            StringComparer.Ordinal);
+    }
+
+    private static void AddNodeObstacles(
+        ElkNode node,
+        Rect bounds,
+        List<GatePinLabelObstacle> obstacles)
+    {
+        bool isInstance = node.Id.StartsWith(SubModuleIdPrefix, StringComparison.Ordinal);
+        bool isBoundary = node.Id is "boundary_in" or "boundary_out";
+        bool expandedInstance = isInstance && node.Children is { Count: > 0 };
+
+        if (!expandedInstance)
+        {
+            obstacles.Add(new GatePinLabelObstacle(
+                bounds,
+                isInstance || isBoundary ? node.Id : null));
+        }
+
+        if (isInstance)
+        {
+            obstacles.Add(new GatePinLabelObstacle(
+                new Rect(bounds.X, bounds.Y, bounds.Width, Math.Min(36, bounds.Height))));
+            obstacles.Add(new GatePinLabelObstacle(SubModuleButtonRect(bounds)));
+        }
+        else if (isBoundary)
+        {
+            obstacles.Add(new GatePinLabelObstacle(
+                new Rect(bounds.X, bounds.Y, bounds.Width, Math.Min(22, bounds.Height))));
+        }
+    }
+
+    private static string BuildPinLabelPlacementId(ElkNode node, GatePinLabel label) =>
+        string.Concat(node.Id, "\u001f", label.Port.Id, "\u001f", label.Text);
+
+    private sealed record PinLabelDraft(
+        string NodeId,
+        FormattedText Text);
+
+    private sealed record RenderedPinLabel(
+        FormattedText Text,
+        Point TextOrigin,
+        Rect BackgroundBounds);
 
     // ── Pan + zoom + keyboard ─────────────────────────────────────────────
 
@@ -879,7 +1122,6 @@ public sealed class GateSchematicCanvas : Control
                 HighlightBundle(netHit.BundleId);
                 SelectCell(null);
                 NetSelected?.Invoke(this, new GateNetSelection(netHit.NetId, ResolveNetName(netHit.NetId)));
-                CellSelected?.Invoke(this, null);
                 BundleSelected?.Invoke(this, netHit.BundleId is { } bid
                     && _bundlesById.TryGetValue(bid, out GateBusBundle? bundle)
                     ? new GateBusBundleSelection(bundle)
@@ -993,41 +1235,64 @@ public sealed class GateSchematicCanvas : Control
                 {
                     Point centre = new(absX + port.X, absY + port.Y);
                     if (Distance(world, centre) <= tolerance
-                        && TryFindNetForPort(port.Id) is { } portNet)
+                        && TryFindNetHitForPort(port.Id) is { } portHit)
                     {
-                        // Port-dot hits don't disclose which member edge the
-                        // user meant, so leave the bundle field null — the
-                        // edge-segment branch below resolves it accurately.
-                        return new NetHit(portNet, BundleId: null);
+                        return portHit;
                     }
                 }
             }
         }
 
         if (_graph.Edges is null) return null;
-        ElkEdgeCoordinateContext coordinateContext =
-            _edgeCoordinateContext ??= BuildEdgeCoordinateContext(_graph);
+        bool useBundleGeometry = _busDisplayOptions.UsesTrunks(_zoom);
+        if (useBundleGeometry && HitTestBundleGeometry(world, tolerance) is { } bundleHit)
+        {
+            return bundleHit;
+        }
+
+        GateElkGeometry geometry = _geometry ??= GateElkGeometry.Build(_graph);
         foreach (ElkEdge edge in _graph.Edges)
         {
             int? netId = TryGetEdgeNetId(edge);
             if (netId is null || edge.Sections is null) continue;
-            Point offset = ResolveEdgeCoordinateOffset(edge, coordinateContext);
-            foreach (ElkEdgeSection section in edge.Sections)
+            string? bundleId = TryGetEdgeBundleId(edge);
+            if (useBundleGeometry
+                && bundleId is not null
+                && _bundleGeometryById.ContainsKey(bundleId))
             {
-                Point prev = OffsetPoint(section.StartPoint, offset);
-                if (section.BendPoints is { } bends)
+                continue;
+            }
+
+            foreach (GateBusGeometrySegment segment in geometry.GetEdgeSegments(edge))
+            {
+                if (DistanceToSegment(world, segment.Start, segment.End) <= tolerance)
                 {
-                    foreach (ElkPoint bp in bends)
-                    {
-                        Point cur = OffsetPoint(bp, offset);
-                        if (DistanceToSegment(world, prev, cur) <= tolerance)
-                            return new NetHit(netId.Value, TryGetEdgeBundleId(edge));
-                        prev = cur;
-                    }
+                    return new NetHit(netId.Value, bundleId);
                 }
-                Point end = OffsetPoint(section.EndPoint, offset);
-                if (DistanceToSegment(world, prev, end) <= tolerance)
-                    return new NetHit(netId.Value, TryGetEdgeBundleId(edge));
+            }
+        }
+        return null;
+    }
+
+    private NetHit? HitTestBundleGeometry(Point world, double tolerance)
+    {
+        foreach (GateBusBundleGeometry geometry in _bundleGeometryById.Values)
+        {
+            foreach (GateBusGeometrySegment segment in geometry.FanSegments)
+            {
+                if (DistanceToSegment(world, segment.Start, segment.End) <= tolerance)
+                {
+                    return new NetHit(
+                        segment.NetId ?? geometry.RepresentativeNetId,
+                        geometry.BundleId);
+                }
+            }
+            foreach (GateBusGeometrySegment segment in geometry.TrunkSegments)
+            {
+                if (DistanceToSegment(world, segment.Start, segment.End) <= tolerance)
+                {
+                    return new NetHit(geometry.RepresentativeNetId, geometry.BundleId);
+                }
             }
         }
         return null;
@@ -1079,18 +1344,28 @@ public sealed class GateSchematicCanvas : Control
             new Dictionary<string, string>());
     }
 
-    private int? TryFindNetForPort(string portId)
+    private NetHit? TryFindNetHitForPort(string portId)
     {
         if (_graph?.Edges is null) return null;
+        int? firstNetId = null;
+        HashSet<string> bundleIds = new(StringComparer.Ordinal);
         foreach (ElkEdge edge in _graph.Edges)
         {
             if ((edge.Sources?.Contains(portId) ?? false)
                 || (edge.Targets?.Contains(portId) ?? false))
             {
-                return TryGetEdgeNetId(edge);
+                firstNetId ??= TryGetEdgeNetId(edge);
+                if (TryGetEdgeBundleId(edge) is { } bundleId)
+                {
+                    bundleIds.Add(bundleId);
+                }
             }
         }
-        return null;
+        return firstNetId is { } netId
+            ? new NetHit(
+                netId,
+                bundleIds.Count == 1 ? bundleIds.Single() : null)
+            : null;
     }
 
     private string? ResolveNetName(int netId)
@@ -1151,89 +1426,6 @@ public sealed class GateSchematicCanvas : Control
         }
     }
 
-    private static ElkEdgeCoordinateContext BuildEdgeCoordinateContext(ElkGraph graph)
-    {
-        Dictionary<string, string[]> endpointPaths = new(StringComparer.Ordinal);
-        Dictionary<string, Point> nodeOrigins = new(StringComparer.Ordinal);
-        Visit(graph.Children, [], absoluteX: 0, absoluteY: 0);
-        return new ElkEdgeCoordinateContext(endpointPaths, nodeOrigins);
-
-        void Visit(IReadOnlyList<ElkNode> nodes, string[] parentPath, double absoluteX, double absoluteY)
-        {
-            foreach (ElkNode node in nodes)
-            {
-                double nodeAbsoluteX = absoluteX + node.X;
-                double nodeAbsoluteY = absoluteY + node.Y;
-                string[] nodePath = [.. parentPath, node.Id];
-                endpointPaths[node.Id] = nodePath;
-                nodeOrigins[PathKey(nodePath)] = new Point(nodeAbsoluteX, nodeAbsoluteY);
-
-                if (node.Ports is { Count: > 0 })
-                {
-                    foreach (ElkPort port in node.Ports)
-                    {
-                        endpointPaths[port.Id] = nodePath;
-                    }
-                }
-
-                if (node.Children is { Count: > 0 })
-                {
-                    Visit(node.Children, nodePath, nodeAbsoluteX, nodeAbsoluteY);
-                }
-            }
-        }
-    }
-
-    private static Point ResolveEdgeCoordinateOffset(ElkEdge edge, ElkEdgeCoordinateContext context)
-    {
-        string[]? commonPath = null;
-        foreach (string endpoint in edge.Sources.Concat(edge.Targets))
-        {
-            if (!context.EndpointPaths.TryGetValue(endpoint, out string[]? endpointPath))
-            {
-                continue;
-            }
-
-            commonPath = commonPath is null
-                ? endpointPath
-                : CommonPrefix(commonPath, endpointPath);
-            if (commonPath.Length == 0)
-            {
-                return default;
-            }
-        }
-
-        if (commonPath is null || commonPath.Length == 0)
-        {
-            return default;
-        }
-
-        return context.NodeOrigins.TryGetValue(PathKey(commonPath), out Point origin)
-            ? origin
-            : default;
-    }
-
-    private static string[] CommonPrefix(string[] left, string[] right)
-    {
-        int count = Math.Min(left.Length, right.Length);
-        int i = 0;
-        while (i < count && string.Equals(left[i], right[i], StringComparison.Ordinal))
-        {
-            i++;
-        }
-
-        return left[..i];
-    }
-
-    private static string PathKey(IReadOnlyList<string> path) => string.Join('\u001f', path);
-
-    private static Point OffsetPoint(ElkPoint point, Point offset) =>
-        new(point.X + offset.X, point.Y + offset.Y);
-
-    private sealed record ElkEdgeCoordinateContext(
-        IReadOnlyDictionary<string, string[]> EndpointPaths,
-        IReadOnlyDictionary<string, Point> NodeOrigins);
-
     private static double Distance(Point a, Point b)
     {
         double dx = a.X - b.X;
@@ -1259,13 +1451,94 @@ public sealed class GateSchematicCanvas : Control
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (!_isPanning) return;
+        if (!_isPanning)
+        {
+            UpdateHoveredPin(ScreenToWorld(e.GetPosition(this)));
+            return;
+        }
         Point p = e.GetPosition(this);
         Vector delta = p - _lastPointerPos;
         _pan = new Point(_pan.X + delta.X, _pan.Y + delta.Y);
         _lastPointerPos = p;
         InvalidateVisual();
         e.Handled = true;
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        ClearHoveredPin();
+    }
+
+    private void UpdateHoveredPin(Point world)
+    {
+        GatePinInfo? pin = HitTestPin(world);
+        string? portId = pin?.PortId;
+        if (string.Equals(_hoveredPortId, portId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _pinToolTipTimer.Stop();
+        ToolTip.SetIsOpen(this, false);
+        _hoveredPortId = portId;
+        if (pin is not null)
+        {
+            _pinToolTipContent.Text = pin.FormatTooltip();
+            _pinToolTipTimer.Start();
+        }
+        InvalidateVisual();
+    }
+
+    private GatePinInfo? HitTestPin(Point world)
+    {
+        double tolerance = Math.Max(4.0, 7.0 / Math.Max(_zoom, MinZoom));
+        Rect query = new(
+            world.X - tolerance,
+            world.Y - tolerance,
+            tolerance * 2,
+            tolerance * 2);
+        GatePinInfo? nearest = null;
+        double nearestDistance = double.MaxValue;
+        foreach (GateVisibleNode visible in _nodeSpatialIndex.Query(query))
+        {
+            foreach (ElkPort port in visible.Node.Ports ?? [])
+            {
+                GatePinInfo? candidate = _pinInteractionIndex.Get(port.Id);
+                if (candidate is null)
+                {
+                    continue;
+                }
+                double distance = Distance(world, candidate.Centre);
+                if (distance <= tolerance && distance < nearestDistance)
+                {
+                    nearest = candidate;
+                    nearestDistance = distance;
+                }
+            }
+        }
+        return nearest;
+    }
+
+    private void OpenPinToolTip()
+    {
+        _pinToolTipTimer.Stop();
+        if (_hoveredPortId is not null)
+        {
+            ToolTip.SetIsOpen(this, true);
+        }
+    }
+
+    private void ClearHoveredPin()
+    {
+        if (_hoveredPortId is null && !_pinToolTipTimer.IsEnabled)
+        {
+            return;
+        }
+        _pinToolTipTimer.Stop();
+        ToolTip.SetIsOpen(this, false);
+        _hoveredPortId = null;
+        InvalidateVisual();
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
