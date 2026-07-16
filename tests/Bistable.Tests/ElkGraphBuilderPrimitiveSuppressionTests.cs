@@ -21,6 +21,9 @@ public sealed class ElkGraphBuilderPrimitiveSuppressionTests
     private static HierarchyScopePortViewModel In(string name, int width = 8) =>
         new(name, SignalDirection.Input, width, false);
 
+    private static HierarchyScopePortViewModel Out(string name, int width = 8) =>
+        new(name, SignalDirection.Output, width, false);
+
     // ── Mux suppresses legacy "?:" operator node ─────────────────────────
 
     [Fact]
@@ -121,7 +124,7 @@ public sealed class ElkGraphBuilderPrimitiveSuppressionTests
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
             new ElkScopeData(
-                [In("s", 1), In("x"), In("y")],
+                [In("s", 1), In("x"), In("y"), Out("a"), Out("b"), Out("c")],
                 [], [],
                 [assignA, assignB, assignC],
                 Primitives: [mux, buf]),
@@ -146,7 +149,7 @@ public sealed class ElkGraphBuilderPrimitiveSuppressionTests
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
             new ElkScopeData(
-                [In("a"), In("b"), In("hi"), In("lo")],
+                [In("a"), In("b"), In("hi"), In("lo"), Out("y"), Out("result")],
                 [], [], [assignOp, assignConcat]),   // no Primitives
             compactLayout: true);
 

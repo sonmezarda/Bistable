@@ -85,6 +85,7 @@ abstraction removes proven duplication:
 | `docs/ELK_ROUTING_PERFORMANCE_ANALYSIS.md` | ELK routing presets + perf numbers (2026-06-12) |
 | `docs/GATE_LEVEL_SCHEMATIC.md` | User-facing gate viewer behavior |
 | `docs/PHASES/PHASE-6.5.md` + `docs/HANDOFFS/PHASE-6.5-GATE-PIN-LABELS-NEXT.md` | **Active work**: gate-level viewer status, open closure gates, next tasks |
+| `docs/RTL_SCHEMATIC_VISUAL_ISSUES.md` | RTL-schematic expand-defects: Issues 1–5 **done** (2026-07-16); open follow-ups = Issue 4 **Stage 2** (MemoryWritePrimitive) + pending user visual acceptance on `riscv_single_cycle` |
 | `docs/DESIGN_AST.md` | Design IR / AST spec (`Bistable.Core.Design.Ast`) |
 | `docs/PROTOCOL.md` | GUI ↔ worker JSON line protocol |
 | `docs/SCHEMATIC_COVERAGE.md` | "What the renderer understood" coverage model (Phase 2.9) |
@@ -102,14 +103,24 @@ abstraction removes proven duplication:
 
 ## 6. Current status snapshot (2026-07-16)
 
-- Branch `schematic/label-placement`, **19 commits ahead of `main`** (unmerged).
-- Build clean; tests green except the two flaky timing tests above.
-- **Active work:** Phase 6.5 gate-level viewer is feature-complete but has open
-  **closure gates** in `docs/HANDOFFS/PHASE-6.5-GATE-PIN-LABELS-NEXT.md` §5:
-  regenerate RV32 synthesis JSON through the GUI/Yosys flow, record labels
-  hidden/grouped/detailed frame timings, manual RV32 acceptance, add Vivado-style
-  `Expand Cone` / macro views, then close the phase.
-- **Genuinely unstarted:** SVG export (rewrite plan Faz 7).
+- Branch `schematic/label-placement`, ahead of `main`, with **uncommitted work**
+  in the tree (RTL-schematic fixes + docs + this file). Do not commit without
+  explicit user approval.
+- Build clean (0/0); full suite green except the two known flaky timing tests
+  above (both pass in isolation).
+- **Most recent work (this session):** RTL-schematic expand-defects Issues 1–5
+  closed (see `docs/RTL_SCHEMATIC_VISUAL_ISSUES.md`) — synthetic-constant hiding,
+  orphan/dead-logic pruning, ConstantTie wiring, memory-tile ports+wiring+RAM
+  symbol, RD-mem badge overlap. Also reconciled several stale docs with the code
+  (ELK backend pivot) and added this AGENTS.md.
+- **Open follow-ups:**
+  - Issue 4 **Stage 2** — `MemoryWritePrimitive` (plan
+    `~/.claude/plans/functional-shimmying-torvalds.md`).
+  - Pending **user visual acceptance** of Issues 1–5 on `samples/riscv_single_cycle`.
+  - Phase 6.5 gate-level **closure gates** in
+    `docs/HANDOFFS/PHASE-6.5-GATE-PIN-LABELS-NEXT.md` §5 (RV32 synthesis JSON
+    regen, frame timings, manual RV32 acceptance, `Expand Cone`/macro views).
+  - **Genuinely unstarted:** SVG export (rewrite plan Faz 7).
 
 ## 7. Guardrails (do not break these)
 

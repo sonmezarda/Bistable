@@ -129,7 +129,12 @@ public sealed class VerilatorInternalSignalFilterTests
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
             new ElkScopeData(
-                BoundaryPorts: [new("a", SignalDirection.Input, 8, false), new("b", SignalDirection.Input, 8, false)],
+                BoundaryPorts:
+                [
+                    new("a", SignalDirection.Input, 8, false),
+                    new("b", SignalDirection.Input, 8, false),
+                    new("real_target", SignalDirection.Output, 8, false),
+                ],
                 ChildScopes: [],
                 LocalSignals: [],
                 ContAssigns: [tmpAssign, userAssign]),

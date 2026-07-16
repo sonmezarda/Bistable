@@ -112,7 +112,7 @@ public sealed class ElkGraphBuilderCombinationalPrimitiveTests
         GatePrimitive gate = new("gate_y_0", "y", GateKind.And, ["a", "b"], 8);
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
-            new ElkScopeData([In("a"), In("b")], [], [], [], Primitives: [gate]),
+            new ElkScopeData([In("a"), In("b"), Out("y")], [], [], [], Primitives: [gate]),
             compactLayout: true);
 
         ElkNode node = Assert.Single(result.Graph.Children, n => ElkNodeIds.IsGate(n.Id));
@@ -128,7 +128,7 @@ public sealed class ElkGraphBuilderCombinationalPrimitiveTests
         GatePrimitive gate = new("gate_y_0", "y", GateKind.And, ["a", "b", "c"], 8);
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
-            new ElkScopeData([In("a"), In("b"), In("c")], [], [], [], Primitives: [gate]),
+            new ElkScopeData([In("a"), In("b"), In("c"), Out("y")], [], [], [], Primitives: [gate]),
             compactLayout: true);
 
         ElkNode node = Assert.Single(result.Graph.Children, n => ElkNodeIds.IsGate(n.Id));
@@ -143,7 +143,7 @@ public sealed class ElkGraphBuilderCombinationalPrimitiveTests
         GatePrimitive gate = new("gate_y_0", "y", GateKind.And, ["a", "b"], 8);
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
-            new ElkScopeData([In("a"), In("b")], [], [], [], Primitives: [gate]),
+            new ElkScopeData([In("a"), In("b"), Out("y")], [], [], [], Primitives: [gate]),
             compactLayout: true);
 
         Assert.Contains(result.Graph.Edges, e =>
@@ -164,7 +164,7 @@ public sealed class ElkGraphBuilderCombinationalPrimitiveTests
         ArithPrimitive arith = new("arith_y_0", "y", kind, "a", "b", 8);
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
-            new ElkScopeData([In("a"), In("b")], [], [], [], Primitives: [arith]),
+            new ElkScopeData([In("a"), In("b"), Out("y")], [], [], [], Primitives: [arith]),
             compactLayout: true);
 
         ElkNode node = Assert.Single(result.Graph.Children, n => ElkNodeIds.IsArith(n.Id));
@@ -184,7 +184,7 @@ public sealed class ElkGraphBuilderCombinationalPrimitiveTests
         ArithPrimitive arith = new("arith_y_0", "y", ArithKind.Add, "a", "b", 8);
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
-            new ElkScopeData([In("a"), In("b")], [], [], [], Primitives: [arith]),
+            new ElkScopeData([In("a"), In("b"), Out("y")], [], [], [], Primitives: [arith]),
             compactLayout: true);
 
         Assert.Contains(result.Graph.Edges, e =>
@@ -205,7 +205,7 @@ public sealed class ElkGraphBuilderCombinationalPrimitiveTests
         DesignContAssign legacyAssign = new("y", ["a", "b"], "&");  // same target
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
-            new ElkScopeData([In("a"), In("b")], [], [], [legacyAssign], Primitives: [gate]),
+            new ElkScopeData([In("a"), In("b"), Out("y")], [], [], [legacyAssign], Primitives: [gate]),
             compactLayout: true);
 
         Assert.Single(result.Graph.Children, n => ElkNodeIds.IsGate(n.Id));
@@ -219,7 +219,7 @@ public sealed class ElkGraphBuilderCombinationalPrimitiveTests
         DesignContAssign legacyAssign = new("sum", ["a", "b"], "+");
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
-            new ElkScopeData([In("a"), In("b")], [], [], [legacyAssign], Primitives: [arith]),
+            new ElkScopeData([In("a"), In("b"), Out("sum")], [], [], [legacyAssign], Primitives: [arith]),
             compactLayout: true);
 
         Assert.Single(result.Graph.Children, n => ElkNodeIds.IsArith(n.Id));
@@ -252,7 +252,7 @@ public sealed class ElkGraphBuilderCombinationalPrimitiveTests
         DesignContAssign zAssign = new("z", ["a", "b"], "+");
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
-            new ElkScopeData([In("a"), In("b")], [], [], [zAssign], Primitives: [gate]),
+            new ElkScopeData([In("a"), In("b"), Out("y"), Out("z")], [], [], [zAssign], Primitives: [gate]),
             compactLayout: true);
 
         Assert.Single(result.Graph.Children, n => ElkNodeIds.IsGate(n.Id));

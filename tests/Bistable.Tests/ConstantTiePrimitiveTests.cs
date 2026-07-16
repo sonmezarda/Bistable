@@ -74,19 +74,32 @@ public sealed class ConstantTiePrimitiveTests
     [Fact]
     public void Builder_ConstantTiePrimitive_EmitsTieNode_WithOutputPortOnly()
     {
-        ConstantTiePrimitive tie = new("tie_x_0", "x", "8'h00", 8);
-        HierarchyScopePortViewModel xPort = new("x", SignalDirection.Output, 8, false);
+        // A constant driving a real consumer (a child instance input) must survive
+        // pruning and expose exactly one (output) port.
+        HierarchyScopeInstanceViewModel child = Child(
+            "top.u_leaf",
+            "leaf",
+            [new HierarchyScopeInstancePortConnectionViewModel("en", "8'h00", isInput: true, width: 8)]);
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
-            new ElkScopeData([xPort], [], [], [], ExpandedPaths: null, Primitives: [tie]),
+            new ElkScopeData(BoundaryPorts: [], ChildScopes: [child], LocalSignals: [], ContAssigns: []),
             compactLayout: true);
 
-        ElkNode? node = result.Graph.Children?.FirstOrDefault(n => ElkNodeIds.IsConstantTie(n.Id));
-        Assert.NotNull(node);
-        Assert.NotNull(node!.Ports);
+        ElkNode node = Assert.Single(result.Graph.Children, n => ElkNodeIds.IsConstantTie(n.Id));
+        Assert.NotNull(node.Ports);
         Assert.Single(node.Ports!);                       // only output, no input
         Assert.Contains("8'h00", node.Labels![0].Text);   // title carries the literal
-        Assert.Contains("x", node.Labels![0].Text);       // and the target signal name
+    }
+
+    [Theory]
+    // Synthetic expression net (e.g. the "8'h0" operand of `a == 8'h0`): show the
+    // literal only — the __schematic_expr_ plumbing name must never reach the user.
+    [InlineData("8'h00", "__schematic_expr_zero_0_right_3", "8'h00")]
+    // Real net: keep the readable "literal → name" form.
+    [InlineData("8'h00", "x", "8'h00 → x")]
+    public void ConstantTieLabel_HidesSyntheticOutputName(string literal, string output, string expected)
+    {
+        Assert.Equal(expected, ElkGraphBuilder.ConstantTieLabel(literal, output));
     }
 
     [Fact]
@@ -154,6 +167,45 @@ public sealed class ConstantTiePrimitiveTests
         Assert.Contains(result.Graph.Edges,
             e => e.Sources.Single().StartsWith(tie.Id, StringComparison.Ordinal)
               && e.Targets.Contains("child_top_u_parent_u_leaf.in.enable"));
+    }
+
+    [Fact]
+    public void Builder_ContAssignConstantOperand_WiresTieIntoConsumer()
+    {
+        // `assign y = (a == 8'h0);` — the 8'h0 operand becomes a ConstantTie whose
+        // output is a synthetic net feeding the comparison. Issue 3: that tie must
+        // wire into the comparison node instead of floating (and thus surviving the
+        // orphan prune).
+        ModuleAst module = new(
+            Name: "m", IsTop: true,
+            Ports:
+            [
+                new PortDecl("a", SignalDirection.Input, 8, false, 0),
+                new PortDecl("y", SignalDirection.Output, 1, false, 1),
+            ],
+            Parameters: [],
+            LocalSignals: [],
+            Instances: [],
+            ContAssigns:
+            [
+                new ContAssignAst(
+                    new VarRefLValue("y"),
+                    new BinaryExpr(BinaryOp.Equal, new SignalRef("a"), new ConstExpr(new BigInteger(0), 8, false))),
+            ],
+            SequentialBlocks: [], CombinationalBlocks: []);
+
+        SchematicPrimitiveList list = SchematicDecoder.Decode(module);
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData(
+                [new HierarchyScopePortViewModel("a", SignalDirection.Input, 8, false),
+                 new HierarchyScopePortViewModel("y", SignalDirection.Output, 1, false)],
+                [], [], [], ExpandedPaths: null, Primitives: list.Logic),
+            compactLayout: true);
+
+        ElkNode tie = Assert.Single(result.Graph.Children!, n => ElkNodeIds.IsConstantTie(n.Id));
+        Assert.Contains(result.Graph.Edges,
+            e => e.Sources.Single().StartsWith(tie.Id, StringComparison.Ordinal));
     }
 
     private static HierarchyScopeInstanceViewModel Child(

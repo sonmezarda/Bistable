@@ -1,6 +1,7 @@
 using Bistable.App.Services.Routing.Elk;
 using Bistable.App.ViewModels;
 using Bistable.Core.Design;
+using Bistable.Core.Design.Ast;
 using Bistable.Core.Design.Schematic;
 
 namespace Bistable.Tests;
@@ -101,9 +102,10 @@ public sealed class ElkGraphBuilderLatchAndMemoryTests
     }
 
     [Fact]
-    public void Memory_NoEdges_NoPorts()
+    public void Memory_HasReadOutAndWriteInPorts()
     {
-        // Memory tiles currently have no port plumbing — array access is a Phase 2+ follow-up.
+        // The tile is the canonical read source (EAST .dout) and takes writes on a
+        // WEST .win port. In isolation both are unconnected but the ports exist.
         MemoryPrimitive mem = new("mem_arr_0", "arr", 8, 15, 0);
 
         ElkBuildResult result = new ElkGraphBuilder().Build(
@@ -111,9 +113,61 @@ public sealed class ElkGraphBuilderLatchAndMemoryTests
             compactLayout: true);
 
         ElkNode node = Assert.Single(result.Graph.Children, n => ElkNodeIds.IsMemory(n.Id));
-        // Ports collection exists but is empty — no edges yet.
-        Assert.True(node.Ports is null || node.Ports.Count == 0);
-        Assert.Empty(result.Graph.Edges);
+        Assert.NotNull(node.Ports);
+        Assert.Contains(node.Ports!, p => p.Id.EndsWith(".win"));
+        Assert.Contains(node.Ports!, p => p.Id.EndsWith(".dout"));
+        Assert.Empty(result.Graph.Edges); // nothing to wire in isolation
+    }
+
+    [Fact]
+    public void Memory_ReadOut_DrivesMemoryReadSource()
+    {
+        // MEM tile read-out (produces `mem`) → RD-mem source input (consumes `mem`).
+        MemoryPrimitive mem = new("mem_mem_0", "mem", CellWidth: 8, DepthHi: 15, DepthLo: 0);
+        MemoryReadPrimitive read = new(
+            "memrd_data_0", MemorySignal: "mem", AddressSignal: "addr", OutputSignal: "data", CellWidth: 8);
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData([In("addr", 4), Out("data", 8)], [], [], [], Primitives: [mem, read]),
+            compactLayout: true);
+
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Sources.Any(s => s.EndsWith(".dout")) &&
+            e.Targets.Any(t => t.EndsWith(".src")));
+    }
+
+    [Fact]
+    public void MemoryWriteFF_WiresToMemoryWriteIn_AndDoesNotDoubleDriveMem()
+    {
+        // A clocked `mem[addr] <= data` decodes to a FF with QSignal = "mem".
+        // Its Q must drive the tile write-in, NOT the array signal directly — so a
+        // reader consumes `mem` only from the tile, never from the FF.
+        MemoryPrimitive mem = new("mem_mem_0", "mem", CellWidth: 8, DepthHi: 15, DepthLo: 0);
+        FlipFlopPrimitive writeFf = new(
+            "ff_mem_0", "mem",
+            ClockSignal: "clk", ClockEdge: EdgeKind.Rising,
+            AsyncResetSignal: null, AsyncResetEdge: null,
+            DSignal: "wdata", Width: 8);
+        MemoryReadPrimitive read = new(
+            "memrd_rdata_0", MemorySignal: "mem", AddressSignal: "raddr", OutputSignal: "rdata", CellWidth: 8);
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData(
+                [In("clk", 1), In("wdata", 8), In("raddr", 4), Out("rdata", 8)],
+                [], [], [], Primitives: [mem, writeFf, read]),
+            compactLayout: true);
+
+        // FF.Q → tile .win
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Sources.Any(s => s.StartsWith("ff_mem") && s.EndsWith(".q")) &&
+            e.Targets.Any(t => t.EndsWith(".win")));
+        // The reader's source is driven by the tile, not by the FF's Q.
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Sources.Any(s => s.EndsWith(".dout")) &&
+            e.Targets.Any(t => t.EndsWith(".src")));
+        Assert.DoesNotContain(result.Graph.Edges, e =>
+            e.Sources.Any(s => s.StartsWith("ff_mem") && s.EndsWith(".q")) &&
+            e.Targets.Any(t => t.EndsWith(".src")));
     }
 
     [Fact]
@@ -148,7 +202,11 @@ public sealed class ElkGraphBuilderLatchAndMemoryTests
         Assert.NotNull(node.Ports);
         Assert.Contains(node.Ports!, p => p.Id.EndsWith(".addr"));
         Assert.Contains(node.Ports!, p => p.Id.EndsWith(".data"));
+        Assert.Contains(node.Ports!, p => p.Id.EndsWith(".src")); // source-memory input
         Assert.Contains("RD mem", node.Labels![0].Text);
+        // Only title + output name; the redundant third (memory-name) label is gone
+        // so it can't overlap the live-value badge.
+        Assert.Equal(2, node.Labels!.Count);
     }
 
     [Fact]

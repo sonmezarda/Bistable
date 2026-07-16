@@ -154,7 +154,7 @@ internal sealed class ElkGraphBuilder
                 case FlipFlopPrimitive ff:  AddFlipFlopNode(graph.Children, ff, portRefs); break;
                 case MuxPrimitive mux:      AddMuxNode(graph.Children, mux, portRefs); break;
                 case LatchPrimitive lt:     AddLatchNode(graph.Children, lt, portRefs); break;
-                case MemoryPrimitive mem:   AddMemoryNode(graph.Children, mem); break;
+                case MemoryPrimitive mem:   AddMemoryNode(graph.Children, mem, portRefs); break;
                 case MemoryReadPrimitive rd: AddMemoryReadNode(graph.Children, rd, portRefs); break;
                 case BufferPrimitive buf:   AddBufferNode(graph.Children, buf, portRefs); break;
                 case InverterPrimitive inv: AddInverterNode(graph.Children, inv, portRefs); break;
@@ -240,13 +240,14 @@ internal sealed class ElkGraphBuilder
     {
         string nodeId = nodeIdOverride ?? ElkNodeIds.ForConstantTie(tie.OutputSignal);
         string kp = portRefKeyPrefix ?? string.Empty;
+        string tieLabel = ConstantTieLabel(tie.Literal, tie.OutputSignal);
         ElkNode node = new()
         {
             Id = nodeId,
             Width = 36,
             Height = 28,
             LayoutOptions = FixedOrderPortConstraints(),
-            Labels = [new ElkLabel { Text = $"{tie.Literal} → {tie.OutputSignal}" }],
+            Labels = [new ElkLabel { Text = tieLabel }],
             Ports = []
         };
 
@@ -570,8 +571,9 @@ internal sealed class ElkGraphBuilder
                     portRefKeyPrefix: keyPrefix);
                 break;
             case MemoryPrimitive mem:
-                AddMemoryNode(target, mem,
-                    nodeIdOverride: ElkNodeIds.ForInnerMemory(compoundPath, mem.SignalName));
+                AddMemoryNode(target, mem, portRefs,
+                    nodeIdOverride: ElkNodeIds.ForInnerMemory(compoundPath, mem.SignalName),
+                    portRefKeyPrefix: keyPrefix);
                 break;
             case MemoryReadPrimitive rd:
                 AddMemoryReadNode(target, rd, portRefs,
@@ -1000,12 +1002,19 @@ internal sealed class ElkGraphBuilder
     private static void AddMemoryNode(
         IList<ElkNode> target,
         MemoryPrimitive mem,
-        string? nodeIdOverride = null)
+        Dictionary<string, ElkPortRef> portRefs,
+        string? nodeIdOverride = null,
+        string? portRefKeyPrefix = null)
     {
-        // Memory is a tile node (no edges yet — array access plumbing comes later).
+        // Memory tile: a WEST write-in port (consumes the write payload) and an
+        // EAST read-out port (the canonical producer of the array signal). Read
+        // ports (RD mem) consume the read-out; the write FF drives the write-in.
         string nodeId = nodeIdOverride ?? ElkNodeIds.ForMemory(mem.SignalName);
+        string kp = portRefKeyPrefix ?? string.Empty;
         double height = Math.Min(120, Math.Max(48, 24 + mem.Depth * 2));
 
+        string writeInId = $"{nodeId}.win";
+        string readOutId = $"{nodeId}.dout";
         ElkNode node = new()
         {
             Id = nodeId,
@@ -1013,8 +1022,27 @@ internal sealed class ElkGraphBuilder
             Height = height,
             LayoutOptions = FixedOrderPortConstraints(),
             Labels = [new ElkLabel { Text = $"MEM {mem.SignalName} [{mem.DepthHi}:{mem.DepthLo}]×{mem.CellWidth}" }],
-            Ports = []
+            Ports =
+            [
+                new ElkPort
+                {
+                    Id = writeInId,
+                    LayoutOptions = PortLayout(PortSideWest, 0),
+                    Labels = [new ElkLabel { Text = "W" }]
+                },
+                new ElkPort
+                {
+                    Id = readOutId,
+                    LayoutOptions = PortLayout(PortSideEast, 0),
+                    Labels = [new ElkLabel { Text = "D" }]
+                }
+            ]
         };
+
+        portRefs[kp + ElkSignalKey.MemoryWriteIn(mem.SignalName)] =
+            new ElkPortRef(nodeId, writeInId, ElkPortRole.MemoryWriteIn, Math.Max(1, mem.CellWidth));
+        portRefs[kp + ElkSignalKey.MemoryReadOut(mem.SignalName)] =
+            new ElkPortRef(nodeId, readOutId, ElkPortRole.MemoryReadOut, Math.Max(1, mem.CellWidth));
 
         target.Add(node);
     }
@@ -1034,13 +1062,15 @@ internal sealed class ElkGraphBuilder
         {
             Id = nodeId,
             Width = 92,
-            Height = 56,
+            Height = 64,
             LayoutOptions = FixedOrderPortConstraints(),
+            // labels[0] = "RD {mem}{width}" title, labels[1] = output net name.
+            // The memory-source name is already in labels[0]; a third label would
+            // overlap the live-value badge, so it is intentionally omitted.
             Labels =
             [
                 new ElkLabel { Text = $"RD {read.MemorySignal}{widthSuffix}" },
-                new ElkLabel { Text = read.OutputSignal },
-                new ElkLabel { Text = read.MemorySignal }
+                new ElkLabel { Text = read.OutputSignal }
             ],
             Ports = []
         };
@@ -1054,6 +1084,18 @@ internal sealed class ElkGraphBuilder
         });
         portRefs[kp + ElkSignalKey.MemoryReadAddress(read.OutputSignal)] =
             new ElkPortRef(nodeId, addrPortId, ElkPortRole.MemoryReadAddress, 1);
+
+        // Source-memory input (WEST, below the address) — consumes the array signal
+        // driven by the MEM tile's read-out port.
+        string srcPortId = $"{nodeId}.src";
+        node.Ports.Add(new ElkPort
+        {
+            Id = srcPortId,
+            LayoutOptions = PortLayout(PortSideWest, 1),
+            Labels = [new ElkLabel { Text = "M" }]
+        });
+        portRefs[kp + ElkSignalKey.MemoryReadSource(read.OutputSignal)] =
+            new ElkPortRef(nodeId, srcPortId, ElkPortRole.MemoryReadSource, Math.Max(1, read.CellWidth));
 
         string dataPortId = $"{nodeId}.data";
         node.Ports.Add(new ElkPort
@@ -1796,11 +1838,13 @@ internal sealed class ElkGraphBuilder
         CollectMuxEndpoints(scope, portRefs, producers, consumers);
         CollectLatchEndpoints(scope, portRefs, producers, consumers);
         CollectBufferEndpoints(scope, portRefs, producers, consumers);
+        CollectConstantTieEndpoints(scope, portRefs, producers);
         CollectInverterEndpoints(scope, portRefs, producers, consumers);
         CollectTriStateEndpoints(scope, portRefs, producers, consumers);
         CollectGateEndpoints(scope, portRefs, producers, consumers);
         CollectArithEndpoints(scope, portRefs, producers, consumers);
         CollectMemoryReadEndpoints(scope, portRefs, producers, consumers);
+        CollectMemoryEndpoints(scope, portRefs, producers, consumers);
         CollectStructFanOutEndpoints(scope, portRefs, producers, consumers);
         CollectExpandedCompoundEndpoints(scope, portRefs, producers, consumers);
         ExpandConsumersThroughContAssigns(scope.ContAssigns, producers, consumers);
@@ -1905,13 +1949,20 @@ internal sealed class ElkGraphBuilder
             return ok;
         }
 
+        HashSet<string> memoryNames = MemorySignalNames(innerPrimitives);
+
         foreach (SchematicPrimitive primitive in innerPrimitives)
         {
             switch (primitive)
             {
                 case FlipFlopPrimitive ff:
+                    // A memory-write FF drives the tile's write-in via the derived
+                    // write signal, not the bare array name (Option A).
+                    string ffQProduces = memoryNames.Contains(ff.QSignal)
+                        ? ElkSignalKey.MemoryWrite(ff.QSignal)
+                        : ff.QSignal;
                     if (TryRef(ElkSignalKey.FlipFlopQ(ff.QSignal), out var ffQ))
-                        AddTo(producers, ScopedSignalKey(compoundPath, ff.QSignal), ffQ);
+                        AddTo(producers, ScopedSignalKey(compoundPath, ffQProduces), ffQ);
                     if (TryRef(ElkSignalKey.FlipFlopD(ff.QSignal), out var ffD))
                         AddTo(consumers, ScopedSignalKey(compoundPath, ff.DSignal), ffD);
                     if (TryRef(ElkSignalKey.FlipFlopClock(ff.QSignal), out var ffClk))
@@ -1945,6 +1996,13 @@ internal sealed class ElkGraphBuilder
                     if (TryRef(ElkSignalKey.BufferIn(buf.OutputSignal), out var bufIn))
                         AddTo(consumers, ScopedSignalKey(compoundPath, buf.InputSignal), bufIn);
                     break;
+                case ConstantTiePrimitive tie:
+                    // A constant tie only drives — its output (reusing the Buffer
+                    // key) feeds whatever @inner signal consumes it, so a "32'h0"
+                    // operand inside an expanded scope connects instead of floating.
+                    if (TryRef(ElkSignalKey.BufferOut(tie.OutputSignal), out var tieOut))
+                        AddTo(producers, ScopedSignalKey(compoundPath, tie.OutputSignal), tieOut);
+                    break;
                 case InverterPrimitive inv:
                     if (TryRef(ElkSignalKey.InverterOut(inv.OutputSignal), out var invOut))
                         AddTo(producers, ScopedSignalKey(compoundPath, inv.OutputSignal), invOut);
@@ -1971,6 +2029,16 @@ internal sealed class ElkGraphBuilder
                         AddTo(producers, ScopedSignalKey(compoundPath, read.OutputSignal), readData);
                     if (TryRef(ElkSignalKey.MemoryReadAddress(read.OutputSignal), out var readAddr))
                         AddTo(consumers, ScopedSignalKey(compoundPath, read.AddressSignal), readAddr);
+                    if (TryRef(ElkSignalKey.MemoryReadSource(read.OutputSignal), out var readSrc))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, read.MemorySignal), readSrc);
+                    break;
+                case MemoryPrimitive mem:
+                    // Tile read-out is the canonical producer of the array signal;
+                    // write-in consumes the derived write signal from the write FF.
+                    if (TryRef(ElkSignalKey.MemoryReadOut(mem.SignalName), out var memOut))
+                        AddTo(producers, ScopedSignalKey(compoundPath, mem.SignalName), memOut);
+                    if (TryRef(ElkSignalKey.MemoryWriteIn(mem.SignalName), out var memWin))
+                        AddTo(consumers, ScopedSignalKey(compoundPath, ElkSignalKey.MemoryWrite(mem.SignalName)), memWin);
                     break;
                 // P4.5-2: four primitive types that were silently dropped from
                 // inner wiring — joiner / splitter / tri-state / struct fan-out.
@@ -2155,6 +2223,14 @@ internal sealed class ElkGraphBuilder
         }
     }
 
+    private static HashSet<string> MemorySignalNames(IEnumerable<SchematicPrimitive> primitives)
+    {
+        HashSet<string> names = new(StringComparer.Ordinal);
+        foreach (MemoryPrimitive mem in primitives.OfType<MemoryPrimitive>())
+            names.Add(mem.SignalName);
+        return names;
+    }
+
     private static void CollectFlipFlopEndpoints(
         ElkScopeData scope,
         IReadOnlyDictionary<string, ElkPortRef> portRefs,
@@ -2163,12 +2239,21 @@ internal sealed class ElkGraphBuilder
     {
         if (scope.Primitives is null) return;
 
+        // Names of unpacked-array memories in this scope. An array-write FF
+        // (QSignal == memory name) must NOT produce the bare array signal — the MEM
+        // tile is its sole producer — so its Q drives a derived write signal instead.
+        HashSet<string> memoryNames = MemorySignalNames(scope.Primitives);
+
         foreach (FlipFlopPrimitive ff in scope.Primitives.OfType<FlipFlopPrimitive>())
         {
-            // Q output is a producer of the QSignal
+            // Q output produces the QSignal — or, for a memory-write FF, the derived
+            // write signal consumed by the MEM tile's write-in port.
+            string qProduces = memoryNames.Contains(ff.QSignal)
+                ? ElkSignalKey.MemoryWrite(ff.QSignal)
+                : ff.QSignal;
             if (portRefs.TryGetValue(ElkSignalKey.FlipFlopQ(ff.QSignal), out ElkPortRef? qRef))
             {
-                AddTo(producers, ff.QSignal, qRef);
+                AddTo(producers, qProduces, qRef);
             }
 
             // D input consumes the DSignal
@@ -2270,6 +2355,23 @@ internal sealed class ElkGraphBuilder
         }
     }
 
+    // A ContAssign-derived constant tie (e.g. the "8'h0" operand of `a == 8'h0`,
+    // or `assign x = 8'h0;`) drives its output net. Register it as a producer so
+    // the consuming gate/boundary connects to it instead of leaving the tie to
+    // float. The tie reuses the Buffer output key when the node is built.
+    private static void CollectConstantTieEndpoints(
+        ElkScopeData scope,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers)
+    {
+        if (scope.Primitives is null) return;
+        foreach (ConstantTiePrimitive tie in scope.Primitives.OfType<ConstantTiePrimitive>())
+        {
+            if (portRefs.TryGetValue(ElkSignalKey.BufferOut(tie.OutputSignal), out ElkPortRef? outRef))
+                AddTo(producers, tie.OutputSignal, outRef);
+        }
+    }
+
     /// <summary>
     /// P2.6-3: wire tri-state primitives into the producer/consumer maps.
     /// Output uses BufferOut (reused), input uses BufferIn (reused), and the
@@ -2360,6 +2462,28 @@ internal sealed class ElkGraphBuilder
                 AddTo(producers, read.OutputSignal, dataRef);
             if (portRefs.TryGetValue(ElkSignalKey.MemoryReadAddress(read.OutputSignal), out ElkPortRef? addrRef))
                 AddTo(consumers, read.AddressSignal, addrRef);
+            // The source-memory input consumes the array signal produced by the tile.
+            if (portRefs.TryGetValue(ElkSignalKey.MemoryReadSource(read.OutputSignal), out ElkPortRef? srcRef))
+                AddTo(consumers, read.MemorySignal, srcRef);
+        }
+    }
+
+    // MEM tile: its read-out port is the canonical producer of the array signal
+    // (consumed by every RD-mem source); its write-in port consumes the derived
+    // write signal driven by the array-write FF (see CollectFlipFlopEndpoints).
+    private static void CollectMemoryEndpoints(
+        ElkScopeData scope,
+        IReadOnlyDictionary<string, ElkPortRef> portRefs,
+        Dictionary<string, List<ElkPortRef>> producers,
+        Dictionary<string, List<ElkPortRef>> consumers)
+    {
+        if (scope.Primitives is null) return;
+        foreach (MemoryPrimitive mem in scope.Primitives.OfType<MemoryPrimitive>())
+        {
+            if (portRefs.TryGetValue(ElkSignalKey.MemoryReadOut(mem.SignalName), out ElkPortRef? outRef))
+                AddTo(producers, mem.SignalName, outRef);
+            if (portRefs.TryGetValue(ElkSignalKey.MemoryWriteIn(mem.SignalName), out ElkPortRef? winRef))
+                AddTo(consumers, ElkSignalKey.MemoryWrite(mem.SignalName), winRef);
         }
     }
 
@@ -2695,12 +2819,28 @@ internal sealed class ElkGraphBuilder
 
         nodes.RemoveAll(node =>
         {
-            if (!IsPrunablePrimitive(node)
-                || node.Ports is not { Count: > 0 } ports
-                || ports.Any(p => connectedPorts.Contains(p.Id)))
-            {
+            if (!IsPrunablePrimitive(node))
                 return false;
+
+            IReadOnlyList<ElkPort> ports = node.Ports ?? [];
+
+            // A portless prunable node (e.g. an unwired memory tile) can never be
+            // connected — it is always an orphan.
+            bool hasAnyConnection = false;
+            bool hasConnectedOutput = false;
+            foreach (ElkPort port in ports)
+            {
+                if (!connectedPorts.Contains(port.Id))
+                    continue;
+                hasAnyConnection = true;
+                if (IsOutputPort(port))
+                    hasConnectedOutput = true;
             }
+
+            bool orphan = !hasAnyConnection;
+            bool deadDriver = IsDeadIfOutputUnconsumed(node) && !hasConnectedOutput;
+            if (!orphan && !deadDriver)
+                return false;
 
             foreach (ElkPort port in ports)
                 removedPorts.Add(port.Id);
@@ -2708,11 +2848,37 @@ internal sealed class ElkGraphBuilder
         });
     }
 
+    // A primitive whose visual node carries no information once it has no live
+    // connection. Constant ties are included so a fully-dangling "32'h0" tie does
+    // not float in an expanded scope. Memory tiles are intentionally NOT prunable:
+    // an unwired memory still tells the user this module owns storage (its visual
+    // distinctness is Issue 4, not a pruning concern).
     private static bool IsPrunablePrimitive(ElkNode node) =>
         ElkNodeIds.IsOperator(node.Id)
         || ElkNodeIds.IsGate(node.Id)
         || ElkNodeIds.IsArith(node.Id)
-        || ElkNodeIds.IsFlipFlop(node.Id);
+        || ElkNodeIds.IsFlipFlop(node.Id)
+        || ElkNodeIds.IsConstantTie(node.Id);
+
+    // Multi-input combinational primitives whose output is consumed by nobody are
+    // dead logic: a gate/arith/operator with wired inputs but an unconsumed output
+    // renders as an anonymous half-wired floater (photos 2/5). Flip-flops are
+    // excluded (a register is real state even when Q is momentarily unused).
+    // Constant ties are excluded here on purpose: a "32'h0" operand whose consumer
+    // edge is merely missing (Issue 3 inner-wiring gap) would look output-dead and
+    // be wrongly deleted — constant ties are only removed when fully orphaned.
+    private static bool IsDeadIfOutputUnconsumed(ElkNode node) =>
+        ElkNodeIds.IsOperator(node.Id)
+        || ElkNodeIds.IsGate(node.Id)
+        || ElkNodeIds.IsArith(node.Id);
+
+    private const string ElkPortSideEast = "EAST";
+
+    // An output (driver) port sits on the EAST side by this builder's convention.
+    private static bool IsOutputPort(ElkPort port) =>
+        port.LayoutOptions is { } opts
+        && opts.TryGetValue(ElkPortSideKey, out string? side)
+        && string.Equals(side, ElkPortSideEast, StringComparison.Ordinal);
 
     private static void RemovePortRefs(Dictionary<string, ElkPortRef> portRefs, HashSet<string> removedPortIds)
     {
@@ -2749,6 +2915,24 @@ internal sealed class ElkGraphBuilder
         }
         return signal;
     }
+
+    // Matches the synthetic name shape produced by
+    // SchematicDecoder.ExpressionMaterializationContext.CreateSignalName:
+    // "__schematic_expr_{owner}_{index}_{role}_{n}". These are pure plumbing nets
+    // and must never be surfaced to the user as a visible display title.
+    private const string SyntheticExpressionPrefix = "__schematic_expr_";
+
+    private static bool IsSyntheticExpressionSignal(string? signal) =>
+        signal is not null
+        && signal.StartsWith(SyntheticExpressionPrefix, StringComparison.Ordinal);
+
+    // Title for a constant-tie node. When the driven net is a synthetic expression
+    // net (e.g. the "8'h00" operand of `a == 8'h0`) we show only the literal —
+    // the plumbing name must never reach the user. A real net shows "literal → name".
+    internal static string ConstantTieLabel(string literal, string outputSignal) =>
+        IsSyntheticExpressionSignal(outputSignal)
+            ? literal
+            : $"{literal} → {PrettifySignalLabel(outputSignal)}";
 
     private static bool IsConstantLiteralSignal(string? signal)
     {
@@ -3033,6 +3217,9 @@ public enum ElkPortRole
     ArithOutput,
     MemoryReadAddress,
     MemoryReadData,
+    MemoryReadOut,
+    MemoryWriteIn,
+    MemoryReadSource,
     StructFanOutInput,
     StructFanOutLeg,
     TriStateEnable
@@ -3166,6 +3353,16 @@ internal static class ElkSignalKey
     public static string ArithOutput(string output) => $"::arith_out::{output}";
     public static string MemoryReadAddress(string output) => $"::memrd_addr::{output}";
     public static string MemoryReadData(string output) => $"::memrd_data::{output}";
+    // MEM tile ports: read-out (EAST) is the canonical producer of the array
+    // signal; write-in (WEST) consumes the derived write signal so the array name
+    // stays single-producer.
+    public static string MemoryReadOut(string mem) => $"::mem_out::{mem}";
+    public static string MemoryWriteIn(string mem) => $"::mem_win::{mem}";
+    // RD-mem's source-memory input port, keyed per RD (like MemoryReadAddress).
+    public static string MemoryReadSource(string output) => $"::memrd_src::{output}";
+    // Derived write-payload signal name that a memory-write FF produces and the
+    // MEM tile write-in consumes (Option A — keeps the array name single-producer).
+    public static string MemoryWrite(string mem) => $"::mem_wr::{mem}";
     public static string StructFanOutInput(string structSignal) => $"::fanout_in::{structSignal}";
     public static string StructFanOutLeg(string structSignal, string fieldName) => $"::fanout_leg::{structSignal}::{fieldName}";
     public static string TriStateEnable(string output) => $"::tristate_en::{output}";

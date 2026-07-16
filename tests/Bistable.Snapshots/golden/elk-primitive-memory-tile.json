@@ -23,7 +23,28 @@
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
       },
-      "ports": [],
+      "ports": [
+        {
+          "id": "mem_mem.win",
+          "labels": [
+            "W"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "mem_mem.dout",
+          "labels": [
+            "D"
+          ],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        }
+      ],
       "children": []
     }
   ],

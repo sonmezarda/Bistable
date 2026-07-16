@@ -221,4 +221,29 @@ public sealed class ElkGraphBuilderInnerPrimitiveCoverageTests
             e => e.Sources.Contains("tristate_top_cmp_i__bus.out")
               && e.Targets.Contains("child_top_cmp_i.out.bus"));
     }
+
+    [Fact]
+    public void ExpandedCompound_WithInnerMemory_WiresReadOutToReadSource()
+    {
+        // Inside an expanded compound, the MEM tile read-out must drive the RD-mem
+        // source input via the @inner-scoped array signal (same wiring as top scope).
+        MemoryPrimitive mem = new("mem_ram_0", "ram", CellWidth: 8, DepthHi: 15, DepthLo: 0);
+        MemoryReadPrimitive read = new(
+            "memrd_q_0", MemorySignal: "ram", AddressSignal: "a", OutputSignal: "q", CellWidth: 8);
+
+        HierarchyScopeInstanceViewModel cmpInst = Child(
+            "top.cmp_i", "cmp_mod",
+            ports: [new HierarchyScopeInstancePortConnectionViewModel("a", "a", true, 4)]);
+
+        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "top.cmp_i" };
+
+        ElkBuildResult result = new ElkGraphBuilder().Build(
+            new ElkScopeData([], [cmpInst], [], [], expanded,
+                PrimitivesByModule: ByModule("cmp_mod", mem, read)),
+            compactLayout: true);
+
+        Assert.Contains(result.Graph.Edges, e =>
+            e.Sources.Any(s => s.EndsWith(".dout")) &&
+            e.Targets.Any(t => t.EndsWith(".src")));
+    }
 }

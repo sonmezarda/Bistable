@@ -207,8 +207,9 @@ public sealed partial class SchematicPreviewControl
         double scale,
         SchematicLabelPlacementContext labelPlacement)
     {
-        _ = scale; // ports are not drawn (memory has none yet); scale unused
-        Pen stroke = new(Palette.ModuleStroke, 1.5);
+        // Accent stroke + "RAM" tag make the storage tile unmistakably distinct
+        // from a submodule card (which uses a plain module stroke and no bands).
+        Pen stroke = new(Palette.LocalNet, 1.5);
         Rect body = rect.Deflate(1);
         context.DrawRectangle(Palette.NodeFill, stroke, body);
 
@@ -221,17 +222,38 @@ public sealed partial class SchematicPreviewControl
             context.DrawLine(lightStroke, new Point(body.X, y), new Point(body.Right, y));
         }
 
-        // Centred label inside the body (memory tiles have no separate title above)
+        // Corner "RAM" tag.
+        double tagFont = Math.Clamp(body.Height * 0.14, 6, 9);
+        DrawText(context, "RAM", body.X + 3, body.Y + 2, Palette.LocalNet, tagFont);
+
+        // Title label, ellipsized to fit inside the body so long array names don't
+        // overflow the tile.
         if (node.Labels is { Count: > 0 })
         {
-            string title = node.Labels[0].Text;
             double fontSize = Math.Clamp(body.Height * 0.13, 7, 10);
+            string title = EllipsizeToWidth(node.Labels[0].Text, body.Width - 8, fontSize);
             double textW = MeasureLabelWidth(title, fontSize);
             DrawText(context, title,
                 body.X + (body.Width - textW) / 2,
-                body.Y + fontSize * 0.5,
+                body.Y + body.Height / 2 - fontSize / 2,
                 Palette.Text, fontSize);
         }
+
+        DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
+    }
+
+    // Truncates text with a trailing ellipsis until it fits maxWidth. Cheap (no
+    // per-char re-measure loop beyond the overflow case) and used only when a label
+    // actually exceeds its box.
+    private string EllipsizeToWidth(string text, double maxWidth, double fontSize)
+    {
+        if (maxWidth <= 0 || MeasureLabelWidth(text, fontSize) <= maxWidth)
+            return text;
+        const string ellipsis = "…";
+        int len = text.Length;
+        while (len > 1 && MeasureLabelWidth(text[..len] + ellipsis, fontSize) > maxWidth)
+            len--;
+        return text[..len] + ellipsis;
     }
 
     // ── Memory read port ───────────────────────────────────────────────────
@@ -269,7 +291,10 @@ public sealed partial class SchematicPreviewControl
         }
 
         DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
-        DrawPrimitiveLiveOutput(context, node, rect);
+        // No in-body value badge here: the read data leaves on the EAST wire, whose
+        // edge live-value label already shows the value. A centred pill would only
+        // duplicate it and overlap the outgoing wire's net label (Issue 5). For a
+        // 1-bit read the wire colour already encodes the value.
     }
 
     // ── Buffer (right-pointing triangle, no bubble) ──────────────────────

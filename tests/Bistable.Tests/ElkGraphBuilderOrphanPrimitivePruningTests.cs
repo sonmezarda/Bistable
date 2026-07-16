@@ -82,6 +82,32 @@ public sealed class ElkGraphBuilderOrphanPrimitivePruningTests
         Assert.Contains(result.Graph.Children, n => ElkNodeIds.IsMemory(n.Id));
     }
 
+    [Fact]
+    public void HalfWiredOperator_InputsConnectedButOutputUnconsumed_GetsPruned()
+    {
+        // Inputs are driven by boundary inputs, but the result feeds no consumer
+        // (no matching boundary output / downstream). This is the floating
+        // half-wired gate the user saw (photos 2/5) — it must be pruned.
+        DesignContAssign equal = new("dangling_eq", ["opcode", "push_opcode"], "==");
+
+        ElkBuildResult result = Build(
+            ports: [In("opcode"), In("push_opcode")],
+            contAssigns: [equal]);
+
+        Assert.DoesNotContain(result.Graph.Children, n => n.Id == "op_dangling_eq");
+    }
+
+    [Fact]
+    public void OrphanConstantTie_GetsPruned()
+    {
+        // A constant driving nobody must not float in the scope.
+        ConstantTiePrimitive tie = new("tie_dead_0", "dead_net", "8'h00", 8);
+
+        ElkBuildResult result = Build(ports: [], primitives: [tie]);
+
+        Assert.DoesNotContain(result.Graph.Children, n => ElkNodeIds.IsConstantTie(n.Id));
+    }
+
     private static ElkBuildResult Build(
         IReadOnlyList<HierarchyScopePortViewModel> ports,
         IReadOnlyList<DesignContAssign>? contAssigns = null,

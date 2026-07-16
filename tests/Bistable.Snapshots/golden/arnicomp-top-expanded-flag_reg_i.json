@@ -2371,7 +2371,7 @@
     {
       "id": "tie___schematic_expr_mem_wdata_2_left_3",
       "labels": [
-        "3\u0027h4 \u2192 __schematic_expr_mem_wdata_2_left_3"
+        "3\u0027h4"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -2769,7 +2769,7 @@
     {
       "id": "tie___schematic_expr_bus_4_left_2",
       "labels": [
-        "3\u0027h1 \u2192 __schematic_expr_bus_4_left_2"
+        "3\u0027h1"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -3090,7 +3090,7 @@
     {
       "id": "tie___schematic_expr_is_push_instr_7_left_0",
       "labels": [
-        "5\u0027h4 \u2192 __schematic_expr_is_push_instr_7_left_0"
+        "5\u0027h4"
       ],
       "layoutOptions": {
         "elk.portConstraints": "FIXED_ORDER"
@@ -5103,6 +5103,45 @@
     {
       "id": "e143",
       "sources": [
+        "tie___schematic_expr_mem_wdata_2_left_3.out"
+      ],
+      "targets": [
+        "arith___schematic_expr_mem_wdata_2_right_2.l"
+      ],
+      "labels": [
+        "__schematic_expr_mem_wdata_2_left_3",
+        "1"
+      ]
+    },
+    {
+      "id": "e144",
+      "sources": [
+        "tie___schematic_expr_bus_4_left_2.out"
+      ],
+      "targets": [
+        "arith___schematic_expr_bus_4_mux_sel_0_1.l"
+      ],
+      "labels": [
+        "__schematic_expr_bus_4_left_2",
+        "1"
+      ]
+    },
+    {
+      "id": "e145",
+      "sources": [
+        "tie___schematic_expr_is_push_instr_7_left_0.out"
+      ],
+      "targets": [
+        "arith_is_push_instr.l"
+      ],
+      "labels": [
+        "__schematic_expr_is_push_instr_7_left_0",
+        "1"
+      ]
+    },
+    {
+      "id": "e146",
+      "sources": [
         "inv___schematic_expr_mem_ren_3_left_1.out"
       ],
       "targets": [
@@ -5114,7 +5153,7 @@
       ]
     },
     {
-      "id": "e144",
+      "id": "e147",
       "sources": [
         "gate___schematic_expr_flush_next_instr_0_ff_d_0.out"
       ],
@@ -5127,7 +5166,7 @@
       ]
     },
     {
-      "id": "e145",
+      "id": "e148",
       "sources": [
         "gate___schematic_expr_mem_wdata_2_mux_sel_0_1.out"
       ],
@@ -5140,7 +5179,7 @@
       ]
     },
     {
-      "id": "e146",
+      "id": "e149",
       "sources": [
         "gate___schematic_expr_mem_wdata_2_mux_sel_1_4.out"
       ],
@@ -5153,7 +5192,7 @@
       ]
     },
     {
-      "id": "e147",
+      "id": "e150",
       "sources": [
         "gate___schematic_expr_mem_ren_3_right_0.out"
       ],
@@ -5166,7 +5205,7 @@
       ]
     },
     {
-      "id": "e148",
+      "id": "e151",
       "sources": [
         "gate_mem_ren.out"
       ],
@@ -5179,7 +5218,7 @@
       ]
     },
     {
-      "id": "e149",
+      "id": "e152",
       "sources": [
         "arith___schematic_expr_mem_addr_1_mux_in_0_0.out"
       ],
@@ -5192,7 +5231,7 @@
       ]
     },
     {
-      "id": "e150",
+      "id": "e153",
       "sources": [
         "arith___schematic_expr_mem_wdata_2_right_2.out"
       ],
@@ -5205,7 +5244,7 @@
       ]
     },
     {
-      "id": "e151",
+      "id": "e154",
       "sources": [
         "arith___schematic_expr_bus_4_mux_sel_0_1.out"
       ],
@@ -5218,7 +5257,7 @@
       ]
     },
     {
-      "id": "e152",
+      "id": "e155",
       "sources": [
         "arith_is_push_instr.out"
       ],
@@ -5231,7 +5270,7 @@
       ]
     },
     {
-      "id": "e153",
+      "id": "e156",
       "sources": [
         "arith_is_push_instr.out"
       ],
@@ -5244,7 +5283,7 @@
       ]
     },
     {
-      "id": "e154",
+      "id": "e157",
       "sources": [
         "arith_is_push_instr.out"
       ],
@@ -5257,7 +5296,7 @@
       ]
     },
     {
-      "id": "e155",
+      "id": "e158",
       "sources": [
         "fanout_control_pins.leg.0"
       ],
@@ -5270,7 +5309,7 @@
       ]
     },
     {
-      "id": "e156",
+      "id": "e159",
       "sources": [
         "fanout_control_pins.leg.1"
       ],
@@ -5283,7 +5322,7 @@
       ]
     },
     {
-      "id": "e157",
+      "id": "e160",
       "sources": [
         "fanout_control_pins.leg.2"
       ],
@@ -5296,7 +5335,7 @@
       ]
     },
     {
-      "id": "e158",
+      "id": "e161",
       "sources": [
         "fanout_control_pins.leg.3"
       ],
@@ -5309,7 +5348,7 @@
       ]
     },
     {
-      "id": "e159",
+      "id": "e162",
       "sources": [
         "fanout_control_pins.leg.4"
       ],
@@ -5322,7 +5361,7 @@
       ]
     },
     {
-      "id": "e160",
+      "id": "e163",
       "sources": [
         "fanout_control_pins.leg.5"
       ],
@@ -5335,7 +5374,7 @@
       ]
     },
     {
-      "id": "e161",
+      "id": "e164",
       "sources": [
         "fanout_control_pins.leg.6"
       ],
@@ -5348,7 +5387,7 @@
       ]
     },
     {
-      "id": "e162",
+      "id": "e165",
       "sources": [
         "fanout_control_pins.leg.7"
       ],
@@ -5361,7 +5400,7 @@
       ]
     },
     {
-      "id": "e163",
+      "id": "e166",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -5374,7 +5413,7 @@
       ]
     },
     {
-      "id": "e164",
+      "id": "e167",
       "sources": [
         "fanout_control_pins.leg.8"
       ],
@@ -5387,7 +5426,7 @@
       ]
     },
     {
-      "id": "e165",
+      "id": "e168",
       "sources": [
         "fanout_control_pins.leg.9"
       ],
@@ -5400,7 +5439,7 @@
       ]
     },
     {
-      "id": "e166",
+      "id": "e169",
       "sources": [
         "fanout_control_pins.leg.10"
       ],
@@ -5413,7 +5452,7 @@
       ]
     },
     {
-      "id": "e167",
+      "id": "e170",
       "sources": [
         "fanout_control_pins.leg.11"
       ],
@@ -5426,7 +5465,7 @@
       ]
     },
     {
-      "id": "e168",
+      "id": "e171",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.clk"
       ],
@@ -5439,7 +5478,7 @@
       ]
     },
     {
-      "id": "e169",
+      "id": "e172",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.rst_n"
       ],
@@ -5452,7 +5491,7 @@
       ]
     },
     {
-      "id": "e170",
+      "id": "e173",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.we"
       ],
@@ -5465,7 +5504,7 @@
       ]
     },
     {
-      "id": "e171",
+      "id": "e174",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.z_f_in"
       ],
@@ -5478,7 +5517,7 @@
       ]
     },
     {
-      "id": "e172",
+      "id": "e175",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.n_f_in"
       ],
@@ -5491,7 +5530,7 @@
       ]
     },
     {
-      "id": "e173",
+      "id": "e176",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.c_f_in"
       ],
@@ -5504,7 +5543,7 @@
       ]
     },
     {
-      "id": "e174",
+      "id": "e177",
       "sources": [
         "child_arnicomp_top_flag_reg_i.in.v_f_in"
       ],
@@ -5517,7 +5556,7 @@
       ]
     },
     {
-      "id": "e175",
+      "id": "e178",
       "sources": [
         "child_arnicomp_top_flag_reg_i_flag_register.out.out"
       ],
@@ -5530,7 +5569,7 @@
       ]
     },
     {
-      "id": "e176",
+      "id": "e179",
       "sources": [
         "tie_arnicomp_top_flag_reg_i__const__1\u0027h1__w1.out"
       ],
@@ -5543,7 +5582,7 @@
       ]
     },
     {
-      "id": "e177",
+      "id": "e180",
       "sources": [
         "join_arnicomp_top_flag_reg_i__concat_in__arnicomp_top_flag_reg_i_flag_register__d.out"
       ],
@@ -5556,7 +5595,7 @@
       ]
     },
     {
-      "id": "e178",
+      "id": "e181",
       "sources": [
         "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.0"
       ],
@@ -5569,7 +5608,7 @@
       ]
     },
     {
-      "id": "e179",
+      "id": "e182",
       "sources": [
         "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.1"
       ],
@@ -5582,7 +5621,7 @@
       ]
     },
     {
-      "id": "e180",
+      "id": "e183",
       "sources": [
         "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.2"
       ],
@@ -5595,7 +5634,7 @@
       ]
     },
     {
-      "id": "e181",
+      "id": "e184",
       "sources": [
         "split_arnicomp_top_flag_reg_i__concat_out__arnicomp_top_flag_reg_i_flag_register__out.leg.3"
       ],
