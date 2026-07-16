@@ -205,6 +205,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         // the previous cached value), re-raise the selected-signal-value PCE so
         // the bound TextBlock in the Live Probe panel rebinds.
         _liveProbes.ValueUpdated += OnLiveProbeValueUpdated;
+        _liveProbes.ValuesUpdated += OnLiveProbeValuesUpdated;
         _liveProbes.MemoryUpdated += OnLiveMemoryUpdated;
         if (loadPersistedLayout)
         {
@@ -217,6 +218,16 @@ public sealed class MainWindowViewModel : ViewModelBase
         HierarchyScopeLocalSignalViewModel? local = SelectedSchematicLocalSignal;
         if (local?.ResolvedSignalName is { } resolved
             && string.Equals(resolved, e.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            OnPropertyChanged(nameof(SelectedSchematicSignalValue));
+        }
+    }
+
+    private void OnLiveProbeValuesUpdated(object? sender, ProbeValuesUpdatedEventArgs e)
+    {
+        string? selectedPath = SelectedSchematicLocalSignal?.ResolvedSignalName;
+        if (selectedPath is not null
+            && e.Values.Any(value => string.Equals(value.Path, selectedPath, StringComparison.OrdinalIgnoreCase)))
         {
             OnPropertyChanged(nameof(SelectedSchematicSignalValue));
         }
@@ -845,7 +856,9 @@ public sealed class MainWindowViewModel : ViewModelBase
                 progress,
                 _currentAst);
 
-            _gateLevelWorker = new SimulationWorkerClient(gateBuild.Worker.ExecutablePath);
+            _gateLevelWorker = await SimulationWorkerClient.StartAsync(
+                gateBuild.Worker.ExecutablePath,
+                cancellationToken);
             _gateLevelTraceFilePath = gateBuild.Worker.TraceFilePath;
             RaiseSimulationTargetChanged();
             SynthesisStatus = $"Gate-level worker ready: {Path.GetFileName(gateBuild.Worker.ExecutablePath)}.";
@@ -2333,7 +2346,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             progress,
             _currentAst);
 
-        _worker = new SimulationWorkerClient(build.ExecutablePath);
+        _worker = await SimulationWorkerClient.StartAsync(build.ExecutablePath, cancellationToken);
         _liveProbes.AttachWorker(_worker); _ = _liveProbes.RefreshDescriptorsAsync(CancellationToken.None);
         _rtlTraceFilePath = build.TraceFilePath;
         _traceFilePath = _rtlTraceFilePath;
@@ -2424,7 +2437,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         _savedTopExpandedPaths = [.. SchematicExpandedPaths];
         _subSimProject = subConfig;
 
-        _worker = new SimulationWorkerClient(subBuild.ExecutablePath);
+        _worker = await SimulationWorkerClient.StartAsync(subBuild.ExecutablePath, cancellationToken);
         _liveProbes.AttachWorker(_worker); _ = _liveProbes.RefreshDescriptorsAsync(CancellationToken.None);
         _traceFilePath = subBuild.TraceFilePath;
         _currentDesign = subElab.Design;
@@ -2938,16 +2951,23 @@ public sealed class MainWindowViewModel : ViewModelBase
         // P4-1 polish: refresh probe values IN PLACE rather than clearing then
         // re-reading. Clearing-then-refreshing makes the schematic flicker —
         // labels vanish for the ~10-50ms it takes the worker round-trip to
-        // re-populate. Old cache values stay visible until ValueUpdated fires
+        // re-populate. Old cache values stay visible until ValuesUpdated fires
         // with a fresh value (which only fires when the value actually changed).
         HierarchyScopeLocalSignalViewModel? activeProbe = SelectedSchematicLocalSignal;
+        string? selectedScalarPath = null;
         if (activeProbe?.ResolvedSignalName is { } activePath && _liveProbes.HasWorker)
         {
-            KickLiveProbeRefresh(activePath);
             if (IsSelectedSchematicSignalMemory)
             {
                 _liveProbes.InvalidateAll();   // memory snapshot equality needs a clean cache
                 KickMemoryRefresh(activePath);
+            }
+            else
+            {
+                // Fold the selected probe into the same frame batch. Issuing a
+                // separate ReadSignal here would turn a visible frame into two
+                // round-trips whenever the probe panel has a scalar selected.
+                selectedScalarPath = activePath;
             }
         }
         if (_liveProbes.HasWorker)
@@ -2959,7 +2979,18 @@ public sealed class MainWindowViewModel : ViewModelBase
             IReadOnlyCollection<string>? visible = VisibleProbePathsProvider?.Invoke();
             if (visible is { Count: > 0 })
             {
-                _ = _liveProbes.RefreshScalarsAsync(visible, CancellationToken.None);
+                if (selectedScalarPath is null || visible.Contains(selectedScalarPath, StringComparer.OrdinalIgnoreCase))
+                {
+                    _ = _liveProbes.RefreshScalarsAsync(visible, CancellationToken.None);
+                }
+                else
+                {
+                    HashSet<string> framePaths = new(visible, StringComparer.OrdinalIgnoreCase)
+                    {
+                        selectedScalarPath
+                    };
+                    _ = _liveProbes.RefreshScalarsAsync(framePaths, CancellationToken.None);
+                }
             }
             else
             {

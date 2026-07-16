@@ -8,13 +8,20 @@ namespace Bistable.Protocol;
 /// concrete type at deserialization time.
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(WorkerHelloResponse),  "hello")]
 [JsonDerivedType(typeof(SimulationFrame),    "frame")]
 [JsonDerivedType(typeof(SignalReadResponse), "signalRead")]
+[JsonDerivedType(typeof(SignalsReadResponse), "signalsRead")]
 [JsonDerivedType(typeof(MemoryReadResponse), "memoryRead")]
 [JsonDerivedType(typeof(ProbeListResponse),  "probeList")]
 [JsonDerivedType(typeof(AckResponse),        "ack")]
 [JsonDerivedType(typeof(ErrorResponse),      "error")]
 public abstract record WorkerResponse;
+
+/// <summary>Response to <see cref="SimulationCommandType.Hello"/>.</summary>
+public sealed record WorkerHelloResponse(
+    int ProtocolVersion,
+    IReadOnlyList<string> Capabilities) : WorkerResponse;
 
 /// <summary>
 /// Result of any simulation-stepping command (<c>Eval</c>, <c>Tick</c>,
@@ -29,6 +36,9 @@ public sealed record SimulationFrame(
 
 /// <summary>Response to <see cref="SimulationCommandType.ReadSignal"/>.</summary>
 public sealed record SignalReadResponse(SignalReadResult Result) : WorkerResponse;
+
+/// <summary>Response to <see cref="SimulationCommandType.ReadSignals"/>.</summary>
+public sealed record SignalsReadResponse(SignalsReadResult Result) : WorkerResponse;
 
 /// <summary>Response to <see cref="SimulationCommandType.ReadMemory"/>.</summary>
 public sealed record MemoryReadResponse(MemoryReadResult Result) : WorkerResponse;

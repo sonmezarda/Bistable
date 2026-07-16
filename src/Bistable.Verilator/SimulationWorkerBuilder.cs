@@ -4,6 +4,7 @@ using System.Text;
 using System.Collections.Concurrent;
 using Bistable.Core.Design;
 using Bistable.Core.Projects;
+using Bistable.Protocol;
 
 namespace Bistable.Verilator;
 
@@ -221,6 +222,7 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("#include <string>");
         builder.AppendLine("#include <tuple>");
         builder.AppendLine("#include <unordered_map>");
+        builder.AppendLine("#include <utility>");
         builder.AppendLine("#include <vector>");
         // Redirect Verilator runtime diagnostics (%Error, %Warning) to stderr so they
         // never appear on stdout and corrupt the JSON protocol stream.
@@ -242,6 +244,8 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("double sc_time_stamp() { return 0; }");
         builder.AppendLine();
         builder.AppendLine("namespace {");
+        builder.AppendLine($"constexpr int worker_protocol_version = {WorkerProtocol.CurrentVersion};");
+        builder.AppendLine($"constexpr std::size_t max_signals_per_batch = {WorkerProtocol.MaxSignalsPerBatch}U;");
         builder.AppendLine("using trace_entry = std::tuple<std::string, std::string, std::uint64_t>;");
         builder.AppendLine("using trace_buffer = std::vector<trace_entry>;");
         if (options.TraceEnabled)
@@ -283,6 +287,41 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("    std::regex pattern(\"\\\\\\\"\" + key + \"\\\\\\\"\\\\s*:\\\\s*\\\\\\\"([^\\\\\\\"]*)\\\\\\\"\");");
         builder.AppendLine("    std::smatch match;");
         builder.AppendLine("    return std::regex_search(json, match, pattern) ? match[1].str() : std::string{};");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("std::vector<std::string> get_string_array(const std::string& json, const std::string& key) {");
+        builder.AppendLine("    std::vector<std::string> values;");
+        builder.AppendLine("    const std::size_t key_pos = json.find(\"\\\"\" + key + \"\\\"\");");
+        builder.AppendLine("    if (key_pos == std::string::npos) return values;");
+        builder.AppendLine("    std::size_t pos = json.find('[', key_pos);");
+        builder.AppendLine("    if (pos == std::string::npos) return values;");
+        builder.AppendLine("    ++pos;");
+        builder.AppendLine("    while (pos < json.size()) {");
+        builder.AppendLine("        while (pos < json.size() && (std::isspace(static_cast<unsigned char>(json[pos])) || json[pos] == ',')) ++pos;");
+        builder.AppendLine("        if (pos >= json.size() || json[pos] == ']') break;");
+        builder.AppendLine("        if (json[pos] != '\"') throw std::invalid_argument(\"invalid string array\");");
+        builder.AppendLine("        ++pos;");
+        builder.AppendLine("        std::string value;");
+        builder.AppendLine("        bool closed = false;");
+        builder.AppendLine("        while (pos < json.size()) {");
+        builder.AppendLine("            char c = json[pos++];");
+        builder.AppendLine("            if (c == '\"') { closed = true; break; }");
+        builder.AppendLine("            if (c == '\\\\' && pos < json.size()) {");
+        builder.AppendLine("                const char escaped = json[pos++];");
+        builder.AppendLine("                switch (escaped) {");
+        builder.AppendLine("                    case 'n': value.push_back('\\n'); break;");
+        builder.AppendLine("                    case 'r': value.push_back('\\r'); break;");
+        builder.AppendLine("                    case 't': value.push_back('\\t'); break;");
+        builder.AppendLine("                    default: value.push_back(escaped); break;");
+        builder.AppendLine("                }");
+        builder.AppendLine("            } else {");
+        builder.AppendLine("                value.push_back(c);");
+        builder.AppendLine("            }");
+        builder.AppendLine("        }");
+        builder.AppendLine("        if (!closed) throw std::invalid_argument(\"unterminated string array value\");");
+        builder.AppendLine("        values.push_back(std::move(value));");
+        builder.AppendLine("    }");
+        builder.AppendLine("    return values;");
         builder.AppendLine("}");
         builder.AppendLine();
         builder.AppendLine("std::uint64_t get_u64(const std::string& json, const std::string& key, std::uint64_t fallback) {");
@@ -366,7 +405,9 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("        try {");
         builder.AppendLine("            const std::string type = get_string(line, \"type\");");
         builder.AppendLine("            trace_buffer trace;");
-        builder.AppendLine("            if (type == \"setInput\") {");
+        builder.AppendLine("            if (type == \"hello\") {");
+        builder.AppendLine("                write_hello();");
+        builder.AppendLine("            } else if (type == \"setInput\") {");
         builder.AppendLine("                const std::string signal = get_string(line, \"signal\");");
         builder.AppendLine("                const std::string raw_value = get_string(line, \"value\");");
         foreach (SignalPort port in metadata.Inputs)
@@ -446,6 +487,8 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("                auto it = probe_table.find(path);");
         builder.AppendLine("                if (it == probe_table.end()) { write_error(\"unknown probe path: \" + path); }");
         builder.AppendLine("                else { write_signal_read(path, it->second.read(), it->second.width, it->second.is_signed); }");
+        builder.AppendLine("            } else if (type == \"readSignals\") {");
+        builder.AppendLine("                write_signals_read(get_string_array(line, \"paths\"));");
         builder.AppendLine("            } else if (type == \"writeSignal\") {");
         builder.AppendLine(ExtractPath);
         builder.AppendLine("                const std::string raw_value = get_string(line, \"value\");");
@@ -756,6 +799,36 @@ public sealed class SimulationWorkerBuilder(string verilatorExecutablePath = "ve
         builder.AppendLine("void write_ack() { std::cout << \"{\\\"kind\\\":\\\"ack\\\"}\" << std::endl; }");
         builder.AppendLine("void write_error(const std::string& msg) {");
         builder.AppendLine("    std::cout << \"{\\\"kind\\\":\\\"error\\\",\\\"message\\\":\\\"\" << json_escape(msg) << \"\\\"}\" << std::endl;");
+        builder.AppendLine("}");
+        builder.AppendLine("void write_hello() {");
+        builder.AppendLine("    std::cout << \"{\\\"kind\\\":\\\"hello\\\",\\\"protocolVersion\\\":\" << worker_protocol_version");
+        builder.AppendLine($"              << \",\\\"capabilities\\\":[\\\"{WorkerProtocol.ReadSignalsCapability}\\\"]}}\" << std::endl;");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("void write_signals_read(const std::vector<std::string>& paths) {");
+        builder.AppendLine("    if (paths.size() > max_signals_per_batch) {");
+        builder.AppendLine("        write_error(\"readSignals exceeds maximum batch size\");");
+        builder.AppendLine("        return;");
+        builder.AppendLine("    }");
+        builder.AppendLine("    std::cout << \"{\\\"kind\\\":\\\"signalsRead\\\",\\\"result\\\":{\\\"results\\\":[\";");
+        builder.AppendLine("    for (std::size_t i = 0; i < paths.size(); ++i) {");
+        builder.AppendLine("        if (i > 0) std::cout << ',';");
+        builder.AppendLine("        const std::string& path = paths[i];");
+        builder.AppendLine("        auto it = probe_table.find(path);");
+        builder.AppendLine("        if (it == probe_table.end()) {");
+        builder.AppendLine("            std::cout << \"{\\\"path\\\":\\\"\" << json_escape(path)");
+        builder.AppendLine("                      << \"\\\",\\\"value\\\":null,\\\"width\\\":0,\\\"isSigned\\\":false,\\\"error\\\":\\\"unknown probe path: \"");
+        builder.AppendLine("                      << json_escape(path) << \"\\\"}\";");
+        builder.AppendLine("        } else {");
+        builder.AppendLine("            std::ostringstream val; val << \"0x\" << std::hex << it->second.read();");
+        builder.AppendLine("            std::cout << \"{\\\"path\\\":\\\"\" << json_escape(path)");
+        builder.AppendLine("                      << \"\\\",\\\"value\\\":\\\"\" << val.str()");
+        builder.AppendLine("                      << \"\\\",\\\"width\\\":\" << it->second.width");
+        builder.AppendLine("                      << \",\\\"isSigned\\\":\" << (it->second.is_signed ? \"true\" : \"false\")");
+        builder.AppendLine("                      << \",\\\"error\\\":null}\";");
+        builder.AppendLine("        }");
+        builder.AppendLine("    }");
+        builder.AppendLine("    std::cout << \"]}}\" << std::endl;");
         builder.AppendLine("}");
         // P3-6: emit a MemoryReadResult — `{"kind":"memoryRead","result":{path,startAddress,cellWidth,cells:[hex,...]}}`.
         // Declared AFTER write_error so the in-range guard can call it.

@@ -6,7 +6,8 @@ namespace Bistable.App.Services;
 /// Bridges the GUI to the worker's Phase 3 probe table. Holds a small in-memory
 /// cache of recently-read signal values so the UI can render synchronously
 /// without blocking on the worker IPC; readers kick async refreshes whose
-/// completion fires <see cref="ValueUpdated"/>.
+/// completion fires <see cref="ValueUpdated"/> for a single read or
+/// <see cref="ValuesUpdated"/> once for a frame batch.
 /// </summary>
 /// <remarks>
 /// The service is process-singleton from the GUI's perspective (one
@@ -27,6 +28,12 @@ public sealed class LiveProbeService
 
     /// <summary>Raised on the calling task's context whenever a path's value changes from a prior cached value.</summary>
     public event EventHandler<ProbeValueUpdatedEventArgs>? ValueUpdated;
+
+    /// <summary>
+    /// Raised once after a batch refresh when one or more cached scalar values
+    /// changed. This keeps a visible frame refresh to one UI invalidation.
+    /// </summary>
+    public event EventHandler<ProbeValuesUpdatedEventArgs>? ValuesUpdated;
 
     /// <summary>Raised whenever a memory snapshot finishes refreshing (any cell changed OR first read).</summary>
     public event EventHandler<MemorySnapshotUpdatedEventArgs>? MemoryUpdated;
@@ -138,32 +145,56 @@ public sealed class LiveProbeService
     {
         (SimulationWorkerClient? worker, long generation) = CaptureWorker();
         if (worker is null) return;
-        foreach (string path in paths.Distinct(StringComparer.OrdinalIgnoreCase))
+        if (cancellationToken.IsCancellationRequested) return;
+
+        string[] requested = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        List<string> scalarPaths = new(requested.Length);
+        lock (_gate)
         {
-            if (cancellationToken.IsCancellationRequested) return;
-            ProbeDescriptor? descriptor;
-            lock (_gate)
+            if (!IsCurrentWorker(worker, generation)) return;
+            foreach (string path in requested)
             {
-                if (!IsCurrentWorker(worker, generation)) return;
-                _descriptors.TryGetValue(path, out descriptor);
-            }
-            if (descriptor is null || descriptor.IsMemory) continue;
-            try
-            {
-                SignalReadResult r = await worker.ReadSignalAsync(path, cancellationToken);
-                bool changed;
-                lock (_gate)
+                if (_descriptors.TryGetValue(path, out ProbeDescriptor? descriptor)
+                    && !descriptor.IsMemory)
                 {
-                    if (!IsCurrentWorker(worker, generation)) return;
-                    changed = !_cache.TryGetValue(path, out string? prior) || !string.Equals(prior, r.Value, StringComparison.Ordinal);
-                    _cache[path] = r.Value;
-                }
-                if (changed && IsCurrentWorkerSnapshot(worker, generation))
-                {
-                    ValueUpdated?.Invoke(this, new ProbeValueUpdatedEventArgs(path, r.Value));
+                    // Worker lookup is case-sensitive; send the canonical path
+                    // advertised by ListProbes even though the UI cache accepts
+                    // case-insensitive references.
+                    scalarPaths.Add(descriptor.Path);
                 }
             }
-            catch (InvalidOperationException) { /* per-path miss, continue */ }
+        }
+        if (scalarPaths.Count == 0) return;
+
+        SignalsReadResult batch;
+        try
+        {
+            batch = await worker.ReadSignalsAsync(scalarPaths, cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
+
+        List<SignalReadOutcome> changed = [];
+        lock (_gate)
+        {
+            if (!IsCurrentWorker(worker, generation)) return;
+            foreach (SignalReadOutcome result in batch.Results)
+            {
+                if (!result.IsSuccess || result.Value is null) continue;
+                bool valueChanged = !_cache.TryGetValue(result.Path, out string? prior)
+                    || !string.Equals(prior, result.Value, StringComparison.Ordinal);
+                _cache[result.Path] = result.Value;
+                if (valueChanged)
+                {
+                    changed.Add(result);
+                }
+            }
+        }
+        if (changed.Count > 0 && IsCurrentWorkerSnapshot(worker, generation))
+        {
+            ValuesUpdated?.Invoke(this, new ProbeValuesUpdatedEventArgs(changed));
         }
     }
 
@@ -322,6 +353,11 @@ public sealed class ProbeValueUpdatedEventArgs(string path, string value) : Even
 {
     public string Path { get; } = path;
     public string Value { get; } = value;
+}
+
+public sealed class ProbeValuesUpdatedEventArgs(IReadOnlyList<SignalReadOutcome> values) : EventArgs
+{
+    public IReadOnlyList<SignalReadOutcome> Values { get; } = values;
 }
 
 /// <summary>

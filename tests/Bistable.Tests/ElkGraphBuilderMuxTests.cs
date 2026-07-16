@@ -297,7 +297,7 @@ public sealed class ElkGraphBuilderMuxTests
 
         ElkNode node = BuildSingleMux(mux, [In("sel", 1), In("b"), Out("y")]);
 
-        Assert.Equal(72, node.Width);
+        Assert.Equal(94, node.Width);
     }
 
     [Fact]
@@ -307,7 +307,7 @@ public sealed class ElkGraphBuilderMuxTests
 
         ElkNode node = BuildSingleMux(mux, [In("a"), In("b"), In("sel", 1), Out("y")]);
 
-        Assert.Equal(72, node.Width);
+        Assert.Equal(94, node.Width);
     }
 
     private static ElkNode BuildSingleMux(MuxPrimitive mux, IReadOnlyList<HierarchyScopePortViewModel> ports)

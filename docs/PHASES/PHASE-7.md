@@ -3,6 +3,8 @@
 **Plan kaydı:** [docs/ROADMAP.md](../ROADMAP.md) · Kaynak: [VISION_GAP_ANALYSIS.md §2, §6](../VISION_GAP_ANALYSIS.md)
 **Öncelik:** P0 — tüm vizyonun temeli
 **Önkoşul:** yok (ilk faz)
+**Durum (2026-07-16):** **Tamamlandı.** Uygulama, otomatik kapılar ve sahibin
+düzeltilmiş riscv decoder/top görsel kabulü tamamlandı.
 **Hedef:** Şematik, tasarımın *dürüst* resmi olsun: `always_comb` blokları
 primitive'lere çözülür; çözülemeyen HER uç nokta coverage'da `Unsupported`
 olarak listelenir. Üçüncü durum (sessiz görünmezlik) kalmaz.
@@ -16,6 +18,36 @@ olarak listelenir. Üçüncü durum (sessiz görünmezlik) kalmaz.
   sözleşme altında `SilentMissCount == 0`; `Unsupported` listesi gözden geçirilmiş.
 - Sahip görsel kabulü: riscv decoder/top açılımında kontrol mantığı (mux'lar)
   görünür ve bağlı.
+
+## Uygulama sonucu (2026-07-16)
+
+- `CombinationalProjector`, `TempFolder.Fold` sonrasında reader zincirine eklendi.
+  Begin/Assign/If/Case, son-atama semantiği, default taşıma, latch riski,
+  sabit-olmayan case etiketi ve 128-seviye derinlik sınırı testlerle kilitli.
+- Bit-dilimli procedural hedefler (örn. arnicomp `ctrl.ce`, `mar_d[7:0]`)
+  per-bit sembolik durumla birleştiriliyor; yalnız bütün bus tam tanımlıysa tek
+  sentetik `ContAssignAst` üretiliyor. Böylece seçim semantiği korunuyor ve aynı
+  bus için kozmetik çoklu sürücü oluşturulmuyor.
+- Coverage'a `CombinationalTarget` ve `CombinationalRead` endpoint'leri eklendi.
+  Projector'dan geçmemiş blok, latch riski, çözülemeyen okuma ve çok-atamalı
+  sequential gövde açık `Unsupported` oluyor.
+- Otomatik `u_alu.zero` regresyonu gerçek ELK giriş grafiğinde ALU child-output
+  portundan `branch_taken` mux girişine tüketici kenarını doğruluyor.
+- Örnek kapısı yeşil: beş örnekte `SilentMissCount == 0` ve her comb/seq sürücü
+  endpoint'i Routed/Unsupported (yalnız `__V*` için IntentionalOmission).
+  İncelenen Unsupported özeti: arnicomp 5, tiny_cpu 6, bus_fabric 3,
+  memory_demo 0, riscv 8. Bunların 20'si bilinen çok-atamalı sequential
+  `FindPrimaryAssign` sınırı; riscv'deki kalan 2 kayıt mevcut concat/joiner
+  çözülemeyen primitive girişleri. `always_comb` kaynaklı Unsupported kalmadı.
+- Golden diff semantik olarak doğrulandı: mevcut node/port/edge çıkarılmadı;
+  `marl_i` açılımına 9 node, 33 port ve 25 edge eklendi. Üç üst-seviye golden'da
+  yalnız yeni iç primitive varlığını belirten `expandable` etiketi eklendi.
+- İlk görsel kabul turunda bildirilen başlık/pin çakışması, sentetik ifade
+  adlarının okunabilirliği ve yoğun mux geometrisi düzeltildi: genişletilebilir
+  modüller artık ayrı bir başlık satırı ayırır; sentetik primitive'ler yalnızca
+  işlem adını gösterip tam hedef adını hover tooltip'inde sunar; mux gövdesi,
+  giriş aralığı, başlık ve canlı-değer rozeti yoğun fan-in için ölçeklenir.
+- Sahip, düzeltilmiş riscv decoder/top görünümünü kabul etti; Faz 7 kapandı.
 
 ## Tasarım: "statement → hedef-başına ifade projeksiyonu"
 

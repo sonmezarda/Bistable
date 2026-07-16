@@ -103,7 +103,9 @@ public sealed class ChildNodeHeaderHeightTests
             compactLayout: true);
 
         var childNode = Assert.Single(result.Graph.Children, n => n.Id == "child_top_jd");
-        ElkPort onlyPort = Assert.Single(childNode.Ports!);
+        ElkPort onlyPort = Assert.Single(
+            childNode.Ports!,
+            static port => !ElkGraphBuilder.IsHeaderSpacerPort(port.Id));
         // The builder doesn't ellipsize labels (that's the renderer's job).
         // Verify the port label IS the full original name.
         Assert.Contains("very_long_port_name", onlyPort.Labels![0].Text);

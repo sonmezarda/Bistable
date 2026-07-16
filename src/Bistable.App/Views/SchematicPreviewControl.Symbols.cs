@@ -80,7 +80,11 @@ public sealed partial class SchematicPreviewControl
     /// </summary>
     private void DrawElkFlipFlopLiveQ(DrawingContext context, ElkNode node, Rect rect) => DrawPrimitiveLiveOutput(context, node, rect);
 
-    private void DrawPrimitiveLiveOutput(DrawingContext context, ElkNode node, Rect rect)
+    private void DrawPrimitiveLiveOutput(
+        DrawingContext context,
+        ElkNode node,
+        Rect rect,
+        bool avoidSouthPortBand = false)
     {
         if (node.Labels is not { Count: > 1 }) return;
         string outSignal = node.Labels[1].Text;
@@ -97,16 +101,27 @@ public sealed partial class SchematicPreviewControl
         double fontSize = Math.Clamp(rect.Height * 0.22, 9, 14);
         double textW = MeasureLabelWidth(display, fontSize);
         // Pill background so it stays legible over the symbol's body strokes.
-        Rect pill = new(
-            rect.X + (rect.Width - textW) / 2 - 3,
-            rect.Y + rect.Height - fontSize - 6,
-            textW + 6,
-            fontSize + 4);
+        Rect pill = ComputePrimitiveValueBadge(rect, textW, fontSize, avoidSouthPortBand);
         context.FillRectangle(new SolidColorBrush(Color.FromArgb(190, 16, 22, 32)), pill, 3);
         DrawText(context, display,
             pill.X + 3,
             pill.Y + 1,
             new SolidColorBrush(Color.FromRgb(140, 220, 255)), fontSize);
+    }
+
+    internal static Rect ComputePrimitiveValueBadge(
+        Rect body,
+        double textWidth,
+        double fontSize,
+        bool avoidSouthPortBand)
+    {
+        double x = avoidSouthPortBand
+            ? Math.Min(body.Right - textWidth - 12, body.X + body.Width * 0.60)
+            : body.X + (body.Width - textWidth) / 2 - 3;
+        double y = avoidSouthPortBand
+            ? body.Y + body.Height * 0.62 - fontSize / 2
+            : body.Y + body.Height - fontSize - 6;
+        return new Rect(x, y, textWidth + 6, fontSize + 4);
     }
 
     private void DrawClockEdgeMarker(DrawingContext context, double px, double py, Pen stroke)
@@ -179,20 +194,21 @@ public sealed partial class SchematicPreviewControl
         }
         context.DrawGeometry(Palette.NodeFill, stroke, geo);
 
-        // Title above the trapezoid
+        // Keep the title inside the body. Out-of-body titles are invisible to
+        // ELK's spacing model and used to overlap adjacent decoder muxes.
         if (node.Labels is { Count: > 0 })
         {
-            string title = node.Labels[0].Text;
+            string title = EllipsizeToWidth(node.Labels[0].Text, rect.Width - 16, 11);
             double fontSize = Math.Clamp(rect.Height * 0.12, 7, 11);
             double textW = MeasureLabelWidth(title, fontSize);
             DrawText(context, title,
                 rect.X + (rect.Width - textW) / 2,
-                rect.Y - fontSize - 2,
+                rect.Y + rect.Height * 0.38 - fontSize / 2,
                 Palette.Text, fontSize);
         }
 
         DrawSymbolPortsAndLabels(context, node, rect, scale, stroke, labelPlacement);
-        DrawPrimitiveLiveOutput(context, node, rect);
+        DrawPrimitiveLiveOutput(context, node, rect, avoidSouthPortBand: true);
     }
 
     // ── Memory tile (RAM block) ──────────────────────────────────────────
@@ -525,8 +541,8 @@ public sealed partial class SchematicPreviewControl
     private void DrawSymbolTitle(DrawingContext context, ElkNode node, Rect rect)
     {
         if (node.Labels is not { Count: > 0 }) return;
-        string title = node.Labels[0].Text;
         double fontSize = Math.Clamp(rect.Height * 0.16, 7, 11);
+        string title = EllipsizeToWidth(node.Labels[0].Text, Math.Max(24, rect.Width - 8), fontSize);
         double textW = MeasureLabelWidth(title, fontSize);
         DrawText(context, title,
             rect.X + (rect.Width - textW) / 2,

@@ -43,9 +43,8 @@ public sealed class SchematicCoverageNegativeTests
     [Fact]
     public void Analyze_CombinationalBlock_ProducesNoSilentEndpoints()
     {
-        // CombinationalBlockAst isn't decoded into primitives yet. We don't
-        // expect a Routed endpoint, but we MUST not silently swallow the
-        // assignment target.
+        // A raw, unprojected block is a pipeline contract violation. Coverage
+        // must surface both its target and read as Unsupported.
         ModuleAst module = Module(combinationalBlocks:
         [
             new CombinationalBlockAst(
@@ -55,17 +54,17 @@ public sealed class SchematicCoverageNegativeTests
         SchematicCoverageReport report = SchematicCoverageAnalyzer.Analyze(module);
 
         Assert.Equal(0, report.SilentMissCount);
-        // Either Unsupported diagnostic surfaces or no endpoint at all (decoder
-        // routed the assign into a buffer). Reachable + "silent" is the only
-        // disallowed outcome — Routed without a backing primitive is silent.
-        bool foundRoutedWithoutPrimitive = report.Modules
-            .Single()
-            .Endpoints
-            .Any(e => e.SignalName == "y"
-                  && e.Status == EndpointCoverageStatus.Routed
-                  && e.Kind == EndpointKind.ContAssignTarget);
-        Assert.False(foundRoutedWithoutPrimitive,
-            "CombinationalBlock targets must not be marked Routed without a backing primitive.");
+        EndpointCoverage target = Assert.Single(report.Modules.Single().Endpoints,
+            static endpoint => endpoint.Kind == EndpointKind.CombinationalTarget);
+        Assert.Equal("y", target.SignalName);
+        Assert.Equal(EndpointCoverageStatus.Unsupported, target.Status);
+
+        EndpointCoverage read = Assert.Single(report.Modules.Single().Endpoints,
+            static endpoint => endpoint.Kind == EndpointKind.CombinationalRead);
+        Assert.Equal("a", read.SignalName);
+        Assert.Equal(EndpointCoverageStatus.Unsupported, read.Status);
+        Assert.Contains(report.UnsupportedConstructs,
+            static diagnostic => diagnostic.ConstructKind == "CombinationalBlock");
     }
 
     [Fact]

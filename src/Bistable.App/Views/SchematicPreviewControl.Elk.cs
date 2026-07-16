@@ -245,6 +245,12 @@ public sealed partial class SchematicPreviewControl
             double absY = baseY + node.Y;
             Rect rect = transform.Apply(absX, absY, node.Width, node.Height);
 
+            if (IsElkPrimitiveNode(node)
+                && BuildPrimitiveToolTip(node) is { Length: > 0 } toolTip)
+            {
+                _primitiveHitTargets.Add(new PrimitiveHitTarget(node.Id, toolTip, rect.Inflate(3)));
+            }
+
             if (node.Id is ElkNodeIds.BoundaryIn)
             {
                 DrawElkBoundaryPins(context, node, rect, transform.Scale, isInput: true, labelPlacement);
@@ -344,6 +350,29 @@ public sealed partial class SchematicPreviewControl
         && !ElkNodeIds.IsGate(node.Id)
         && !ElkNodeIds.IsArith(node.Id)
         && !ElkNodeIds.IsStructFanOut(node.Id);
+
+    private static bool IsElkPrimitiveNode(ElkNode node) =>
+        node.Id is not ElkNodeIds.BoundaryIn and not ElkNodeIds.BoundaryOut
+        && !IsElkCardNode(node);
+
+    internal static string? BuildPrimitiveToolTip(ElkNode node)
+    {
+        if (node.Labels is not { Count: > 0 }) return null;
+        string kind = node.Labels[0].Text.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()
+            ?? "Primitive";
+        if (node.Labels.Count < 2 || string.IsNullOrWhiteSpace(node.Labels[1].Text))
+        {
+            return node.Labels[0].Text;
+        }
+
+        string output = node.Labels[1].Text;
+        string selector = ElkNodeIds.IsMux(node.Id)
+            && node.Labels.Count > 2
+            && !string.IsNullOrWhiteSpace(node.Labels[2].Text)
+                ? $"\nSelector: {node.Labels[2].Text}"
+                : string.Empty;
+        return $"{kind}\nOutput: {output}{selector}";
+    }
 
     private void DrawElkChildExpansionButton(DrawingContext context, ElkNode node, Rect rect)
     {
@@ -799,6 +828,11 @@ public sealed partial class SchematicPreviewControl
             && node.Id is not ElkNodeIds.BoundaryIn and not ElkNodeIds.BoundaryOut)
         {
             _scopeHitTargets.Add(new ScopeHitTarget(hierarchyPath, rect, CanExpand: ElkGraphBuilder.IsExpandableChild(node)));
+            double headerY = rect.Y + ElkGraphBuilder.ModuleHeaderHeight * scale;
+            context.DrawLine(
+                new Pen(Palette.ModuleStroke, 0.8),
+                new Point(rect.X + 1, headerY),
+                new Point(rect.Right - 1, headerY));
         }
 
         // P2.5-2: title now sits with 8px top padding (was 4px) so its baseline
@@ -836,6 +870,11 @@ public sealed partial class SchematicPreviewControl
         double nodeWidthUnscaled,
         SchematicLabelPlacementContext labelPlacement)
     {
+        if (ElkGraphBuilder.IsHeaderSpacerPort(port.Id))
+        {
+            return;
+        }
+
         double px = nodeRect.X + port.X * scale;
         double py = nodeRect.Y + port.Y * scale;
         bool onEast = port.X >= nodeWidthUnscaled - 1;

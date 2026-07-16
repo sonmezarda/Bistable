@@ -45,6 +45,8 @@ public enum EndpointKind
 {
     BoundaryPort,
     ContAssignTarget,
+    CombinationalTarget,
+    CombinationalRead,
     SequentialTarget,
     PrimitiveInput,
     PrimitiveOutput,
@@ -118,6 +120,7 @@ public static class SchematicCoverageAnalyzer
             AddContAssignCoverage(module, routedTargets, endpoints, unsupported);
             AddSequentialCoverage(module, routedTargets, endpoints, unsupported);
         }
+        AddCombinationalCoverage(module, primitives, routedTargets, endpoints, unsupported);
 
         ModuleCoverage moduleCoverage = new(module.Name, endpoints);
         return new SchematicCoverageReport(module.Name, [moduleCoverage], unsupported);
@@ -295,6 +298,239 @@ public static class SchematicCoverageAnalyzer
         }
     }
 
+    private static void AddCombinationalCoverage(
+        ModuleAst module,
+        SchematicPrimitiveList primitives,
+        IReadOnlySet<string> routedTargets,
+        List<EndpointCoverage> endpoints,
+        List<UnsupportedConstructDiagnostic> unsupported)
+    {
+        HashSet<string> routedInputs = CollectPrimitiveInputSignals(primitives);
+        IReadOnlyDictionary<string, SchematicDecoderCoverageEvent> decoderEvents =
+            primitives.CoverageEvents?
+                .GroupBy(static e => e.EndpointId, StringComparer.Ordinal)
+                .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.Ordinal)
+            ?? new Dictionary<string, SchematicDecoderCoverageEvent>(StringComparer.Ordinal);
+
+        for (int blockIndex = 0; blockIndex < module.CombinationalBlocks.Count; blockIndex++)
+        {
+            CombinationalBlockAst block = module.CombinationalBlocks[blockIndex];
+            if (block.ProjectionResults is null)
+            {
+                AddUnprojectedBlockCoverage(module.Name, block, blockIndex, endpoints, unsupported);
+                continue;
+            }
+
+            foreach (CombinationalProjectionTarget projection in block.ProjectionResults)
+            {
+                string targetEndpointId = $"combinational:{blockIndex}:{projection.TargetIndex}:{projection.SignalName}";
+                EndpointCoverageStatus targetStatus = EndpointCoverageStatus.Unsupported;
+                string targetReason = projection.Reason;
+
+                if (SchematicDecoder.IsVerilatorInternalSignal(projection.SignalName))
+                {
+                    targetStatus = EndpointCoverageStatus.IntentionalOmission;
+                    targetReason = "Verilator internal combinational target intentionally hidden.";
+                }
+                else if (projection.Status == CombinationalProjectionStatus.Projected
+                         && projection.SyntheticContAssignIndex is { } contAssignIndex)
+                {
+                    string contAssignEndpointId = $"contassign:{contAssignIndex}:{projection.SignalName}";
+                    if (decoderEvents.TryGetValue(contAssignEndpointId, out SchematicDecoderCoverageEvent? decoderEvent))
+                    {
+                        targetStatus = decoderEvent.Status;
+                        targetReason = decoderEvent.Status == EndpointCoverageStatus.Routed
+                            ? "Projected combinational target is owned by a schematic primitive."
+                            : decoderEvent.Reason;
+                    }
+                    else if (routedTargets.Contains(projection.SignalName))
+                    {
+                        targetStatus = EndpointCoverageStatus.Routed;
+                        targetReason = "Projected combinational target is owned by a schematic primitive.";
+                    }
+                    else
+                    {
+                        targetReason = "Synthetic continuous assignment was not decoded into a schematic primitive.";
+                    }
+                }
+
+                endpoints.Add(new EndpointCoverage(
+                    module.Name,
+                    null,
+                    targetEndpointId,
+                    projection.SignalName,
+                    EndpointKind.CombinationalTarget,
+                    targetStatus,
+                    targetReason));
+
+                if (targetStatus == EndpointCoverageStatus.Unsupported)
+                {
+                    unsupported.Add(new UnsupportedConstructDiagnostic(
+                        module.Name,
+                        targetEndpointId,
+                        "CombinationalBlock",
+                        targetReason));
+                }
+
+                for (int readIndex = 0; readIndex < projection.ReadSignals.Count; readIndex++)
+                {
+                    string signal = projection.ReadSignals[readIndex];
+                    string endpointId = $"combinational:{blockIndex}:{projection.TargetIndex}:read:{readIndex}:{signal}";
+                    EndpointCoverageStatus status;
+                    string reason;
+
+                    if (SchematicDecoder.IsVerilatorInternalSignal(signal))
+                    {
+                        status = EndpointCoverageStatus.IntentionalOmission;
+                        reason = "Verilator internal combinational read intentionally hidden.";
+                    }
+                    else if (targetStatus == EndpointCoverageStatus.Routed && routedInputs.Contains(signal))
+                    {
+                        status = EndpointCoverageStatus.Routed;
+                        reason = "Combinational read is owned by a schematic primitive input or control pin.";
+                    }
+                    else
+                    {
+                        status = EndpointCoverageStatus.Unsupported;
+                        reason = targetStatus == EndpointCoverageStatus.Routed
+                            ? "Combinational read was not materialized as a schematic primitive input or control pin."
+                            : $"Combinational read belongs to an unsupported target: {targetReason}";
+                    }
+
+                    endpoints.Add(new EndpointCoverage(
+                        module.Name,
+                        null,
+                        endpointId,
+                        signal,
+                        EndpointKind.CombinationalRead,
+                        status,
+                        reason));
+
+                    if (status == EndpointCoverageStatus.Unsupported)
+                    {
+                        unsupported.Add(new UnsupportedConstructDiagnostic(
+                            module.Name,
+                            endpointId,
+                            "CombinationalBlockRead",
+                            reason));
+                    }
+                }
+            }
+        }
+    }
+
+    private static void AddUnprojectedBlockCoverage(
+        string moduleName,
+        CombinationalBlockAst block,
+        int blockIndex,
+        List<EndpointCoverage> endpoints,
+        List<UnsupportedConstructDiagnostic> unsupported)
+    {
+        const string targetReason = "Combinational block did not pass through CombinationalProjector.";
+        string[] targets = [.. AssignedTargets(block.Body).Distinct(StringComparer.Ordinal)];
+        for (int targetIndex = 0; targetIndex < targets.Length; targetIndex++)
+        {
+            string signal = targets[targetIndex];
+            string endpointId = $"combinational:{blockIndex}:{targetIndex}:{signal}";
+            endpoints.Add(UnsupportedEndpoint(
+                moduleName,
+                endpointId,
+                signal,
+                EndpointKind.CombinationalTarget,
+                targetReason));
+            unsupported.Add(new UnsupportedConstructDiagnostic(
+                moduleName,
+                endpointId,
+                "CombinationalBlock",
+                targetReason));
+        }
+
+        const string readReason = "Read belongs to a combinational block that was not projected.";
+        string[] reads = [.. ReadSignals(block.Body).Distinct(StringComparer.Ordinal)];
+        for (int readIndex = 0; readIndex < reads.Length; readIndex++)
+        {
+            string signal = reads[readIndex];
+            string endpointId = $"combinational:{blockIndex}:read:{readIndex}:{signal}";
+            endpoints.Add(UnsupportedEndpoint(
+                moduleName,
+                endpointId,
+                signal,
+                EndpointKind.CombinationalRead,
+                readReason));
+            unsupported.Add(new UnsupportedConstructDiagnostic(
+                moduleName,
+                endpointId,
+                "CombinationalBlockRead",
+                readReason));
+        }
+    }
+
+    private static HashSet<string> CollectPrimitiveInputSignals(SchematicPrimitiveList primitives)
+    {
+        HashSet<string> signals = new(StringComparer.OrdinalIgnoreCase);
+        foreach (SchematicPrimitive primitive in primitives.Logic)
+        {
+            switch (primitive)
+            {
+                case FlipFlopPrimitive ff:
+                    Add(ff.DSignal);
+                    Add(ff.ClockSignal);
+                    Add(ff.AsyncResetSignal);
+                    break;
+                case LatchPrimitive latch:
+                    Add(latch.DSignal);
+                    Add(latch.GateSignal);
+                    break;
+                case MuxPrimitive mux:
+                    foreach (MuxInput input in mux.Inputs)
+                    {
+                        if (input.Source is MuxSignalSource signal) Add(signal.SignalName);
+                    }
+                    foreach (string select in mux.SelectSignals) Add(select);
+                    break;
+                case BufferPrimitive buffer:
+                    Add(buffer.InputSignal);
+                    break;
+                case TriStatePrimitive triState:
+                    Add(triState.DataSignal);
+                    Add(triState.EnableSignal);
+                    break;
+                case InverterPrimitive inverter:
+                    Add(inverter.InputSignal);
+                    break;
+                case GatePrimitive gate:
+                    foreach (string input in gate.InputSignals) Add(input);
+                    break;
+                case ArithPrimitive arithmetic:
+                    Add(arithmetic.LeftSignal);
+                    Add(arithmetic.RightSignal);
+                    break;
+                case SplitterPrimitive splitter:
+                    Add(splitter.InputSignal);
+                    break;
+                case JoinerPrimitive joiner:
+                    foreach (string input in joiner.InputSignals) Add(input);
+                    break;
+                case MemoryReadPrimitive read:
+                    Add(read.MemorySignal);
+                    Add(read.AddressSignal);
+                    break;
+                case StructFanOutPrimitive fanOut:
+                    Add(fanOut.StructSignal);
+                    break;
+            }
+        }
+        return signals;
+
+        void Add(string? signal)
+        {
+            if (!string.IsNullOrWhiteSpace(signal) && !IsConstantLiteral(signal))
+            {
+                signals.Add(signal);
+            }
+        }
+    }
+
     private static void AddPrimitiveEndpointCoverage(
         string moduleName,
         SchematicPrimitiveList primitives,
@@ -460,6 +696,102 @@ public static class SchematicCoverageAnalyzer
 
     private static EndpointCoverage UnsupportedEndpoint(string moduleName, string endpointId, string signal, EndpointKind kind, string reason) =>
         new(moduleName, null, endpointId, signal, kind, EndpointCoverageStatus.Unsupported, reason);
+
+    private static IEnumerable<string> ReadSignals(StatementAst statement)
+    {
+        switch (statement)
+        {
+            case AssignAst assign:
+                foreach (string signal in ReadSignals(assign.Source)) yield return signal;
+                foreach (string signal in ReadSignals(assign.Target)) yield return signal;
+                break;
+            case BeginAst begin:
+                foreach (StatementAst child in begin.Statements)
+                foreach (string signal in ReadSignals(child))
+                    yield return signal;
+                break;
+            case IfAst branch:
+                foreach (string signal in ReadSignals(branch.Condition)) yield return signal;
+                foreach (string signal in ReadSignals(branch.Then)) yield return signal;
+                if (branch.Else is not null)
+                {
+                    foreach (string signal in ReadSignals(branch.Else)) yield return signal;
+                }
+                break;
+            case CaseAst caseStatement:
+                foreach (string signal in ReadSignals(caseStatement.Subject)) yield return signal;
+                foreach (CaseArm arm in caseStatement.Arms)
+                {
+                    foreach (string signal in ReadSignals(arm.Label)) yield return signal;
+                    foreach (string signal in ReadSignals(arm.Body)) yield return signal;
+                }
+                if (caseStatement.Default is not null)
+                {
+                    foreach (string signal in ReadSignals(caseStatement.Default)) yield return signal;
+                }
+                break;
+        }
+    }
+
+    private static IEnumerable<string> ReadSignals(LValueAst target)
+    {
+        switch (target)
+        {
+            case ArraySelectLValue array:
+                foreach (string signal in ReadSignals(array.Index)) yield return signal;
+                break;
+            case ConcatLValue concat:
+                foreach (LValueAst part in concat.Parts)
+                foreach (string signal in ReadSignals(part))
+                    yield return signal;
+                break;
+        }
+    }
+
+    private static IEnumerable<string> ReadSignals(ExpressionAst expression)
+    {
+        switch (expression)
+        {
+            case SignalRef signal:
+                yield return signal.Name;
+                break;
+            case BitSelectExpr bitSelect:
+                foreach (string signal in ReadSignals(bitSelect.Base)) yield return signal;
+                break;
+            case ArraySelectExpr arraySelect:
+                foreach (string signal in ReadSignals(arraySelect.Base)) yield return signal;
+                foreach (string signal in ReadSignals(arraySelect.Index)) yield return signal;
+                break;
+            case ConcatExpr concat:
+                foreach (ExpressionAst part in concat.Parts)
+                foreach (string signal in ReadSignals(part))
+                    yield return signal;
+                break;
+            case ReplicateExpr replicate:
+                foreach (string signal in ReadSignals(replicate.Pattern)) yield return signal;
+                break;
+            case ExtendExpr extend:
+                foreach (string signal in ReadSignals(extend.Inner)) yield return signal;
+                break;
+            case BinaryExpr binary:
+                foreach (string signal in ReadSignals(binary.Left)) yield return signal;
+                foreach (string signal in ReadSignals(binary.Right)) yield return signal;
+                break;
+            case UnaryExpr unary:
+                foreach (string signal in ReadSignals(unary.Operand)) yield return signal;
+                break;
+            case CondExpr conditional:
+                foreach (string signal in ReadSignals(conditional.Condition)) yield return signal;
+                foreach (string signal in ReadSignals(conditional.IfTrue)) yield return signal;
+                foreach (string signal in ReadSignals(conditional.IfFalse)) yield return signal;
+                break;
+            case FunctionCallExpr function:
+                foreach (ExpressionAst argument in function.Args)
+                foreach (string signal in ReadSignals(argument))
+                    yield return signal;
+                break;
+        }
+    }
 
     private static IEnumerable<string> AssignedTargets(StatementAst statement)
     {

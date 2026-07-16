@@ -143,13 +143,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_bus_selector_i.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_bus_selector_i.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_bus_selector_i.in.sel",
           "labels": [
             "sel[3b]",
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -160,7 +176,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -171,7 +187,7 @@
             "reg_a_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -182,7 +198,7 @@
             "reg_d_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -193,7 +209,7 @@
             "reg_b_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -204,7 +220,7 @@
             "acc_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "5",
+            "elk.port.index": "6",
             "elk.port.side": "WEST"
           }
         },
@@ -215,7 +231,7 @@
             "lrl_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "6",
+            "elk.port.index": "7",
             "elk.port.side": "WEST"
           }
         },
@@ -226,7 +242,7 @@
             "lrh_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "7",
+            "elk.port.index": "8",
             "elk.port.side": "WEST"
           }
         },
@@ -237,7 +253,7 @@
             "mem_rdata"
           ],
           "layoutOptions": {
-            "elk.port.index": "8",
+            "elk.port.index": "9",
             "elk.port.side": "WEST"
           }
         },
@@ -248,7 +264,7 @@
             "bus_sel_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         }
@@ -259,7 +275,8 @@
       "id": "child_arnicomp_top_reg_a_i",
       "labels": [
         "reg_a_i",
-        "arnicomp_top.reg_a_i"
+        "arnicomp_top.reg_a_i",
+        "expandable"
       ],
       "layoutOptions": {
         "elk.padding": "[top=32,left=0,right=0,bottom=8]",
@@ -268,13 +285,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_reg_a_i.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_a_i.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_reg_a_i.in.clk",
           "labels": [
             "clk",
             "clk"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -285,7 +318,7 @@
             "rst_n"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -296,7 +329,7 @@
             "reg_a_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -307,7 +340,7 @@
             "1\u0027h0"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -318,7 +351,7 @@
             "bus"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -329,7 +362,7 @@
             "reg_a_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         }
@@ -372,13 +405,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_reg_b.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_b.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_reg_b.in.clk",
           "labels": [
             "clk",
             "clk"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -389,7 +438,7 @@
             "rst_n"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -400,7 +449,7 @@
             "reg_b_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -411,7 +460,7 @@
             "1\u0027h1"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -422,7 +471,7 @@
             "bus"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -433,7 +482,7 @@
             "reg_b_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         }
@@ -476,13 +525,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_reg_d.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_reg_d.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_reg_d.in.clk",
           "labels": [
             "clk",
             "clk"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -493,7 +558,7 @@
             "rst_n"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -504,7 +569,7 @@
             "reg_d_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -515,7 +580,7 @@
             "1\u0027h1"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -526,7 +591,7 @@
             "bus"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -537,7 +602,7 @@
             "reg_d_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         }
@@ -558,13 +623,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_acc.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_acc.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_acc.in.clk",
           "labels": [
             "clk",
             "clk"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -575,7 +656,7 @@
             "rst_n"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -586,7 +667,7 @@
             "acc_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -597,7 +678,7 @@
             "1\u0027h1"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -608,7 +689,7 @@
             "alu_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -619,7 +700,7 @@
             "acc_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         }
@@ -640,13 +721,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_marl_i.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_marl_i.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_marl_i.in.clk",
           "labels": [
             "clk",
             "clk"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -657,7 +754,7 @@
             "rst_n"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -668,7 +765,7 @@
             "marl_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -679,7 +776,7 @@
             "marh_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -690,7 +787,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -701,7 +798,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "5",
+            "elk.port.index": "6",
             "elk.port.side": "WEST"
           }
         },
@@ -712,7 +809,7 @@
             "inst_q"
           ],
           "layoutOptions": {
-            "elk.port.index": "6",
+            "elk.port.index": "7",
             "elk.port.side": "WEST"
           }
         },
@@ -723,7 +820,7 @@
             "bus"
           ],
           "layoutOptions": {
-            "elk.port.index": "7",
+            "elk.port.index": "8",
             "elk.port.side": "WEST"
           }
         },
@@ -734,7 +831,7 @@
             "marl_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         },
@@ -745,7 +842,7 @@
             "marh_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "EAST"
           }
         }
@@ -766,13 +863,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_prl.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prl.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_prl.in.clk",
           "labels": [
             "clk",
             "clk"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -783,7 +896,7 @@
             "rst_n"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -794,7 +907,7 @@
             "prl_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -805,7 +918,7 @@
             "1\u0027h1"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -816,7 +929,7 @@
             "bus"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -827,7 +940,7 @@
             "prl_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         }
@@ -848,13 +961,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_prh.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_prh.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_prh.in.clk",
           "labels": [
             "clk",
             "clk"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -865,7 +994,7 @@
             "rst_n"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -876,7 +1005,7 @@
             "prh_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -887,7 +1016,7 @@
             "1\u0027h1"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -898,7 +1027,7 @@
             "bus"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -909,7 +1038,7 @@
             "prh_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         }
@@ -930,13 +1059,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_lr.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_lr.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_lr.in.clk",
           "labels": [
             "clk",
             "clk"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -947,7 +1092,7 @@
             "rst_n"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -958,7 +1103,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -969,7 +1114,7 @@
             "1\u0027h1"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -980,7 +1125,7 @@
             "pc_addr"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -991,7 +1136,7 @@
             "lr_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         }
@@ -1002,7 +1147,8 @@
       "id": "child_arnicomp_top_sp_i",
       "labels": [
         "sp_i",
-        "arnicomp_top.sp_i"
+        "arnicomp_top.sp_i",
+        "expandable"
       ],
       "layoutOptions": {
         "elk.padding": "[top=32,left=0,right=0,bottom=8]",
@@ -1011,13 +1157,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_sp_i.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_sp_i.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_sp_i.in.clk",
           "labels": [
             "clk",
             "clk"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -1028,7 +1190,7 @@
             "rst_n"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -1039,7 +1201,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -1050,7 +1212,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -1061,7 +1223,7 @@
             "sp_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         }
@@ -1081,13 +1243,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_flag_reg_i.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_flag_reg_i.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_flag_reg_i.in.clk",
           "labels": [
             "clk",
             "clk"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -1098,7 +1276,7 @@
             "rst_n"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -1109,7 +1287,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -1120,7 +1298,7 @@
             "zero_flag"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -1131,7 +1309,7 @@
             "negative_flag"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -1142,7 +1320,7 @@
             "carry_flag"
           ],
           "layoutOptions": {
-            "elk.port.index": "5",
+            "elk.port.index": "6",
             "elk.port.side": "WEST"
           }
         },
@@ -1153,7 +1331,7 @@
             "overflow_flag"
           ],
           "layoutOptions": {
-            "elk.port.index": "6",
+            "elk.port.index": "7",
             "elk.port.side": "WEST"
           }
         },
@@ -1164,7 +1342,7 @@
             "z_reg_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         },
@@ -1175,7 +1353,7 @@
             "n_reg_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "EAST"
           }
         },
@@ -1186,7 +1364,7 @@
             "c_reg_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "EAST"
           }
         },
@@ -1197,7 +1375,7 @@
             "v_reg_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "EAST"
           }
         }
@@ -1218,13 +1396,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_pc.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_pc.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_pc.in.clk",
           "labels": [
             "clk",
             "clk"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -1235,7 +1429,7 @@
             "rst_n"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -1246,7 +1440,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -1257,7 +1451,7 @@
             "jump_taken"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -1268,7 +1462,7 @@
             "?"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -1279,7 +1473,7 @@
             "pc_addr"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         }
@@ -1336,13 +1530,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_instruction_decoder.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_instruction_decoder.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_instruction_decoder.in.instr_in",
           "labels": [
             "instr_in[8b]",
             "exec_instr"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -1353,7 +1563,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         },
@@ -1364,7 +1574,7 @@
             "jmp_select"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "EAST"
           }
         },
@@ -1375,7 +1585,7 @@
             "reg_a_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "EAST"
           }
         },
@@ -1386,7 +1596,7 @@
             "reg_b_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "EAST"
           }
         },
@@ -1397,7 +1607,7 @@
             "reg_d_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "EAST"
           }
         },
@@ -1408,7 +1618,7 @@
             "marl_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "5",
+            "elk.port.index": "6",
             "elk.port.side": "EAST"
           }
         },
@@ -1419,7 +1629,7 @@
             "marh_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "6",
+            "elk.port.index": "7",
             "elk.port.side": "EAST"
           }
         },
@@ -1430,7 +1640,7 @@
             "prl_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "7",
+            "elk.port.index": "8",
             "elk.port.side": "EAST"
           }
         },
@@ -1441,7 +1651,7 @@
             "prh_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "8",
+            "elk.port.index": "9",
             "elk.port.side": "EAST"
           }
         },
@@ -1452,7 +1662,7 @@
             "mem_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "9",
+            "elk.port.index": "10",
             "elk.port.side": "EAST"
           }
         },
@@ -1463,7 +1673,7 @@
             "acc_we"
           ],
           "layoutOptions": {
-            "elk.port.index": "10",
+            "elk.port.index": "11",
             "elk.port.side": "EAST"
           }
         }
@@ -1484,13 +1694,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_alu_i.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_alu_i.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_alu_i.in.a",
           "labels": [
             "a[8b]",
             "reg_d_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -1501,7 +1727,7 @@
             "bus"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -1512,7 +1738,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -1523,7 +1749,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -1534,7 +1760,7 @@
             "alu_carry_in"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -1545,7 +1771,7 @@
             "alu_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         },
@@ -1556,7 +1782,7 @@
             "zero_flag"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "EAST"
           }
         },
@@ -1567,7 +1793,7 @@
             "negative_flag"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "EAST"
           }
         },
@@ -1578,7 +1804,7 @@
             "carry_flag"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "EAST"
           }
         },
@@ -1589,7 +1815,7 @@
             "overflow_flag"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "EAST"
           }
         }
@@ -1600,7 +1826,8 @@
       "id": "child_arnicomp_top_jump_decoder",
       "labels": [
         "jump_decoder",
-        "arnicomp_top.jump_decoder"
+        "arnicomp_top.jump_decoder",
+        "expandable"
       ],
       "layoutOptions": {
         "elk.padding": "[top=32,left=0,right=0,bottom=8]",
@@ -1609,13 +1836,29 @@
       },
       "ports": [
         {
+          "id": "child_arnicomp_top_jump_decoder.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
+          "id": "child_arnicomp_top_jump_decoder.header-spacer.east",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "EAST"
+          }
+        },
+        {
           "id": "child_arnicomp_top_jump_decoder.in.jmp_en",
           "labels": [
             "jmp_en",
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -1626,7 +1869,7 @@
             "control_pins"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         },
@@ -1637,7 +1880,7 @@
             "z_reg_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "2",
+            "elk.port.index": "3",
             "elk.port.side": "WEST"
           }
         },
@@ -1648,7 +1891,7 @@
             "n_reg_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "3",
+            "elk.port.index": "4",
             "elk.port.side": "WEST"
           }
         },
@@ -1659,7 +1902,7 @@
             "v_reg_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "4",
+            "elk.port.index": "5",
             "elk.port.side": "WEST"
           }
         },
@@ -1670,7 +1913,7 @@
             "c_reg_out"
           ],
           "layoutOptions": {
-            "elk.port.index": "5",
+            "elk.port.index": "6",
             "elk.port.side": "WEST"
           }
         },
@@ -1681,7 +1924,7 @@
             "jmp_select"
           ],
           "layoutOptions": {
-            "elk.port.index": "6",
+            "elk.port.index": "7",
             "elk.port.side": "WEST"
           }
         },
@@ -1692,7 +1935,7 @@
             "jump_taken"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "EAST"
           }
         }
@@ -1740,7 +1983,7 @@
     {
       "id": "gate___schematic_expr_flush_next_instr_0_ff_d_0",
       "labels": [
-        "And __schematic_expr_flush_next_instr_0_ff_d_0",
+        "And",
         "__schematic_expr_flush_next_instr_0_ff_d_0"
       ],
       "layoutOptions": {
@@ -2054,7 +2297,7 @@
     {
       "id": "arith___schematic_expr_mem_addr_1_mux_in_0_0",
       "labels": [
-        "Sub __schematic_expr_mem_addr_1_mux_in_0_0",
+        "Sub",
         "__schematic_expr_mem_addr_1_mux_in_0_0"
       ],
       "layoutOptions": {
@@ -2173,7 +2416,7 @@
     {
       "id": "arith___schematic_expr_mem_wdata_2_right_2",
       "labels": [
-        "Equal __schematic_expr_mem_wdata_2_right_2",
+        "Equal",
         "__schematic_expr_mem_wdata_2_right_2"
       ],
       "layoutOptions": {
@@ -2216,7 +2459,7 @@
     {
       "id": "gate___schematic_expr_mem_wdata_2_mux_sel_0_1",
       "labels": [
-        "And __schematic_expr_mem_wdata_2_mux_sel_0_1",
+        "And",
         "__schematic_expr_mem_wdata_2_mux_sel_0_1"
       ],
       "layoutOptions": {
@@ -2259,7 +2502,7 @@
     {
       "id": "gate___schematic_expr_mem_wdata_2_mux_sel_1_4",
       "labels": [
-        "And __schematic_expr_mem_wdata_2_mux_sel_1_4",
+        "And",
         "__schematic_expr_mem_wdata_2_mux_sel_1_4"
       ],
       "layoutOptions": {
@@ -2302,7 +2545,7 @@
     {
       "id": "mux___schematic_expr_mem_wdata_2_mux_in_0_0",
       "labels": [
-        "MUX __schematic_expr_mem_wdata_2_mux_in_0_0",
+        "MUX",
         "__schematic_expr_mem_wdata_2_mux_in_0_0",
         "__schematic_expr_mem_wdata_2_mux_sel_0_1"
       ],
@@ -2430,7 +2673,7 @@
     {
       "id": "inv___schematic_expr_mem_ren_3_left_1",
       "labels": [
-        "INV __schematic_expr_mem_ren_3_left_1",
+        "INV",
         "__schematic_expr_mem_ren_3_left_1"
       ],
       "layoutOptions": {
@@ -2463,7 +2706,7 @@
     {
       "id": "gate___schematic_expr_mem_ren_3_right_0",
       "labels": [
-        "And __schematic_expr_mem_ren_3_right_0",
+        "And",
         "__schematic_expr_mem_ren_3_right_0"
       ],
       "layoutOptions": {
@@ -2571,7 +2814,7 @@
     {
       "id": "arith___schematic_expr_bus_4_mux_sel_0_1",
       "labels": [
-        "Equal __schematic_expr_bus_4_mux_sel_0_1",
+        "Equal",
         "__schematic_expr_bus_4_mux_sel_0_1"
       ],
       "layoutOptions": {
@@ -2614,7 +2857,7 @@
     {
       "id": "mux___schematic_expr_bus_4_mux_in_2_0",
       "labels": [
-        "MUX __schematic_expr_bus_4_mux_in_2_0",
+        "MUX",
         "__schematic_expr_bus_4_mux_in_2_0",
         "__schematic_expr_bus_4_mux_sel_0_1"
       ],
@@ -2892,7 +3135,7 @@
     {
       "id": "mux___schematic_expr_is_push_instr_7_right_1",
       "labels": [
-        "MUX __schematic_expr_is_push_instr_7_right_1",
+        "MUX",
         "__schematic_expr_is_push_instr_7_right_1",
         "flush_next_instr"
       ],

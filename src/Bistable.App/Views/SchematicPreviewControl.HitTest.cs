@@ -1,5 +1,6 @@
 using System.Windows.Input;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Input;
 using Bistable.App.ViewModels;
 
@@ -115,6 +116,48 @@ public sealed partial class SchematicPreviewControl
     private ScopeHitTarget? HitTestScope(Point point) => _scopeHitTargets.FirstOrDefault(hit => hit.Bounds.Contains(point));
 
     private ExpansionHitTarget? HitTestExpansion(Point point) => _expansionHitTargets.FirstOrDefault(hit => hit.Bounds.Contains(point));
+
+    private PrimitiveHitTarget? HitTestPrimitive(Point point) =>
+        _primitiveHitTargets.FirstOrDefault(hit => hit.Bounds.Contains(point));
+
+    private void UpdatePrimitiveToolTip(PrimitiveHitTarget? hit)
+    {
+        string? nodeId = hit?.NodeId;
+        if (string.Equals(nodeId, _hoveredPrimitiveId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _primitiveToolTipTimer.Stop();
+        ToolTip.SetIsOpen(this, false);
+        _hoveredPrimitiveId = nodeId;
+        if (hit is not null)
+        {
+            _primitiveToolTipContent.Text = hit.ToolTipText;
+            _primitiveToolTipTimer.Start();
+        }
+    }
+
+    private void OpenPrimitiveToolTip()
+    {
+        _primitiveToolTipTimer.Stop();
+        if (_hoveredPrimitiveId is not null)
+        {
+            ToolTip.SetIsOpen(this, true);
+        }
+    }
+
+    private void ClearPrimitiveToolTip()
+    {
+        if (_hoveredPrimitiveId is null && !_primitiveToolTipTimer.IsEnabled)
+        {
+            return;
+        }
+
+        _primitiveToolTipTimer.Stop();
+        ToolTip.SetIsOpen(this, false);
+        _hoveredPrimitiveId = null;
+    }
 
     private static double DistanceToSegment(Point point, Point start, Point end)
     {

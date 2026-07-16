@@ -45,11 +45,11 @@ dotnet run --project src/Bistable.App/Bistable.App.csproj   # run the app
 Requirements: .NET SDK 10, Verilator 5.x, Node.js (for elkjs layout), Yosys (for
 synthesis). A build with `0 warnings, 0 errors` is the baseline expectation.
 
-**Known-flaky under parallel load:** `ElkRunnerCancellationTests.Restart_KillsInFlightProcess_...`
-and `GateSchematicPerformanceTests.Rv32ClassGraph_...WithinBudget` are timing
-assertions that occasionally trip during the full solution run under CPU
-contention. Both pass in isolation. Confirm by re-running the single test before
-treating either as a real regression.
+**Known-flaky under parallel load:** `ElkRunnerCancellationTests.*`,
+`SimulationWorkerClientCancellationTests.*`, and
+`GateSchematicPerformanceTests.*` contain timing assertions that occasionally
+trip during the full solution run under CPU contention. Confirm by re-running
+the failed test in isolation before treating it as a real regression.
 
 ## 4. Actual architecture — read this before touching the schematic
 
@@ -108,17 +108,18 @@ abstraction removes proven duplication:
 - Branch `schematic/label-placement`, ahead of `main`, with **uncommitted work**
   in the tree (RTL-schematic fixes + docs + this file). Do not commit without
   explicit user approval.
-- Build clean (0/0); full suite green except the two known flaky timing tests
-  above (both pass in isolation).
-- **Most recent work (this session):** RTL-schematic expand-defects Issues 1–5
-  closed (see `docs/RTL_SCHEMATIC_VISUAL_ISSUES.md`) — synthetic-constant hiding,
-  orphan/dead-logic pruning, ConstantTie wiring, memory-tile ports+wiring+RAM
-  symbol, RD-mem badge overlap. Also reconciled several stale docs with the code
-  (ELK backend pivot) and added this AGENTS.md.
+- Build clean (0/0); full suite green apart from the known parallel-load timing
+  families above, which pass in isolation.
+- **Most recent work (this session):** Phases 7 and 8 completed. Phase 7 added
+  `CombinationalProjector`, comb target/read coverage, the `u_alu.zero` edge
+  regression, and owner-accepted visual closure. Phase 8 added protocol v3
+  hello/capabilities, `ReadSignals` batch IPC with per-path outcomes and 4K
+  chunking, one-event `LiveProbeService` frame refresh, and stale-worker
+  rejection. The 128-probe measurement improved from 533.9 ms / 128 IPC turns
+  to 7.7 ms / one turn.
 - **Open work is governed by `docs/ROADMAP.md`** (phases 7–14, binding order):
-  next up is **Phase 7** (always_comb decode + coverage contract — the `zero`
-  dangling-wire root cause), then Phase 8 (`ReadSignals` batch IPC), then
-  Phase 9 (watch → incremental elaborate live loop). Old follow-ups were
+  Phases 7 and 8 are complete; next is **Phase 9** (watch → incremental
+  elaborate live loop). Old follow-ups were
   absorbed: Issue 4 Stage 2 → P12-9, Phase 6.5 closure + Expand Cone → Phase 13,
   SVG export → Phase 10. Do not start visual-polish work before Phases 7–9 close
   (owner's instruction).

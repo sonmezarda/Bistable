@@ -126,6 +126,13 @@ public sealed partial class SchematicPreviewControl : Control
     private readonly List<SignalReferenceHitTarget> _signalReferenceHitTargets = [];
     private readonly List<ScopeHitTarget> _scopeHitTargets = [];
     private readonly List<ExpansionHitTarget> _expansionHitTargets = [];
+    private readonly List<PrimitiveHitTarget> _primitiveHitTargets = [];
+    private readonly DispatcherTimer _primitiveToolTipTimer;
+    private readonly TextBlock _primitiveToolTipContent = new()
+    {
+        MaxWidth = 520,
+        TextWrapping = Avalonia.Media.TextWrapping.Wrap
+    };
     // Set of ELK port IDs that have an incident edge in the current frame.
     // Populated once per render from graph.Edges and consulted by the port-label
     // drawer so the label is shifted above the pin ONLY when a wire would
@@ -162,6 +169,7 @@ public sealed partial class SchematicPreviewControl : Control
     private bool _isPanningViewport;
     private Point _lastViewportPointer;
     private string? _hoveredSignalName;
+    private string? _hoveredPrimitiveId;
     // P2.7-5: pinned (sticky) multi-selection. Ctrl+click toggles a signal in
     // this set; the edge renderer treats every member just like a hovered net,
     // so all of them stay highlighted at once until cleared. Independent from
@@ -179,6 +187,9 @@ public sealed partial class SchematicPreviewControl : Control
     {
         ClipToBounds = true;
         Focusable = true;
+        _primitiveToolTipTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+        _primitiveToolTipTimer.Tick += (_, _) => OpenPrimitiveToolTip();
+        ToolTip.SetTip(this, _primitiveToolTipContent);
     }
 
     public event EventHandler<SignalEditorRequestedEventArgs>? SignalEditorRequested;
@@ -556,6 +567,7 @@ public sealed partial class SchematicPreviewControl : Control
             _signalReferenceHitTargets.Clear();
             _scopeHitTargets.Clear();
             _expansionHitTargets.Clear();
+            _primitiveHitTargets.Clear();
             _connectedPortIds.Clear();
             _expandedCompoundPortIds.Clear();
             lock (_visibleProbePaths) _visibleProbePaths.Clear();
@@ -660,6 +672,7 @@ public sealed partial class SchematicPreviewControl : Control
         Point viewportPoint = e.GetPosition(this);
         if (_isPanningViewport)
         {
+            ClearPrimitiveToolTip();
             Vector delta = viewportPoint - _lastViewportPointer;
             _viewportPan = new Point(_viewportPan.X + delta.X, _viewportPan.Y + delta.Y);
             ClampViewportPan(Bounds.Size, _lastWorldSize);
@@ -672,6 +685,7 @@ public sealed partial class SchematicPreviewControl : Control
 
         Point worldPoint = ViewportToWorld(viewportPoint);
         SignalReferenceHitTarget? routeHover = HitTestSignalReference(worldPoint);
+        UpdatePrimitiveToolTip(HitTestPrimitive(worldPoint));
         string? newHoveredSignal = routeHover?.SignalName;
         if (!string.Equals(newHoveredSignal, _hoveredSignalName, StringComparison.OrdinalIgnoreCase))
         {
@@ -693,6 +707,7 @@ public sealed partial class SchematicPreviewControl : Control
             _hoveredSignalName = null;
             InvalidateVisual();
         }
+        ClearPrimitiveToolTip();
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -748,6 +763,7 @@ public sealed partial class SchematicPreviewControl : Control
     {
         if (service is null) return;
         service.ValueUpdated += OnLiveProbeValueChanged;
+        service.ValuesUpdated += OnLiveProbeValuesChanged;
         InvalidateVisual();
     }
 
@@ -755,9 +771,12 @@ public sealed partial class SchematicPreviewControl : Control
     {
         if (service is null) return;
         service.ValueUpdated -= OnLiveProbeValueChanged;
+        service.ValuesUpdated -= OnLiveProbeValuesChanged;
     }
 
     private void OnLiveProbeValueChanged(object? sender, Services.ProbeValueUpdatedEventArgs e) => InvalidateVisual();
+
+    private void OnLiveProbeValuesChanged(object? sender, Services.ProbeValuesUpdatedEventArgs e) => InvalidateVisual();
 
     private void OnScopeSignalsChanged(object? sender, NotifyCollectionChangedEventArgs e) => OnSignalCollectionChanged(e);
 
@@ -958,6 +977,8 @@ public sealed partial class SchematicPreviewControl : Control
     private sealed record ScopeHitTarget(string HierarchyPath, Rect Bounds, bool CanExpand);
 
     private sealed record ExpansionHitTarget(string HierarchyPath, Rect Bounds);
+
+    private sealed record PrimitiveHitTarget(string NodeId, string ToolTipText, Rect Bounds);
 
     private sealed record PortAnchor(string Name, Point Point, bool IsInput, Point ExternalPoint);
 

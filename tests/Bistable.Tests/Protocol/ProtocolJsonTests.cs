@@ -12,6 +12,7 @@ public sealed class ProtocolJsonTests
     // ── Command type discriminator ───────────────────────────────────────
 
     [Theory]
+    [InlineData(SimulationCommandType.Hello,        "hello")]
     [InlineData(SimulationCommandType.SetInput,     "setInput")]
     [InlineData(SimulationCommandType.Eval,         "eval")]
     [InlineData(SimulationCommandType.Tick,         "tick")]
@@ -20,6 +21,7 @@ public sealed class ProtocolJsonTests
     [InlineData(SimulationCommandType.GetSnapshot,  "getSnapshot")]
     [InlineData(SimulationCommandType.Pause,        "pause")]
     [InlineData(SimulationCommandType.ReadSignal,   "readSignal")]
+    [InlineData(SimulationCommandType.ReadSignals,  "readSignals")]
     [InlineData(SimulationCommandType.WriteSignal,  "writeSignal")]
     [InlineData(SimulationCommandType.ForceSignal,  "forceSignal")]
     [InlineData(SimulationCommandType.ReleaseSignal,"releaseSignal")]
@@ -76,6 +78,19 @@ public sealed class ProtocolJsonTests
 
         Assert.NotNull(restored);
         Assert.Equal("arnicomp_top.acc.q", restored.Path);
+    }
+
+    [Fact]
+    public void ReadSignalsCommand_RoundTripsHierarchyPaths()
+    {
+        SimulationCommand command = new(
+            SimulationCommandType.ReadSignals,
+            Paths: ["top.a", "top.u_core.result"]);
+
+        SimulationCommand? restored = ProtocolJson.Deserialize<SimulationCommand>(ProtocolJson.Serialize(command));
+
+        Assert.NotNull(restored);
+        Assert.Equal(new[] { "top.a", "top.u_core.result" }, restored.Paths);
     }
 
     [Fact]
@@ -163,6 +178,40 @@ public sealed class ProtocolJsonTests
         Assert.Equal("top.q", asRead.Result.Path);
         Assert.Equal("0xA2", asRead.Result.Value);
         Assert.Equal(8, asRead.Result.Width);
+    }
+
+    [Fact]
+    public void SignalsReadResponse_RoundTripsMixedPerPathOutcomes()
+    {
+        SignalsReadResponse response = new(new SignalsReadResult([
+            new SignalReadOutcome("top.a", "0x1", 1, false, null),
+            new SignalReadOutcome("top.missing", null, 0, false, "unknown probe path: top.missing"),
+        ]));
+
+        string json = ProtocolJson.Serialize<WorkerResponse>(response);
+        WorkerResponse? restored = ProtocolJson.Deserialize<WorkerResponse>(json);
+
+        Assert.Contains("\"kind\":\"signalsRead\"", json, StringComparison.Ordinal);
+        SignalsReadResponse batch = Assert.IsType<SignalsReadResponse>(restored);
+        Assert.Collection(batch.Result.Results,
+            first => { Assert.True(first.IsSuccess); Assert.Equal("0x1", first.Value); },
+            second => { Assert.False(second.IsSuccess); Assert.Contains("unknown probe", second.Error); });
+    }
+
+    [Fact]
+    public void WorkerHelloResponse_RoundTripsProtocolVersionAndCapabilities()
+    {
+        WorkerHelloResponse response = new(
+            WorkerProtocol.CurrentVersion,
+            [WorkerProtocol.ReadSignalsCapability]);
+
+        string json = ProtocolJson.Serialize<WorkerResponse>(response);
+        WorkerResponse? restored = ProtocolJson.Deserialize<WorkerResponse>(json);
+
+        Assert.Contains("\"kind\":\"hello\"", json, StringComparison.Ordinal);
+        WorkerHelloResponse hello = Assert.IsType<WorkerHelloResponse>(restored);
+        Assert.Equal(3, hello.ProtocolVersion);
+        Assert.Contains("readSignals", hello.Capabilities);
     }
 
     [Fact]

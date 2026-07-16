@@ -1,6 +1,7 @@
 # Schematic Coverage Report
 
-**Phase 2.9 deliverable.** A machine-readable view of *what the renderer actually understood about your design.*
+**Phase 2.9 deliverable, Phase 7 contract expansion.** A machine-readable view
+of *what the renderer actually understood about your design.*
 
 The schematic engine has always been allowed to skip constructs it couldn't render. The problem isn't skipping — the problem is **silent skipping**: a wire vanishes from the picture and you have no way to tell whether it was hidden on purpose, hidden because the renderer doesn't support that construct yet, or genuinely missing because of a bug.
 
@@ -38,7 +39,9 @@ Every `EndpointCoverage` carries one of:
 ## 3. Lifecycle
 
 ```
-DesignAst ─► SchematicDecoder.Decode(module) ─► SchematicPrimitiveList
+DesignAst ─► TempFolder ─► CombinationalProjector ─► SchematicDecoder.Decode(module)
+                              │                            │
+                              └─ synthetic ContAssignAst ─┘
                                                         │
                                                         ▼
                                        (Logic + Ports + Signals + CoverageEvents)
@@ -61,7 +64,14 @@ DesignAst ─► SchematicDecoder.Decode(module) ─► SchematicPrimitiveList
 **Two paths into the analyzer:**
 
 1. **Decoder-driven (preferred).** When the decoder emits `SchematicDecoderCoverageEvent`s (`SchematicPrimitiveList.CoverageEvents`), the analyzer consumes them directly. This is the path that decoder-level instrumentation (P2.9-2) feeds, and it's how new primitive types stay honest without the analyzer having to re-derive what they did.
-2. **Fallback analysis.** When the decoder doesn't emit events (older sites, simpler tests), the analyzer walks the AST's contassigns + sequential blocks itself and matches them against the primitives' output signals.
+2. **Fallback analysis.** When the decoder doesn't emit events (older sites,
+   simpler tests), the analyzer walks the AST's contassigns + sequential blocks
+   itself and matches them against the primitives' output signals.
+
+Phase 7 adds a mandatory third layer: every `CombinationalBlockAst` carries
+projector results. The analyzer emits `CombinationalTarget` and
+`CombinationalRead` endpoints from those results. A raw/unprojected block is a
+pipeline violation and is reported as `Unsupported`, never ignored.
 
 Both paths produce the same shape of report.
 
@@ -126,5 +136,11 @@ When you add a new decoder rule (FFType / SpecialMux / …):
 The single rule the analyzer enforces, repeated for emphasis:
 
 > An endpoint may be unsupported, but it must never disappear silently.
+
+For procedural logic this is stronger: every combinational/sequential driver
+target, and every combinational read that contributes to a projected target,
+must be owned by a schematic primitive or have an explicit
+`UnsupportedConstructDiagnostic`. Verilator-internal `__V*` endpoints are the
+only intentional-omission exception.
 
 If `SilentMissCount > 0` for any bundled sample, the corresponding `SampleCoverageTests` fixture fails CI. That's the gate that keeps every later phase (Phase 5 CPU run, Phase 6 synthesis comparison, OoO core renderer) from drifting into invisible-wire territory.

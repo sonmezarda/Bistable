@@ -7,6 +7,9 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
 {
     private readonly Process _process;
     private int _disposeState;
+    private long _completedRoundTrips;
+
+    internal long CompletedRoundTrips => Interlocked.Read(ref _completedRoundTrips);
 
     public SimulationWorkerClient(string executablePath)
     {
@@ -28,6 +31,28 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
         if (!_process.Start())
         {
             throw new InvalidOperationException($"Failed to start simulation worker: {executablePath}");
+        }
+    }
+
+    /// <summary>
+    /// Starts a worker and verifies its protocol before returning it to the
+    /// caller. Build flows use this entry point so stale executables cannot be
+    /// attached to the live UI accidentally.
+    /// </summary>
+    public static async Task<SimulationWorkerClient> StartAsync(
+        string executablePath,
+        CancellationToken cancellationToken)
+    {
+        SimulationWorkerClient client = new(executablePath);
+        try
+        {
+            await client.EnsureCompatibleProtocolAsync(cancellationToken);
+            return client;
+        }
+        catch
+        {
+            await client.DisposeAsync();
+            throw;
         }
     }
 
@@ -73,6 +98,7 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
 
             WorkerResponse response = ProtocolJson.Deserialize<WorkerResponse>(line)
                 ?? throw new InvalidDataException("Simulation worker returned an invalid response.");
+            Interlocked.Increment(ref _completedRoundTrips);
             cancellationToken.ThrowIfCancellationRequested();
             return response;
         }
@@ -100,6 +126,38 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
 
     // ── Typed probe wrappers ─────────────────────────────────────────────
 
+    /// <summary>Returns the worker's protocol version and advertised capabilities.</summary>
+    public async Task<WorkerHelloResponse> HelloAsync(CancellationToken cancellationToken)
+    {
+        WorkerResponse response = await SendAsync(
+            new SimulationCommand(SimulationCommandType.Hello),
+            cancellationToken);
+        return response switch
+        {
+            WorkerHelloResponse hello => hello,
+            ErrorResponse error => throw new InvalidDataException(
+                $"Worker does not support the protocol v{WorkerProtocol.CurrentVersion} handshake ({error.Message}); rebuild the worker."),
+            _ => throw new InvalidDataException(
+                $"Expected WorkerHelloResponse for Hello, got {response.GetType().Name}; rebuild the worker.")
+        };
+    }
+
+    /// <summary>Rejects a worker built for a different protocol generation.</summary>
+    public async Task EnsureCompatibleProtocolAsync(CancellationToken cancellationToken)
+    {
+        WorkerHelloResponse hello = await HelloAsync(cancellationToken);
+        if (hello.ProtocolVersion != WorkerProtocol.CurrentVersion)
+        {
+            throw new InvalidDataException(
+                $"Worker protocol v{hello.ProtocolVersion} is incompatible with GUI protocol v{WorkerProtocol.CurrentVersion}; rebuild the worker.");
+        }
+        if (!hello.Capabilities.Contains(WorkerProtocol.ReadSignalsCapability, StringComparer.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Worker protocol v{hello.ProtocolVersion} does not advertise '{WorkerProtocol.ReadSignalsCapability}'; rebuild the worker.");
+        }
+    }
+
     /// <summary>
     /// Read the live value of an internal hierarchical signal (e.g.
     /// <c>"arnicomp_top.acc.q"</c>). Returns the value mid-simulation without
@@ -112,6 +170,38 @@ public sealed class SimulationWorkerClient : IAsyncDisposable
             new SimulationCommand(SimulationCommandType.ReadSignal, Path: hierarchyPath),
             cancellationToken);
         return Unwrap<SignalReadResponse>(response, $"ReadSignal('{hierarchyPath}')").Result;
+    }
+
+    /// <summary>
+    /// Reads hierarchical signals in batches of at most
+    /// <see cref="WorkerProtocol.MaxSignalsPerBatch"/>. Requests at or below
+    /// that limit use exactly one command/response round-trip.
+    /// </summary>
+    public async Task<SignalsReadResult> ReadSignalsAsync(
+        IEnumerable<string> hierarchyPaths,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(hierarchyPaths);
+        string[] paths = hierarchyPaths.ToArray();
+        if (paths.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException("Signal paths cannot contain blank values.", nameof(hierarchyPaths));
+        }
+        if (paths.Length == 0)
+        {
+            return new SignalsReadResult([]);
+        }
+
+        List<SignalReadOutcome> results = new(paths.Length);
+        for (int offset = 0; offset < paths.Length; offset += WorkerProtocol.MaxSignalsPerBatch)
+        {
+            string[] chunk = paths[offset..Math.Min(paths.Length, offset + WorkerProtocol.MaxSignalsPerBatch)];
+            WorkerResponse response = await SendAsync(
+                new SimulationCommand(SimulationCommandType.ReadSignals, Paths: chunk),
+                cancellationToken);
+            results.AddRange(Unwrap<SignalsReadResponse>(response, $"ReadSignals({chunk.Length})").Result.Results);
+        }
+        return new SignalsReadResult(results);
     }
 
     /// <summary>One-shot write to an internal signal. Simulation may overwrite on next Eval.</summary>

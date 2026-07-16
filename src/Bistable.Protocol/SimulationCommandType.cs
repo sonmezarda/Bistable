@@ -2,6 +2,9 @@ namespace Bistable.Protocol;
 
 public enum SimulationCommandType
 {
+    /// <summary>Negotiate the worker protocol version and capabilities.</summary>
+    Hello,
+
     // ── Simulation stepping ─────────────────────────────────────────
     SetInput,
     Eval,
@@ -14,6 +17,9 @@ public enum SimulationCommandType
     // ── Live internal probe ─────────────────────────────────────────
     /// <summary>Read a single hierarchy-path signal's live value.</summary>
     ReadSignal,
+
+    /// <summary>Read multiple hierarchy-path signals in one IPC round-trip.</summary>
+    ReadSignals,
 
     /// <summary>
     /// One-shot write to a hierarchy-path signal. Subsequent <c>Eval</c> may

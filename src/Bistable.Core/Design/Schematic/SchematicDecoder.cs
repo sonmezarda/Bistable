@@ -279,6 +279,7 @@ public static class SchematicDecoder
             ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             : PrimitiveOutputTargets(materializedPrimitive).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        bool hasMultipleAssignmentSites = CountAssignments(block.Body) != 1;
         foreach (string target in AssignedTargets(block.Body).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             string endpointId = $"sequential:{index}:{target}";
@@ -293,6 +294,19 @@ public static class SchematicDecoder
                     EndpointCoverageStatus.IntentionalOmission,
                     "Verilator internal sequential target intentionally hidden.");
             }
+            else if (hasMultipleAssignmentSites)
+            {
+                const string reason = "Sequential block contains multiple assignment sites and cannot be represented completely by FindPrimaryAssign.";
+                AddCoverageEvent(
+                    coverageEvents,
+                    moduleName,
+                    endpointId,
+                    target,
+                    EndpointKind.SequentialTarget,
+                    EndpointCoverageStatus.Unsupported,
+                    reason,
+                    "SequentialBlock");
+            }
             else if (routedTargets.Contains(target))
             {
                 AddCoverageEvent(
@@ -306,7 +320,7 @@ public static class SchematicDecoder
             }
             else
             {
-                string reason = "Sequential assignment was not decoded into a supported FF/latch primitive.";
+                const string reason = "Sequential assignment was not decoded into a supported FF/latch primitive.";
                 AddCoverageEvent(
                     coverageEvents,
                     moduleName,
@@ -617,6 +631,20 @@ public static class SchematicDecoder
             BeginAst b  => b.Statements.Select(FindPrimaryAssign).FirstOrDefault(s => s is not null),
             IfAst i     => FindPrimaryAssign(i.Then) ?? (i.Else is not null ? FindPrimaryAssign(i.Else) : null),
             _ => null
+        };
+    }
+
+    private static int CountAssignments(StatementAst statement)
+    {
+        return statement switch
+        {
+            AssignAst => 1,
+            BeginAst begin => begin.Statements.Sum(CountAssignments),
+            IfAst branch => CountAssignments(branch.Then)
+                            + (branch.Else is null ? 0 : CountAssignments(branch.Else)),
+            CaseAst caseStatement => caseStatement.Arms.Sum(static arm => CountAssignments(arm.Body))
+                                     + (caseStatement.Default is null ? 0 : CountAssignments(caseStatement.Default)),
+            _ => 0,
         };
     }
 

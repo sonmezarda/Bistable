@@ -1,4 +1,5 @@
 using Bistable.Core.Projects;
+using Bistable.Core.Design.Ast;
 using Bistable.App.Services;
 using Bistable.Protocol;
 using Bistable.Verilator;
@@ -7,6 +8,60 @@ namespace Bistable.Tests;
 
 public sealed class VerilatorIntegrationTests
 {
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task ReadSignals_BatchReturnsMixedOutcomesInOneRoundTrip()
+    {
+        string root = FindRepositoryRoot();
+        string sampleDirectory = Path.Combine(root, "samples", "counter");
+        ProjectConfiguration configuration = await ProjectConfiguration.LoadAsync(
+            Path.Combine(sampleDirectory, "counter.bistable.json"),
+            CancellationToken.None);
+        string outputXml = Path.Combine(Path.GetTempPath(), $"bistable-read-signals-{Guid.NewGuid():N}.xml");
+
+        try
+        {
+            VerilatorTool tool = new();
+            await tool.GenerateXmlAsync(configuration, sampleDirectory, outputXml, CancellationToken.None);
+            Bistable.Core.Design.ModuleMetadata metadata = VerilatorXmlParser.Parse(outputXml);
+            DesignAst ast = new VerilatorXmlAstReader().Read(outputXml);
+            SimulationWorkerBuildResult build = await new SimulationWorkerBuilder().BuildAsync(
+                configuration,
+                metadata,
+                sampleDirectory,
+                CancellationToken.None,
+                designAst: ast);
+
+            await using SimulationWorkerClient client = await SimulationWorkerClient.StartAsync(
+                build.ExecutablePath,
+                CancellationToken.None);
+            long before = client.CompletedRoundTrips;
+            SignalsReadResult batch = await client.ReadSignalsAsync(
+                ["counter.count", "counter.enable", "counter.does_not_exist"],
+                CancellationToken.None);
+
+            Assert.Equal(1, client.CompletedRoundTrips - before);
+            Assert.Collection(batch.Results,
+                count => { Assert.True(count.IsSuccess); Assert.Equal(8, count.Width); },
+                enable => { Assert.True(enable.IsSuccess); Assert.Equal(1, enable.Width); },
+                missing => { Assert.False(missing.IsSuccess); Assert.Contains("unknown probe path", missing.Error); });
+
+            WorkerResponse oversized = await client.SendAsync(
+                new SimulationCommand(
+                    SimulationCommandType.ReadSignals,
+                    Paths: Enumerable.Range(0, WorkerProtocol.MaxSignalsPerBatch + 1)
+                        .Select(static i => $"counter.p{i}")
+                        .ToArray()),
+                CancellationToken.None);
+            ErrorResponse error = Assert.IsType<ErrorResponse>(oversized);
+            Assert.Contains("maximum batch size", error.Message);
+        }
+        finally
+        {
+            File.Delete(outputXml);
+        }
+    }
+
     [Fact]
     public async Task GeneratesXmlForParameterizedAluWhenVerilatorIsAvailable()
     {

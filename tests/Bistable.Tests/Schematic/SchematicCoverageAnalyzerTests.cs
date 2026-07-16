@@ -1,5 +1,6 @@
 using Bistable.Core.Design;
 using Bistable.Core.Design.Ast;
+using Bistable.Core.Design.Ast.Passes;
 using Bistable.Core.Design.Schematic;
 
 namespace Bistable.Tests.Schematic;
@@ -250,6 +251,69 @@ public sealed class SchematicCoverageAnalyzerTests
             endpoint => endpoint.SignalName == "y"
                      && endpoint.Kind == EndpointKind.ContAssignTarget
                      && endpoint.Status == EndpointCoverageStatus.Routed);
+    }
+
+    [Fact]
+    public void Analyze_ProjectedCombinationalBlock_ReportsTargetAndReadsAsRouted()
+    {
+        ModuleAst module = CombinationalProjector.Project(new ModuleAst(
+            Name: "top",
+            IsTop: true,
+            Ports: [],
+            Parameters: [],
+            LocalSignals: [],
+            Instances: [],
+            ContAssigns: [],
+            SequentialBlocks: [],
+            CombinationalBlocks:
+            [
+                new CombinationalBlockAst(new IfAst(
+                    new SignalRef("sel"),
+                    new AssignAst(new VarRefLValue("y"), new SignalRef("a"), IsNonBlocking: false),
+                    new AssignAst(new VarRefLValue("y"), new SignalRef("b"), IsNonBlocking: false)))
+            ]));
+
+        SchematicCoverageReport report = SchematicCoverageAnalyzer.Analyze(module);
+
+        Assert.Equal(0, report.SilentMissCount);
+        Assert.DoesNotContain(report.UnsupportedConstructs,
+            static diagnostic => diagnostic.ConstructKind.StartsWith("CombinationalBlock", StringComparison.Ordinal));
+        Assert.Contains(report.Modules.Single().Endpoints,
+            endpoint => endpoint.SignalName == "y"
+                     && endpoint.Kind == EndpointKind.CombinationalTarget
+                     && endpoint.Status == EndpointCoverageStatus.Routed);
+        Assert.All(
+            report.Modules.Single().Endpoints.Where(static endpoint => endpoint.Kind == EndpointKind.CombinationalRead),
+            static endpoint => Assert.Equal(EndpointCoverageStatus.Routed, endpoint.Status));
+    }
+
+    [Fact]
+    public void Analyze_SequentialBlockWithMultipleAssignments_ReportsEveryTargetUnsupported()
+    {
+        ModuleAst module = Module(sequentialBlocks:
+        [
+            new SequentialBlockAst(
+                Triggers: [new EdgeTrigger(EdgeKind.Rising, "clk")],
+                Body: new BeginAst(
+                [
+                    new AssignAst(new VarRefLValue("q"), new SignalRef("d"), IsNonBlocking: true),
+                    new AssignAst(new VarRefLValue("flag"), new SignalRef("enable"), IsNonBlocking: true),
+                ]),
+                HasAsynchronousReset: false)
+        ]);
+
+        SchematicCoverageReport report = SchematicCoverageAnalyzer.Analyze(module);
+
+        EndpointCoverage[] sequentialTargets =
+        [
+            .. report.Modules.Single().Endpoints
+                .Where(static endpoint => endpoint.Kind == EndpointKind.SequentialTarget)
+        ];
+        Assert.Equal(2, sequentialTargets.Length);
+        Assert.All(sequentialTargets,
+            static endpoint => Assert.Equal(EndpointCoverageStatus.Unsupported, endpoint.Status));
+        Assert.All(sequentialTargets,
+            static endpoint => Assert.Contains("multiple assignment", endpoint.Reason, StringComparison.OrdinalIgnoreCase));
     }
 
     private static ModuleAst Module(

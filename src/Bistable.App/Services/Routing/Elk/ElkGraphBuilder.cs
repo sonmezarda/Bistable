@@ -15,7 +15,7 @@ internal sealed class ElkGraphBuilder
     // top padding so it never collides with the first port row. The title font
     // is 13pt and the first port label can be ~14px tall — 36px was too tight
     // and produced visible overlap (jump_decoder ↔ jmp_cond[3b] in arnicomp).
-    private const double ModuleHeaderHeight = 48;
+    internal const double ModuleHeaderHeight = 48;
     private const double ModuleFooterHeight = 16;
     // P4.5-13: bumped from 22 → 30. Port labels sit 12px above the pin
     // (`py - fontSize - 3` at 9pt) when a wire is incident. At 22px row
@@ -41,6 +41,7 @@ internal sealed class ElkGraphBuilder
     private const string PortSideWest = "WEST";
     private const string PortSideSouth = "SOUTH";
     private const string PortConstraintsFixedOrder = "FIXED_ORDER";
+    private const string HeaderSpacerPortMarker = ".header-spacer.";
 
     public ElkBuildResult Build(ElkScopeData scope, bool compactLayout)
     {
@@ -355,8 +356,12 @@ internal sealed class ElkGraphBuilder
         int dataInputCount = mux.Inputs.Count;
         int selectorCount = mux.SelectSignals.Count;
 
-        double height = Math.Max(48, 16 + dataInputCount * 14);
+        // Reserve enough vertical space for readable branch rows. The previous
+        // 14px pitch put labels, pins, and incident wires on top of each other in
+        // decoder/ALU muxes with 10+ inputs.
+        double height = Math.Max(64, 32 + dataInputCount * 22);
         double width = ComputeMuxWidth(mux);
+        string displayTitle = FormatPrimitiveTitle("MUX", mux.OutputSignal, mux.Width);
 
         ElkNode node = new()
         {
@@ -366,7 +371,7 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = FixedOrderPortConstraints(),
             Labels =
             [
-                new ElkLabel { Text = $"MUX {mux.OutputSignal}{WidthSuffix(mux.Width)}" },
+                new ElkLabel { Text = displayTitle },
                 new ElkLabel { Text = mux.OutputSignal },                                       // P4-6: bare output signal name for live value lookup
                 // P4-3: primary selector signal name so the renderer can read
                 // its live value and decide which input edge is active.
@@ -434,14 +439,15 @@ internal sealed class ElkGraphBuilder
 
     private static double ComputeMuxWidth(MuxPrimitive mux)
     {
-        double titleWidth = EstimateTextWidth("MUX " + mux.OutputSignal) + 16;
+        string displayTitle = FormatPrimitiveTitle("MUX", mux.OutputSignal, mux.Width);
+        double titleWidth = EstimateTextWidth(displayTitle) + 24;
         double dataLabelWidth = mux.Inputs
             .Select(static i => i.Label)
             .Where(static label => !IsDiagnosticLabel(label))
             .DefaultIfEmpty(string.Empty)
             .Max(static label => EstimateTextWidth(label)) + 20;
-        double selectorWidth = 24 + mux.SelectSignals.Count * 30;
-        return Math.Max(72, Math.Max(titleWidth, Math.Max(dataLabelWidth, selectorWidth)));
+        double selectorWidth = 48 + mux.SelectSignals.Count * 28;
+        return Math.Max(84, Math.Max(titleWidth, Math.Max(dataLabelWidth, selectorWidth)));
     }
 
     private static double EstimateTextWidth(string? text) =>
@@ -753,7 +759,7 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = FixedOrderPortConstraints(),
             Labels =
             [
-                new ElkLabel { Text = $"BUF {buf.OutputSignal}{WidthSuffix(buf.Width)}" },
+                new ElkLabel { Text = FormatPrimitiveTitle("BUF", buf.OutputSignal, buf.Width) },
                 new ElkLabel { Text = buf.OutputSignal },
             ],
             Ports = []
@@ -799,7 +805,7 @@ internal sealed class ElkGraphBuilder
             LayoutOptions = FixedOrderPortConstraints(),
             Labels =
             [
-                new ElkLabel { Text = $"INV {inv.OutputSignal}{WidthSuffix(inv.Width)}" },
+                new ElkLabel { Text = FormatPrimitiveTitle("INV", inv.OutputSignal, inv.Width) },
                 new ElkLabel { Text = inv.OutputSignal },
             ],
             Ports = []
@@ -849,7 +855,7 @@ internal sealed class ElkGraphBuilder
             // Label includes gate kind so the renderer can pick the right body shape
             Labels =
             [
-                new ElkLabel { Text = $"{gate.Kind} {gate.OutputSignal}{WidthSuffix(gate.Width)}" },
+                new ElkLabel { Text = FormatPrimitiveTitle(gate.Kind.ToString(), gate.OutputSignal, gate.Width) },
                 new ElkLabel { Text = gate.OutputSignal },
             ],
             Ports = []
@@ -907,7 +913,7 @@ internal sealed class ElkGraphBuilder
             // Label includes arith kind so the renderer can paint the op symbol
             Labels =
             [
-                new ElkLabel { Text = $"{arith.Kind} {arith.OutputSignal}{WidthSuffix(arith.Width)}" },
+                new ElkLabel { Text = FormatPrimitiveTitle(arith.Kind.ToString(), arith.OutputSignal, arith.Width) },
                 new ElkLabel { Text = arith.OutputSignal },
             ],
             Ports = []
@@ -1395,6 +1401,7 @@ internal sealed class ElkGraphBuilder
         HierarchyScopeInstancePortConnectionViewModel[] inputs = child.PortConnections.Where(c => c.IsInput).ToArray();
         HierarchyScopeInstancePortConnectionViewModel[] outputs = child.PortConnections.Where(c => c.IsOutput).ToArray();
         int portRows = Math.Max(inputs.Length, outputs.Length);
+        int layoutPortRows = portRows == 0 ? 0 : portRows + 1;
 
         // P2-8: a compound is expandable when it has either sub-instances OR primitives
         // in its module. The latter lets leaf modules (FF + combinational logic, no
@@ -1408,7 +1415,7 @@ internal sealed class ElkGraphBuilder
 
         string nodeId = ElkNodeIds.ForChild(child.HierarchyPath);
         double width = ComputeChildNodeWidth(child, inputs, outputs);
-        double height = Math.Max(80, ModuleHeaderHeight + portRows * PortRowHeight + ModuleFooterHeight);
+        double height = Math.Max(80, ModuleHeaderHeight + layoutPortRows * PortRowHeight + ModuleFooterHeight);
 
         Dictionary<string, string> layoutOptions = FixedOrderPortConstraints();
         // P4.5-6: explicit top padding so the first port row never overlaps the
@@ -1434,6 +1441,26 @@ internal sealed class ElkGraphBuilder
             Ports = []
         };
 
+        // FIXED_ORDER has no concept of a title band: without a reserved first
+        // slot ELK may place rd/q/etc. beside the +/- button. Invisible spacer
+        // ports occupy that slot; real pins begin below ModuleHeaderHeight.
+        if (inputs.Length > 0)
+        {
+            node.Ports.Add(new ElkPort
+            {
+                Id = $"{nodeId}{HeaderSpacerPortMarker}west",
+                LayoutOptions = PortLayout(PortSideWest, 0)
+            });
+        }
+        if (outputs.Length > 0)
+        {
+            node.Ports.Add(new ElkPort
+            {
+                Id = $"{nodeId}{HeaderSpacerPortMarker}east",
+                LayoutOptions = PortLayout(PortSideEast, 0)
+            });
+        }
+
         for (int i = 0; i < inputs.Length; i++)
         {
             HierarchyScopeInstancePortConnectionViewModel pin = inputs[i];
@@ -1445,7 +1472,7 @@ internal sealed class ElkGraphBuilder
             node.Ports!.Add(new ElkPort
             {
                 Id = id,
-                LayoutOptions = PortLayout(PortSideWest, i),
+                LayoutOptions = PortLayout(PortSideWest, i + 1),
                 Labels =
                 [
                     new ElkLabel { Text = FormatPortLabel(pin.PortName, pin.Width) },
@@ -1462,7 +1489,7 @@ internal sealed class ElkGraphBuilder
             node.Ports!.Add(new ElkPort
             {
                 Id = id,
-                LayoutOptions = PortLayout(PortSideEast, i),
+                LayoutOptions = PortLayout(PortSideEast, i + 1),
                 Labels =
                 [
                     new ElkLabel { Text = FormatPortLabel(pin.PortName, pin.Width) },
@@ -3071,6 +3098,14 @@ internal sealed class ElkGraphBuilder
     }
 
     private static double MeasureLabelWidth(string text) => text.Length * PortLabelCharWidth;
+
+    internal static bool IsHeaderSpacerPort(string? portId) =>
+        portId?.Contains(HeaderSpacerPortMarker, StringComparison.Ordinal) == true;
+
+    internal static string FormatPrimitiveTitle(string kind, string outputSignal, int width) =>
+        IsSyntheticExpressionSignal(outputSignal)
+            ? kind
+            : $"{kind} {outputSignal}{WidthSuffix(width)}";
 
     private static string FormatPortLabel(string portName, int width) =>
         width == 1 ? portName : $"{portName}[{width}b]";

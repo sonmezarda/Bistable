@@ -1,5 +1,6 @@
 using System.Numerics;
 using Bistable.Core.Design.Ast;
+using Bistable.Core.Design.Ast.Passes;
 using Bistable.Core.Design.Schematic;
 
 namespace Bistable.Tests;
@@ -116,6 +117,40 @@ public sealed class MultiDriverDetectionTests
 
         SchematicPrimitiveList list = SchematicDecoder.Decode(module);
         Assert.Empty(list.Diagnostics!);
+    }
+
+    [Fact]
+    public void Decoder_CombinationalAndSequentialBlocksTargetingSameSignal_FlagsAsMultiDriver()
+    {
+        ModuleAst module = CombinationalProjector.Project(new ModuleAst(
+            Name: "m",
+            IsTop: true,
+            Ports: [],
+            Parameters: [],
+            LocalSignals: [],
+            Instances: [],
+            ContAssigns: [],
+            SequentialBlocks:
+            [
+                new SequentialBlockAst(
+                    [new EdgeTrigger(EdgeKind.Rising, "clk")],
+                    new AssignAst(new VarRefLValue("q"), new SignalRef("d_sync"), IsNonBlocking: true),
+                    HasAsynchronousReset: false)
+            ],
+            CombinationalBlocks:
+            [
+                new CombinationalBlockAst(
+                    new AssignAst(new VarRefLValue("q"), new SignalRef("d_comb"), IsNonBlocking: false))
+            ]));
+
+        SchematicPrimitiveList list = SchematicDecoder.Decode(module);
+
+        MultiDriverDiagnostic diagnostic = Assert.Single(list.Diagnostics!);
+        Assert.Equal("q", diagnostic.SignalName);
+        Assert.Contains(diagnostic.DriverDescriptions,
+            static description => description.StartsWith("assign", StringComparison.Ordinal));
+        Assert.Contains(diagnostic.DriverDescriptions,
+            static description => description.StartsWith("always", StringComparison.Ordinal));
     }
 
     private static ModuleAst WithContAssigns(params ContAssignAst[] assigns) => new(

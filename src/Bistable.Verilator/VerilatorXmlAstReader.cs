@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Xml.Linq;
 using Bistable.Core.Design;
 using Bistable.Core.Design.Ast;
+using Bistable.Core.Design.Ast.Passes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -54,7 +55,8 @@ public sealed class VerilatorXmlAstReader
 
         modules = ComputeIsRegistered(modules);
 
-        return TempFolder.Fold(new DesignAst(modules));
+        DesignAst folded = TempFolder.Fold(new DesignAst(modules));
+        return CombinationalProjector.Project(folded);
     }
 
     // ── Struct type map (P2-11) ─────────────────────────────────────────────

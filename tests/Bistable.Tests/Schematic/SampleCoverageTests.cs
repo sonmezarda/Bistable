@@ -33,7 +33,7 @@ public sealed class SampleCoverageTests
     [Theory]
     [MemberData(nameof(SampleProjects))]
     [Trait("Category", "Integration")]
-    public async Task SampleProject_GeneratedXml_HasNoSilentSchematicCoverageMisses(
+    public async Task SampleProject_GeneratedXml_SatisfiesDriverCoverageContractWithoutSilentMisses(
         string sampleName,
         string projectFileName)
     {
@@ -45,6 +45,7 @@ public sealed class SampleCoverageTests
         Assert.True(
             report.SilentMissCount == 0,
             $"{sampleName} silent misses:\n" + FormatEndpoints(report, EndpointCoverageStatus.SilentMiss));
+        AssertDriverCoverageContract(design, report, sampleName);
     }
 
     [Theory]
@@ -145,6 +146,102 @@ public sealed class SampleCoverageTests
                 Environment.NewLine,
                 endpoints.Select(static endpoint =>
                     $"{endpoint.ModuleName} {endpoint.EndpointId} {endpoint.SignalName}: {endpoint.Reason}"));
+    }
+
+    private static void AssertDriverCoverageContract(
+        DesignAst design,
+        SchematicCoverageReport report,
+        string sampleName)
+    {
+        Dictionary<string, ModuleCoverage> coverageByModule = report.Modules
+            .ToDictionary(static module => module.ModuleName, StringComparer.Ordinal);
+
+        foreach (ModuleAst module in design.Modules)
+        {
+            ModuleCoverage coverage = coverageByModule[module.Name];
+
+            for (int blockIndex = 0; blockIndex < module.CombinationalBlocks.Count; blockIndex++)
+            {
+                CombinationalBlockAst block = module.CombinationalBlocks[blockIndex];
+                Assert.NotNull(block.ProjectionResults);
+                foreach (CombinationalProjectionTarget projection in block.ProjectionResults!)
+                {
+                    string endpointId = $"combinational:{blockIndex}:{projection.TargetIndex}:{projection.SignalName}";
+                    EndpointCoverage endpoint = Assert.Single(coverage.Endpoints,
+                        candidate => candidate.EndpointId == endpointId);
+                    AssertCoveredDriver(sampleName, endpoint);
+                }
+            }
+
+            for (int blockIndex = 0; blockIndex < module.SequentialBlocks.Count; blockIndex++)
+            {
+                foreach (string target in AssignedTargets(module.SequentialBlocks[blockIndex].Body)
+                             .Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    string endpointId = $"sequential:{blockIndex}:{target}";
+                    EndpointCoverage endpoint = Assert.Single(coverage.Endpoints,
+                        candidate => candidate.EndpointId == endpointId);
+                    AssertCoveredDriver(sampleName, endpoint);
+                }
+            }
+        }
+    }
+
+    private static void AssertCoveredDriver(string sampleName, EndpointCoverage endpoint)
+    {
+        bool covered = endpoint.Status is EndpointCoverageStatus.Routed or EndpointCoverageStatus.Unsupported
+            || (endpoint.Status == EndpointCoverageStatus.IntentionalOmission
+                && endpoint.SignalName.StartsWith("__V", StringComparison.Ordinal));
+        Assert.True(
+            covered,
+            $"{sampleName}: driver endpoint '{endpoint.EndpointId}' has uncovered status {endpoint.Status}: {endpoint.Reason}");
+    }
+
+    private static IEnumerable<string> AssignedTargets(StatementAst statement)
+    {
+        switch (statement)
+        {
+            case AssignAst assign:
+                string? name = assign.Target switch
+                {
+                    VarRefLValue variable => variable.Name,
+                    BitSelectLValue bit => bit.SignalName,
+                    ArraySelectLValue array => array.SignalName,
+                    StructFieldLValue field => field.SignalName,
+                    ConcatLValue concat when concat.Parts.Count > 0 => concat.Parts[0] switch
+                    {
+                        VarRefLValue variable => variable.Name,
+                        BitSelectLValue bit => bit.SignalName,
+                        ArraySelectLValue array => array.SignalName,
+                        StructFieldLValue field => field.SignalName,
+                        _ => null,
+                    },
+                    _ => null,
+                };
+                if (!string.IsNullOrWhiteSpace(name)) yield return name;
+                break;
+            case BeginAst begin:
+                foreach (StatementAst child in begin.Statements)
+                foreach (string target in AssignedTargets(child))
+                    yield return target;
+                break;
+            case IfAst branch:
+                foreach (string target in AssignedTargets(branch.Then)) yield return target;
+                if (branch.Else is not null)
+                {
+                    foreach (string target in AssignedTargets(branch.Else)) yield return target;
+                }
+                break;
+            case CaseAst caseStatement:
+                foreach (CaseArm arm in caseStatement.Arms)
+                foreach (string target in AssignedTargets(arm.Body))
+                    yield return target;
+                if (caseStatement.Default is not null)
+                {
+                    foreach (string target in AssignedTargets(caseStatement.Default)) yield return target;
+                }
+                break;
+        }
     }
 
     private static string ResolveRepoFile(string relativePath)

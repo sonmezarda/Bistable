@@ -98,6 +98,33 @@ public sealed class LiveProbeServiceTests
     }
 
     [Fact]
+    public async Task RefreshScalarsAsync_UsesOneBatchRoundTripAndOneBatchEvent()
+    {
+        string workerPath = await BuildCounterWorkerAsync();
+        await using SimulationWorkerClient worker = new(workerPath);
+        LiveProbeService service = new();
+        service.AttachWorker(worker);
+        await service.RefreshDescriptorsAsync(CancellationToken.None);
+
+        int scalarEvents = 0;
+        List<ProbeValuesUpdatedEventArgs> batchEvents = [];
+        service.ValueUpdated += (_, _) => scalarEvents++;
+        service.ValuesUpdated += (_, e) => batchEvents.Add(e);
+        long before = worker.CompletedRoundTrips;
+
+        await service.RefreshScalarsAsync(
+            ["counter.count", "counter.enable", "COUNTER.COUNT"],
+            CancellationToken.None);
+
+        Assert.Equal(1, worker.CompletedRoundTrips - before);
+        Assert.Equal(0, scalarEvents);
+        ProbeValuesUpdatedEventArgs update = Assert.Single(batchEvents);
+        Assert.Equal(2, update.Values.Count);
+        Assert.NotNull(service.GetCached("counter.count"));
+        Assert.NotNull(service.GetCached("counter.enable"));
+    }
+
+    [Fact]
     public async Task InvalidateAll_ForcesReReadOnNextGet()
     {
         string workerPath = await BuildCounterWorkerAsync();

@@ -428,10 +428,20 @@ enum EdgeKind { Rising, Falling, AnyChange }
 An always block without edge triggers. Represents combinational logic.
 
 ```csharp
-record CombinationalBlockAst(StatementAst Body);
+record CombinationalBlockAst(StatementAst Body)
+{
+    [JsonIgnore]
+    IReadOnlyList<CombinationalProjectionTarget>? ProjectionResults { get; init; }
+}
 ```
 
 **Source:** Verilator XML `<always>` without `<sentree>`, or an `<always>` whose `<sentree>` contains no `<senitem>` children with an `edgeType` attribute (e.g., `always_comb` is sometimes emitted with an empty sentree by Verilator).
+
+After parsing, `CombinationalProjector` records one result per driven signal.
+`null` means the block has not passed through the projector; an empty list means
+it was processed and had no targets. The metadata is excluded from AST JSON.
+Projected targets are also appended to `ModuleAst.ContAssigns` as synthetic
+continuous assignments; the original block remains available for diagnostics.
 
 ---
 
@@ -1064,6 +1074,22 @@ private static HashSet<string> CollectSequentialTargets(
 ```
 
 `CollectFromStatement` visits `BeginAst`, `IfAst`, `CaseAst` recursively, and for `AssignAst` extracts the signal name(s) from the `Target` lvalue.
+
+### 10.4 Combinational projection pass
+
+`VerilatorXmlAstReader` runs the post-parse chain in this order:
+
+1. compute `IsRegistered`;
+2. `TempFolder.Fold` compiler-generated single-consumer temporaries;
+3. `CombinationalProjector.Project` procedural combinational blocks.
+
+The projector symbolically executes Begin/Assign/If/Case statements with
+last-assignment-wins semantics. Constant case labels become equality conditions;
+branches become `CondExpr`. Bit-select lvalue writes are tracked per destination
+bit and reconstructed as one whole-bus expression only when every bit is
+defined. Partial assignment (latch risk), non-constant case labels, unsupported
+lvalues, or expressions deeper than 128 produce projection metadata with
+`Unsupported` status instead of a synthetic assignment.
 
 ---
 

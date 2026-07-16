@@ -92,13 +92,21 @@
       },
       "ports": [
         {
+          "id": "child_top_u_consumer.header-spacer.west",
+          "labels": [],
+          "layoutOptions": {
+            "elk.port.index": "0",
+            "elk.port.side": "WEST"
+          }
+        },
+        {
           "id": "child_top_u_consumer.in.hi",
           "labels": [
             "hi[8b]",
             "hi"
           ],
           "layoutOptions": {
-            "elk.port.index": "0",
+            "elk.port.index": "1",
             "elk.port.side": "WEST"
           }
         },
@@ -109,7 +117,7 @@
             "lo"
           ],
           "layoutOptions": {
-            "elk.port.index": "1",
+            "elk.port.index": "2",
             "elk.port.side": "WEST"
           }
         }

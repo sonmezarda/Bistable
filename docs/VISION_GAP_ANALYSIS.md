@@ -5,6 +5,11 @@
 6 maddelik vizyonuna karşı denetlendi. Her bulgu kanıta (dosya/satır, ölçüm,
 XML çıktısı) dayanır; spekülasyon yoktur.
 
+> **Uygulama güncellemesi (2026-07-16):** Bu analizin §2/§6'da kanıtladığı
+> `always_comb`/coverage boşluğu Faz 7'de; §3.1/§5'teki sinyal-başına IPC
+> darboğazı Faz 8'de kapatıldı. Tarihsel kök-neden kanıtı aşağıda korunur;
+> güncel sıra için `docs/ROADMAP.md` bağlayıcıdır.
+
 **Vizyon (sahibin ifadesiyle):**
 1. HDL yazarken **canlı test ortamı** — web geliştirmedeki hot-reload deneyiminin donanım karşılığı.
 2. Bir yandan SystemVerilog yazıp bir yandan şematiği görmek; şematik üzerinden **giriş sürmek, çıkışa ve İÇ SİNYALLERE bakmak**, hatanın yerini görmek (Logisim/Digital'in canlılığı × gerçek HDL).
@@ -22,7 +27,7 @@ seviyesinde; vizyonun kalbi olan **canlı düzenle-gör-test döngüsü henüz y
 mevcut mimari o döngüye *yaklaşmıyor*, çünkü emek son aylarda döngünün kendisine
 değil, döngünün tek bir karesine (şematik çizim kalitesi) harcanmış.
 
-En kritik üç bulgu:
+Analiz anındaki en kritik üç bulgu (ilk ikisi artık Faz 7 ile kapalı):
 
 1. **Şematik boru hattı `always_comb` bloklarını tamamen atlıyor.**
    `SchematicDecoder.Decode()` yalnızca `LocalSignals / Instances /
@@ -58,7 +63,7 @@ canlı döngü.
 | # | Hedef | Durum | Kanıt |
 |---|-------|-------|-------|
 | 1 | Canlı test ortamı (hot-reload) | **YOK** | Kod tabanında `FileSystemWatcher`/izleme sıfır sonuç; akış: dosyayı elle kaydet → `Build` düğmesi → bekle. Düzenle-gör gecikmesi dakikalar mertebesinde. |
-| 2 | Şematikte canlı iç sinyal / hata bulma | **KISMEN** — ve güven sorunu var | Canlı probe altyapısı var (`LiveProbeService`, tıkla-sür, değer rozetleri). Ama (a) `always_comb` görünmez → kontrol mantığı ve bağlantıları eksik (§2); (b) probe IPC'si sinyal başına tek `ReadSignal` — batch yok → büyük görünümlerde yavaş. |
+| 2 | Şematikte canlı iç sinyal / hata bulma | **BÜYÜK ORANDA VAR** — canlı döngü eksik | Faz 7 `always_comb` görünürlüğünü/coverage sözleşmesini; Faz 8 tek-frame `ReadSignals` batch kanalını kapattı. Dosya izleme ve artımlı tazeleme Faz 9 kapsamı. |
 | 3 | Testbench + tek tık derleme | **YOK** | `testbench` araması sıfır sonuç. Yalnızca üretilen worker (portları sür/oku) var; kullanıcı kendi TB'sini yazamaz/çalıştıramaz. |
 | 4 | Şematik export | **YOK** | SVG/PNG/PDF export kodu yok. `SCHEMATIC_REWRITE_PLAN.md` Faz 7 hiç başlamamış tek madde. |
 | 5 | Sentez + sentezli canlı test | **BÜYÜK ORANDA VAR** — en olgun eksen | Yosys entegrasyonu, hiyerarşik gate viewer, gate-level worker, RTL-vs-gate karşılaştırma, bus bundle/LOD; Phase 6.5 fiilen bitmiş (resmî kapanış gate'leri açık). |
@@ -69,6 +74,10 @@ canlı döngü.
 ## 2. Vaka Çalışması: `zero` neden hâlâ kopuk? — Boru hattının anatomisi
 
 Bu vaka tek bir kablo değil; **boru hattının yapısal körlüğünün** kanıtı.
+
+**Çözüm durumu:** Faz 7 tamamlandı; `u_alu.zero` tüketici kenarı otomatik
+regresyonla ve sahibin görsel kabulüyle doğrulandı. Aşağıdaki bölüm kök neden
+kaydıdır.
 
 **Gerçekler (2026-07-16'da ölçüldü):**
 
@@ -135,10 +144,9 @@ Bistable.App (Avalonia, .NET 10)
   Jint benzeri) veya (b) katmanlı-düzen çekirdeğini C#'ta yazmak (repo'da
   yarım kalmış `HierarchicalLayoutEngine` zaten var). Kısa vadede: subprocess
   kalabilir ama **kalıcı/ısıtılmış tek süreç + istek kuyruğu** olduğu doğrulanmalı.
-- **Probe IPC'si ölçeklenmiyor:** protokolde yalnız tekil `ReadSignal` var
-  (`src/Bistable.Protocol/SimulationCommandType.cs`); görünür N sinyal = N
-  round-trip. Handoff dokümanı da bunu 1 numaralı üretim işi olarak yazmış.
-  Canlı şematik değerleri (H2) için `ReadSignals` batch komutu **önkoşuldur**.
+- **Probe IPC'si (Faz 8 ile kapandı):** protokol v3 `ReadSignals` ile görünür
+  frame kümesini tek round-trip'te okuyor; 4.096 üstü istekler parçalanıyor ve
+  her yol kendi başarı/hata sonucunu taşıyor.
 - VCD akışı: her adımdan sonra tam yeniden parse (handoff notu). Artımlı
   index/tailer olmadan "canlı" dalga formu büyük tasarımda tıkanır.
 
@@ -199,7 +207,7 @@ vadede **paylaşılan bir "canlı-değer overlay + hit-test + LOD" çekirdeği**
 | Alan | Ölçüm/Kanıt | Risk | Öneri |
 |---|---|---|---|
 | ELK düzeni (gate) | RV32 top FastPreview ≈ 2,4 sn; register-file tam açılım ≈ 10 sn (ölçülmüş, dokümante) | Canlı döngüde her kayıtta düzen beklenemez | Artımlı düzen: değişmeyen scope'ların geometrisini koru, yalnız kirli alt-grafı yeniden düzenle. `GateLevelLayoutCache` fikri RTL tarafına da taşınmalı. |
-| Probe IPC | Sinyal başına 1 round-trip | Görünür 200 sinyal = 200 stdin/stdout turu/frame | `ReadSignals` batch komutu (protokol + worker şablonu + `LiveProbeService`). Handoff'ta da 1 numara. |
+| Probe IPC | Faz 8 ölçümü: 128 tekil = 533,9 ms; batch = 7,7 ms | **Kapandı:** normal görünür frame tek IPC | Protokol v3 + `ReadSignals` + tek `ValuesUpdated` olayı. |
 | VCD | Adım sonrası tam reparse | Uzun koşularda süper-lineer maliyet | Artımlı tailer + halka tampon (retention sınırı). |
 | Metin ölçümü | `MeasureLabelWidth` frame-başına tekrar | Büyük şemada CPU çizim darboğazı | (metin,punto)→genişlik LRU önbelleği; `EllipsizeToWidth` binary search. |
 | Ölü backend yükü | ~4.460 satır | Derleme süresi + zihinsel yük | İzole et/sil (§4). |
@@ -233,8 +241,8 @@ en az bir kenarı ya da bir Unsupported kaydı olmalı).
 Hedef deneyim: *dosyayı kaydet → ≤1-2 sn içinde şematik güncel → değerler
 canlı → kırmızı/eksik olan yerinde işaretli.*
 
-1. **Comb-decode (önkoşul):** §2'deki plan. Bunsuz şematik "devrenin resmi" değil.
-2. **`ReadSignals` batch protokolü:** tek frame = tek IPC.
+1. **✅ Comb-decode (Faz 7):** §2'deki güven boşluğu kapandı.
+2. **✅ `ReadSignals` batch protokolü (Faz 8):** tek frame = tek IPC.
 3. **Dosya izleme + artımlı elaborasyon:** `FileSystemWatcher` → debounce →
    `verilator --xml-only` (yalnız değişen dosya seti) → AST diff → yalnız kirli
    modüllerin şematiği yeniden kurulur (`ElkSchematicEngine` LRU'su zaten

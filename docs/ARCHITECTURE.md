@@ -60,16 +60,18 @@ Bistable.App  ──depends on──>  Bistable.Verilator  ──depends on─�
   - Full spec: `docs/DESIGN_AST.md`.
 
 ### `Bistable.Protocol`
-- `SimulationCommand` (request: `Type`, `Signal?`, `Value?`, `Cycles`, `Path?`, `MemoryAddress?`, `MemoryCount?`).
-- `SimulationCommandType` enum: 14 values across v1 stepping (SetInput, Eval, Tick, RunCycles, Reset, GetSnapshot, Pause) and v2 probes (ReadSignal, WriteSignal, ForceSignal, ReleaseSignal, ReadMemory, WriteMemory, ListProbes).
-- `WorkerResponse` (abstract record, `[JsonPolymorphic("kind")]`) with six subtypes:
+- `SimulationCommand` (request: `Type`, `Signal?`, `Value?`, `Cycles`, `Path?`, `Paths?`, `MemoryAddress?`, `MemoryCount?`).
+- `SimulationCommandType` enum: 16 values across stepping, protocol handshake, and probe operations; v3 adds `Hello` and `ReadSignals`.
+- `WorkerResponse` (abstract record, `[JsonPolymorphic("kind")]`) with eight subtypes:
+  - `WorkerHelloResponse` (`"kind":"hello"`) — exact protocol version + capabilities.
   - `SimulationFrame` (`"kind":"frame"`) — v1 stepping response: `Time`, `Signals`, optional `Trace`.
   - `SignalReadResponse` (`"kind":"signalRead"`) — probe-table read result.
+  - `SignalsReadResponse` (`"kind":"signalsRead"`) — per-path batch outcomes.
   - `MemoryReadResponse` (`"kind":"memoryRead"`) — reserved for P3-6 memory probes.
   - `ProbeListResponse` (`"kind":"probeList"`) — enumeration of the worker's probe table.
   - `AckResponse` (`"kind":"ack"`) — write/force/release success.
   - `ErrorResponse` (`"kind":"error"`) — structured failure message.
-- DTOs: `SignalSample`, `SignalReadResult`, `MemoryReadResult`, `ProbeDescriptor`.
+- DTOs: `SignalSample`, `SignalReadResult`, `SignalsReadResult`, `SignalReadOutcome`, `MemoryReadResult`, `ProbeDescriptor`.
 
 Full wire-format spec in `docs/PROTOCOL.md`.
 
@@ -77,7 +79,7 @@ Full wire-format spec in `docs/PROTOCOL.md`.
 - `VerilatorTool` — invokes `verilator` CLI.
 - `VerilatorXmlParser` — XML → `ElaboratedDesign` (current).
 - `SimulationWorkerBuilder` — generates C++ worker source, compiles via Verilator. Optionally takes a `DesignAst` to emit the Phase 3 probe table.
-- `SimulationWorkerClient` — JSON IPC over stdin/stdout to the compiled worker. Includes typed wrappers (`ReadSignalAsync`, `ForceSignalAsync`, `ListProbesAsync`, …) over the raw command/response channel.
+- `SimulationWorkerClient` — JSON IPC over stdin/stdout to the compiled worker. `StartAsync` verifies protocol v3; typed wrappers include chunked `ReadSignalsAsync` while preserving the atomic command/response drain discipline.
 - `ProbeTableEnumerator` — walks a `DesignAst` and yields one `ProbeEntry` per hierarchical signal (filters `__V*` tmps, `Width > 64`, unpacked arrays). Path mangler turns `"top.acc.q"` into Verilator's `"top__DOT__acc__DOT__q"` field name.
 
 **Phase 1 additions:**
@@ -196,7 +198,8 @@ SimulationWorkerClient  ──[JSON over stdio]──>  worker subprocess
         │  v1: SetInput/Eval/Tick/RunCycles          ▼
         │      → SimulationFrame              VCD trace file
         │                                            │
-        │  v2: ReadSignal/WriteSignal/Force/         │
+        │  v3: Hello + ReadSignals batch             │
+        │      ReadSignal/WriteSignal/Force/         │
         │      Release/ListProbes                    │
         │      → typed WorkerResponse                │
         ▼                                            │
