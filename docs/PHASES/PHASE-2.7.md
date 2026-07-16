@@ -1,5 +1,10 @@
 # Phase 2.7 — Schematic UX & Persistence (paused)
 
+> **2026-07-16 — superseded by the vision roadmap.** Remaining items were
+> absorbed: export → [PHASE-10](PHASE-10.md); other UX polish is re-evaluated in
+> [PHASE-14](PHASE-14.md). See [docs/ROADMAP.md](../ROADMAP.md). This file stays
+> as a historical record.
+
 **Master plan:** `/home/ardac/.claude/plans/fluffy-wishing-kettle.md`
 **Phase goal:** Make the schematic feel like a professional EDA tool — search, breadcrumbs, mini-map, drill-down navigation, hover/selection feedback, manual layout overrides, view-state persistence, theme presets, export.
 **Prerequisite:** Phase 2.5 + 2.6 complete (polish + constructs).

@@ -1,5 +1,10 @@
 # Phase 2.8 — Performance & Scale (DEFERRED — live status)
 
+> **2026-07-16 — superseded by the vision roadmap.** Incremental layout/caching
+> concerns moved to [PHASE-9](PHASE-9.md); render/measure performance and VCD
+> tailing to [PHASE-12](PHASE-12.md). See [docs/ROADMAP.md](../ROADMAP.md).
+> This file stays as a historical record.
+
 **Master plan:** `/home/ardac/.claude/plans/fluffy-wishing-kettle.md`
 **Phase goal:** Make the schematic renderer handle Linux-class CPU designs (500K – 2M gates, 1000+ instance hierarchies). Without this, the tool is limited to teaching/research scale (~10K gates max).
 **Prerequisite:** Phase 2.5 + 2.6 + 2.7 complete (full feature set in place).

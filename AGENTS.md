@@ -80,6 +80,8 @@ abstraction removes proven duplication:
 | Doc | Use for |
 |-----|---------|
 | `AGENTS.md` (this file) | Orientation, real state, guardrails |
+| `docs/ROADMAP.md` | **PLAN OF RECORD (2026-07-16):** binding phase order 7→14 for the vision. Check here before starting or proposing ANY work. |
+| `docs/VISION_GAP_ANALYSIS.md` | **North star (2026-07-16):** owner's 6-goal vision vs. reality; the evidence behind the roadmap. Read before proposing new features. |
 | `docs/ARCHITECTURE.md` | Project layout, ELK pipeline (§5), threading model |
 | `docs/SCHEMATIC_ROUTING_BACKENDS.md` | Which router backend is active and why |
 | `docs/ELK_ROUTING_PERFORMANCE_ANALYSIS.md` | ELK routing presets + perf numbers (2026-06-12) |
@@ -113,14 +115,13 @@ abstraction removes proven duplication:
   orphan/dead-logic pruning, ConstantTie wiring, memory-tile ports+wiring+RAM
   symbol, RD-mem badge overlap. Also reconciled several stale docs with the code
   (ELK backend pivot) and added this AGENTS.md.
-- **Open follow-ups:**
-  - Issue 4 **Stage 2** — `MemoryWritePrimitive` (plan
-    `~/.claude/plans/functional-shimmying-torvalds.md`).
-  - Pending **user visual acceptance** of Issues 1–5 on `samples/riscv_single_cycle`.
-  - Phase 6.5 gate-level **closure gates** in
-    `docs/HANDOFFS/PHASE-6.5-GATE-PIN-LABELS-NEXT.md` §5 (RV32 synthesis JSON
-    regen, frame timings, manual RV32 acceptance, `Expand Cone`/macro views).
-  - **Genuinely unstarted:** SVG export (rewrite plan Faz 7).
+- **Open work is governed by `docs/ROADMAP.md`** (phases 7–14, binding order):
+  next up is **Phase 7** (always_comb decode + coverage contract — the `zero`
+  dangling-wire root cause), then Phase 8 (`ReadSignals` batch IPC), then
+  Phase 9 (watch → incremental elaborate live loop). Old follow-ups were
+  absorbed: Issue 4 Stage 2 → P12-9, Phase 6.5 closure + Expand Cone → Phase 13,
+  SVG export → Phase 10. Do not start visual-polish work before Phases 7–9 close
+  (owner's instruction).
 
 ## 7. Guardrails (do not break these)
 
