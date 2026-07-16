@@ -100,13 +100,16 @@ Full wire-format spec in `docs/PROTOCOL.md`.
 | Layer | Thread | Notes |
 |-------|--------|-------|
 | Worker C++ subprocess | own process | spawned by `SimulationWorkerClient` |
-| `SimulationWorkerClient.SendAsync` | caller (usually UI thread) | **awaits stdout read on UI thread — Phase 6 fix** |
-| `ElkRunner.Layout` | caller | **synchronous; Phase 6 will wrap in Task.Run** |
-| `ElkSchematicEngine.Compute` | caller | synchronous; LRU-cached |
+| `SimulationWorkerClient.SendAsync` | worker IPC gate | writes+response are one atomic transaction; cancellation drains the pending response (see PHASE-6.5 log, 2026-06-10) |
+| `ElkRunner.Layout` | background | `ElkRunner.Layout` itself is still synchronous, but callers reach it through `SchematicLayoutService.LayoutAsync(CancellationToken)`, which serializes on `_layoutGate`, runs off the UI thread, is cancellable, and raises `LayoutStillRunning` on soft timeout |
+| `ElkSchematicEngine.Compute` | caller | LRU-cached (8-entry, SHA-1 key); gate hierarchy path adds `GateLevelLayoutCache` fingerprinting |
 | `DesignLoadService.LoadAsync` | background (Task) | Verilator XML generation off UI thread |
 | `MainWindowViewModel.ApplyFrame` | UI thread | mutates ObservableCollections |
 
-**Phase 6 goal:** zero UI thread blocks > 5 ms. Until then, the freeze on large schematics is expected.
+**Status (2026-07-16):** the "Phase 6" async/cancellable layout goal above is
+largely met on the ELK path — layout runs off the UI thread, is cancellable, and
+LRU-cached. Remaining UI-thread hot spots (batch probe protocol, incremental VCD)
+are tracked in `docs/PHASES/PHASE-6.5.md` and `docs/HANDOFFS/PHASE-6.5-GATE-PIN-LABELS-NEXT.md`.
 
 ## 5. The ELK pipeline (most-touched subsystem)
 

@@ -3,6 +3,21 @@
 **Date:** 2026-06-02  
 **Scope:** Re-evaluate the roadmap against the real product target: load complex RTL such as RV32/out-of-order CPU cores, render complete schematics, simulate meaningful programs, inspect live state, and eventually synthesize to gate-level netlists.
 
+> **HISTORICAL SNAPSHOT — partially superseded (reviewed 2026-07-16).**
+> This is a point-in-time capability audit from 2026-06-02, before the
+> synthesis/gate-level and ELK-async work landed. Several "missing" findings
+> below have since been delivered; read it as roadmap rationale, not current
+> state. Corrections:
+> - "No synthesis backend exists" (§2.4) → **delivered.** Yosys integration
+>   (`Bistable.Yosys`), netlist import, gate-level schematic, and RTL-vs-gate
+>   comparison are in place (Phase 6 / Phase 6.5, `samples/riscv_single_cycle`).
+> - "No RTL vs gate-level comparison" (§2.3) → **delivered** (Comparator + Synthesis Settings).
+> - "ELK layout is cached but still synchronous" (§3) → **now async + cancellable**
+>   via `SchematicLayoutService.LayoutAsync`.
+> - RV32I execution target (item 3) → **delivered** (`samples/riscv_single_cycle`, Phase 5).
+> For current architecture see `docs/ARCHITECTURE.md` §0/§5, and for phase status
+> `docs/PHASES/PHASE-6.5.md`.
+
 ## 1. Executive conclusion
 
 The current project is no longer blocked primarily by visual polish. Phase 2.7 items such as search, breadcrumbs, theme presets, mini-map, and export improve usability, but they do **not** move the product to the capability level of a professional HDL tool.

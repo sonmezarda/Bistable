@@ -1,12 +1,40 @@
 # Schematic Routing Backends
 
 Bistable keeps routing implementations behind `ISchematicRouter` so experimental
-backends can be tried without deleting the current C# router.
+backends can be tried without deleting the current C# router. The active backend
+is selected by the `SchematicRoutingEngine` enum in
+[SchematicConnectionRouter.cs](../src/Bistable.App/Services/SchematicConnectionRouter.cs):
+`Elk` (default), `Internal`, `GraphvizNeato`, `GraphvizDot`.
+
+## ELK (active default)
+
+`SchematicRoutingEngine.Elk` is the current production backend
+([SchematicPreviewControl.cs](../src/Bistable.App/Views/SchematicPreviewControl.cs)
+registers `Elk` as the default `RoutingEngine`). It solves placement and routing
+together with elkjs (Eclipse Layout Kernel) run as a Node subprocess, following
+the "Production External Backend Direction" below.
+
+- Pipeline: `ElkGraphBuilder.Build` → `ElkRunner.Layout` (elkjs subprocess) →
+  `SchematicPreviewControl.Elk` rendering. Gate-level uses
+  `GateNetlistElkBuilder` + `GateHierarchicalLayoutEngine`.
+- Layout runs off the UI thread and is cancellable through
+  `SchematicLayoutService.LayoutAsync`, with an 8-entry SHA-1 LRU
+  (`ElkSchematicEngine`) plus `GateLevelLayoutCache` fingerprinting on the gate
+  hierarchy path.
+- Net identity is carried on `bistable.netId` metadata (not visible ELK labels),
+  preserving per-bit selection and simulation cross-probe.
+- Performance and routing-preset details: see
+  [ELK_ROUTING_PERFORMANCE_ANALYSIS.md](ELK_ROUTING_PERFORMANCE_ANALYSIS.md).
+
+The three backends below remain selectable for comparison/offline work but are
+not the production default.
 
 ## Internal
 
-`SchematicMazeRouter` is the in-process C# router. It has no runtime tool
-dependency and remains available for comparison and offline development.
+`SchematicMazeRouter` is the in-process C# router (`SchematicRoutingEngine.Internal`),
+the pure-C# maze router built in the `SCHEMATIC_REWRITE_PLAN.md` Phase 0-5 work.
+It has no runtime tool dependency and remains available for comparison and
+offline development, but it is no longer the RTL default.
 
 ## Graphviz Dot
 

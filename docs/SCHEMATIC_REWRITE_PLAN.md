@@ -5,9 +5,56 @@
 > getirmek. Öncelik: okunabilir, doğru, tutarlı, hızlı route çizimi.
 
 **Doküman tarihi:** 2026-05-21
-**Karar verilen yaklaşım:** Saf C# (harici layout/router kütüphanesi yok),
-feature flag yok (her faz mevcut implementasyonu temizce değiştirir),
-geriye dönük uyumluluk hedeflenmiyor, tüm fazlar (0-7).
+**Karar verilen yaklaşım (2026-05-21 tarihli, kısmen geçersiz — bkz. §0):**
+Saf C# (harici layout/router kütüphanesi yok), feature flag yok (her faz mevcut
+implementasyonu temizce değiştirir), geriye dönük uyumluluk hedeflenmiyor, tüm
+fazlar (0-7).
+
+---
+
+## 0. Mimari pivot — bu planın güncelliği (2026-07-16 güncellemesi)
+
+> **UYARI:** Aşağıdaki Faz 0-7 yol haritası 2026-05-21'de "saf C# maze router"
+> varsayımıyla yazıldı. O tarihten sonra RTL schematic **iki kez backend pivotu**
+> yaptı ve bu pivot orijinal faz tablosuna işlenmedi. Bu bölüm, planı gerçek kod
+> durumuyla hizalar. Faz metinleri tarihsel kayıt olarak korunuyor; ama "aktif
+> mimari" artık aşağıdaki gibidir.
+
+### 0.1 Router backend'i pluggable oldu — saf-C# tek yol değil
+
+`ISchematicRouter` arkasında birden çok backend seçilebilir hale geldi
+([SchematicConnectionRouter.cs](../src/Bistable.App/Services/SchematicConnectionRouter.cs)
+içindeki `SchematicRoutingEngine` enum'u):
+
+| Engine | Durum | Dosya |
+|--------|-------|-------|
+| `Elk` | **AKTİF varsayılan** ([SchematicPreviewControl.cs:113-116](../src/Bistable.App/Views/SchematicPreviewControl.cs#L113)) | `Services/Routing/Elk/*`, `SchematicPreviewControl.Elk.cs` |
+| `Internal` | Faz 0-5'te yazılan saf-C# maze router — artık RTL'de varsayılan **değil**; karşılaştırma/offline için duruyor | `Services/Routing/MazeRouter.cs`, `HananGrid.cs`, `RectilinearSteinerTree.cs`, `SchematicMazeRouter.cs` |
+| `GraphvizDot` | Ara pivot; harici Graphviz'e layout+routing'i birlikte çözdürür | `SchematicPreviewControl.Graphviz.cs` |
+| `GraphvizNeato` | Deneysel, önerilmez | `SchematicPreviewControl.Graphviz.cs` |
+
+Referans dokümanı: [SCHEMATIC_ROUTING_BACKENDS.md](SCHEMATIC_ROUTING_BACKENDS.md).
+
+Sonuç: planın "her faz mevcut implementasyonu temizce siler / harici kütüphane
+yok" kararı artık geçerli değil. Maze router kodu **silinmedi**, ELK harici bir
+layout kernel'i olarak **eklendi**.
+
+### 0.2 Faz durumları — plan tablosu vs. gerçek kod
+
+| Faz | Plandaki iddia | Gerçek kod durumu (2026-07-16) |
+|-----|----------------|-------------------------------|
+| 0-5 | Tamamlandı (saf-C# maze router hattı üzerinde) | Kod var ama artık **aktif hat değil**; RTL varsayılanı ELK'e taşındı. Maze router fazları tarihsel. |
+| 6 — Performans | "henüz başlamadı" | **Fonksiyonel olarak büyük oranda YAPILDI**, ELK hattında farklı isimlerle: async+cancellable layout (`SchematicLayoutService.LayoutAsync` + `LayoutStillRunning`), LRU cache (`GateLevelLayoutCache` + `GateHierarchicalLayoutEngine` fingerprint), viewport culling ([GateSchematicCanvas.cs:479](../src/Bistable.App/Views/GateSchematicCanvas.cs#L479)), Graphviz route geometri cache. Perf ölçüm kaydı: [ELK_ROUTING_PERFORMANCE_ANALYSIS.md](ELK_ROUTING_PERFORMANCE_ANALYSIS.md) (94.8s → 12.6s). |
+| 7 — SVG export | "henüz başlamadı" | **Gerçekten yok** — `src/` içinde SVG/export izi yok. Bu madde açık. |
+
+### 0.3 Bu planın kalan geçerliliği
+
+- Faz 6/7 satırlarını "başlamadı" olarak okuma; §0.2 tablosu esas alınmalı.
+- RTL schematic mimarisinin güncel doğru kaynağı: bu §0 + `SCHEMATIC_ROUTING_BACKENDS.md`
+  + `ELK_ROUTING_PERFORMANCE_ANALYSIS.md`.
+- Gate-level viewer'ın durumu ayrı bir hattır: `docs/PHASES/PHASE-6.5.md` ve
+  `docs/HANDOFFS/PHASE-6.5-GATE-PIN-LABELS-NEXT.md`.
+- Aşağıdaki Faz 0-7 metinleri **tarihsel karar/uygulama kaydı** olarak korunuyor.
 
 ---
 
@@ -597,8 +644,17 @@ geçti.
 - Drag-to-pan inertia
 - Probe markers
 
-### Faz 6 — (henüz başlamadı)
-### Faz 7 — (henüz başlamadı)
+### Faz 6 — Plan-dışı, ELK hattında büyük oranda tamamlandı (bkz. §0.2)
+
+Bu faz orijinal maze-router hattında hiç başlamadı; ancak performans hedefleri
+RTL'nin taşındığı ELK backend'inde farklı isimlerle karşılandı: async +
+cancellable layout (`SchematicLayoutService`), LRU layout cache
+(`GateLevelLayoutCache`), viewport culling (`GateSchematicCanvas`), Graphviz
+route geometri cache. Ölçüm: [ELK_ROUTING_PERFORMANCE_ANALYSIS.md](ELK_ROUTING_PERFORMANCE_ANALYSIS.md).
+
+### Faz 7 — SVG export: henüz yok (gerçekten başlanmadı)
+
+`src/` içinde SVG/export kodu bulunmuyor. Bu madde hâlâ açık.
 
 ---
 
