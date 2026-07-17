@@ -5,10 +5,12 @@
 6 maddelik vizyonuna karşı denetlendi. Her bulgu kanıta (dosya/satır, ölçüm,
 XML çıktısı) dayanır; spekülasyon yoktur.
 
-> **Uygulama güncellemesi (2026-07-16):** Bu analizin §2/§6'da kanıtladığı
+> **Uygulama güncellemesi (2026-07-17):** Bu analizin §2/§6'da kanıtladığı
 > `always_comb`/coverage boşluğu Faz 7'de; §3.1/§5'teki sinyal-başına IPC
-> darboğazı Faz 8'de kapatıldı. Tarihsel kök-neden kanıtı aşağıda korunur;
-> güncel sıra için `docs/ROADMAP.md` bağlayıcıdır.
+> darboğazı Faz 8'de kapatıldı. Faz 9'un izleme, AST diff/cache, stale hata
+> yüzeyi, worker sıcak-takas ve IDE-benzeri Source/Problems çalışma alanı
+> otomatik kapıları da tamamlandı; sahibin manuel kabulü bekleniyor. Tarihsel
+> kök-neden kanıtı aşağıda korunur; güncel sıra için `docs/ROADMAP.md` bağlayıcıdır.
 
 **Vizyon (sahibin ifadesiyle):**
 1. HDL yazarken **canlı test ortamı** — web geliştirmedeki hot-reload deneyiminin donanım karşılığı.
@@ -22,10 +24,11 @@ XML çıktısı) dayanır; spekülasyon yoktur.
 
 ## 0. Yönetici Özeti
 
-Proje bugün "**iyi bir statik şematik görüntüleyici + temel simülasyon kabuğu**"
-seviyesinde; vizyonun kalbi olan **canlı düzenle-gör-test döngüsü henüz yok** ve
-mevcut mimari o döngüye *yaklaşmıyor*, çünkü emek son aylarda döngünün kendisine
-değil, döngünün tek bir karesine (şematik çizim kalitesi) harcanmış.
+Bu analiz yazıldığında proje "**iyi bir statik şematik görüntüleyici + temel
+simülasyon kabuğu**" seviyesindeydi. Faz 7–9 uygulamasıyla canlı düzenle-gör-test
+döngüsünün teknik hattı artık mevcut; Faz 9 yalnız sahibin gerçek uygulama
+üzerindeki manuel kabulünü bekliyor. Aşağıdaki ilk durum ve kanıtlar yol haritası
+kararlarının tarihsel gerekçesi olarak korunur.
 
 Analiz anındaki en kritik üç bulgu (ilk ikisi artık Faz 7 ile kapalı):
 
@@ -62,8 +65,8 @@ canlı döngü.
 
 | # | Hedef | Durum | Kanıt |
 |---|-------|-------|-------|
-| 1 | Canlı test ortamı (hot-reload) | **YOK** | Kod tabanında `FileSystemWatcher`/izleme sıfır sonuç; akış: dosyayı elle kaydet → `Build` düğmesi → bekle. Düzenle-gör gecikmesi dakikalar mertebesinde. |
-| 2 | Şematikte canlı iç sinyal / hata bulma | **BÜYÜK ORANDA VAR** — canlı döngü eksik | Faz 7 `always_comb` görünürlüğünü/coverage sözleşmesini; Faz 8 tek-frame `ReadSignals` batch kanalını kapattı. Dosya izleme ve artımlı tazeleme Faz 9 kapsamı. |
+| 1 | Canlı test ortamı (hot-reload) | **UYGULANDI — manuel kabul bekliyor** | Faz 9: watcher+debounce, iptal/birleştirme, AST diff/cache, stale hata yüzeyi ve worker sıcak-takas; `riscv_single_cycle` otomatik ölçümü 243 ms. |
+| 2 | Şematikte canlı iç sinyal / hata bulma | **BÜYÜK ORANDA VAR** | Faz 7 görünürlük/coverage, Faz 8 batch canlı değer, Faz 9 Source/Problems + otomatik şema tazelemesi. |
 | 3 | Testbench + tek tık derleme | **YOK** | `testbench` araması sıfır sonuç. Yalnızca üretilen worker (portları sür/oku) var; kullanıcı kendi TB'sini yazamaz/çalıştıramaz. |
 | 4 | Şematik export | **YOK** | SVG/PNG/PDF export kodu yok. `SCHEMATIC_REWRITE_PLAN.md` Faz 7 hiç başlamamış tek madde. |
 | 5 | Sentez + sentezli canlı test | **BÜYÜK ORANDA VAR** — en olgun eksen | Yosys entegrasyonu, hiyerarşik gate viewer, gate-level worker, RTL-vs-gate karşılaştırma, bus bundle/LOD; Phase 6.5 fiilen bitmiş (resmî kapanış gate'leri açık). |
@@ -243,17 +246,18 @@ canlı → kırmızı/eksik olan yerinde işaretli.*
 
 1. **✅ Comb-decode (Faz 7):** §2'deki güven boşluğu kapandı.
 2. **✅ `ReadSignals` batch protokolü (Faz 8):** tek frame = tek IPC.
-3. **Dosya izleme + artımlı elaborasyon:** `FileSystemWatcher` → debounce →
+3. **✅ Dosya izleme + artımlı elaborasyon (Faz 9):** `FileSystemWatcher` → debounce →
    `verilator --xml-only` (yalnız değişen dosya seti) → AST diff → yalnız kirli
    modüllerin şematiği yeniden kurulur (`ElkSchematicEngine` LRU'su zaten
    scope-hash'li; diff ile evlendirilecek altyapı hazır).
-4. **Worker'ın sıcak yeniden kullanımı:** port arayüzü değişmediyse mevcut
-   worker'la devam; değiştiyse arka planda yeni worker derle, hazır olunca
-   değiştir (mevcut cancellation/lifecycle altyapısı bunu taşıyabilir).
-5. **Hata yüzeyi:** derleme/elaborasyon hataları editör-satırı referansıyla
+4. **✅ Worker sıcak-takası (Faz 9):** semantik değişimde eski worker canlı
+   kalırken replacement ayrı slotta hazırlanır; girişler aktarılıp ilk frame
+   geldikten sonra atomik değiştirilir.
+5. **✅ Hata yüzeyi (Faz 9):** derleme/elaborasyon hataları editör-satırı referansıyla
    panelde; şematikte ilgili modül "stale" rozetiyle solsun.
-6. UI'da minimal bir **kod görüntüleyici/düzenleyici bölmesi** (ilk sürümde
-   salt-okunur + harici editör izleme yeter; AvaloniaEdit hazır bileşen).
+6. **✅ IDE-benzeri Source/Problems dokümanı (Faz 9):** düzenlenebilir
+   AvaloniaEdit, dosya gezgini, kaydet/ara, canlı-reload kontrolleri ve
+   tıklanabilir tanılama navigasyonu.
 
 ### H3 — Testbench akışı — **P1**
 

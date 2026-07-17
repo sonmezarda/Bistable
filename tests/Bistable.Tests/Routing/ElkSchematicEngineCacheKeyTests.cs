@@ -1,4 +1,5 @@
 using Bistable.App.Services.Routing.Elk;
+using Bistable.App.ViewModels;
 using Bistable.Core.Design.Schematic;
 
 namespace Bistable.Tests.Routing;
@@ -51,19 +52,46 @@ public sealed class ElkSchematicEngineCacheKeyTests
             };
 
         string firstKey = ElkSchematicEngine.GetCacheKey(
-            EmptyScope(primitives: null, first),
+            EmptyScope(primitives: null, first, [Child("alu")]),
             compactLayout: false);
         string secondKey = ElkSchematicEngine.GetCacheKey(
-            EmptyScope(primitives: null, second),
+            EmptyScope(primitives: null, second, [Child("alu")]),
             compactLayout: false);
 
         Assert.NotEqual(firstKey, secondKey);
     }
 
+    [Fact]
+    public void GetCacheKey_IgnoresUnrelatedModuleCatalogChanges()
+    {
+        Dictionary<string, IReadOnlyList<SchematicPrimitive>> first = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["alu"] = [new BufferPrimitive("buffer", "y", "a", 1)],
+            ["unused"] = [new BufferPrimitive("buffer", "z", "b", 1)]
+        };
+        Dictionary<string, IReadOnlyList<SchematicPrimitive>> second = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["alu"] = [new BufferPrimitive("buffer", "y", "a", 1)],
+            ["unused"] = [new InverterPrimitive("buffer", "z", "b", 1)]
+        };
+
+        Assert.Equal(
+            ElkSchematicEngine.GetCacheKey(EmptyScope(null, first, [Child("alu")]), false),
+            ElkSchematicEngine.GetCacheKey(EmptyScope(null, second, [Child("alu")]), false));
+    }
+
     private static ElkScopeData EmptyScope(
         IReadOnlyList<SchematicPrimitive>? primitives = null,
-        IReadOnlyDictionary<string, IReadOnlyList<SchematicPrimitive>>? catalog = null) =>
-        new([], [], [], [], null, primitives, catalog);
+        IReadOnlyDictionary<string, IReadOnlyList<SchematicPrimitive>>? catalog = null,
+        IReadOnlyList<HierarchyScopeInstanceViewModel>? children = null) =>
+        new([], children ?? [], [], [], null, primitives, catalog);
+
+    private static HierarchyScopeInstanceViewModel Child(string moduleName) => new(
+        $"top.u_{moduleName}",
+        $"u_{moduleName}",
+        moduleName,
+        0, 0, 0, 0,
+        []);
 
     private sealed class CountingElkRunner : IElkRunner
     {

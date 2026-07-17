@@ -34,6 +34,7 @@ public sealed class MainWindow : Window
     private ToolDock? _leftToolDock;
     private BistableToolDockable? _projectDockable;
     private BistableDocumentDockable? _inspectorDockable;
+    private BistableDocumentDockable? _sourceDockable;
     private BistableDocumentDockable? _waveformDockable;
     private BistableDocumentDockable? _schematicDockable;
     private readonly ColumnDefinition _leftDockColumn = new(new GridLength(260));
@@ -212,6 +213,11 @@ public sealed class MainWindow : Window
             "inspector",
             "Inspector",
             () => WrapDockContent(BuildInspectorSurface()));
+        _sourceDockable = new BistableDocumentDockable(
+            DockPanelKind.Project,
+            "source",
+            "Source",
+            () => WrapDockContent(new SourceWorkspaceView()));
         _waveformDockable = new BistableDocumentDockable(
             DockPanelKind.Waveform,
             "waveform",
@@ -243,6 +249,7 @@ public sealed class MainWindow : Window
             VisibleDockables = new ObservableCollection<DockCore.IDockable>
             {
                 _inspectorDockable,
+                _sourceDockable,
                 _waveformDockable,
                 _schematicDockable
             }
@@ -431,6 +438,11 @@ public sealed class MainWindow : Window
                     {
                         Header = "Inspector",
                         Command = new RelayCommand(ActivateInspectorDocument)
+                    },
+                    new MenuItem
+                    {
+                        Header = "Source",
+                        Command = new RelayCommand(ActivateSourceDocument)
                     },
                     new MenuItem
                     {
@@ -2384,7 +2396,8 @@ public sealed class MainWindow : Window
             // P2.7-9 follow-up: routing engine moved into the ViewModel so the
             // View menu / Preferences window both observe a single source of
             // truth. The control's RoutingEngine property now tracks the VM.
-            [!SchematicPreviewControl.RoutingEngineProperty] = new Binding("SchematicRouter")
+            [!SchematicPreviewControl.RoutingEngineProperty] = new Binding("SchematicRouter"),
+            [!SchematicPreviewControl.IsStaleProperty] = new Binding("IsSchematicStale")
         };
         preview.SignalEditorRequested += OnSchematicSignalEditorRequested;
         // P4-5: register the visible-probes provider so the VM's post-Tick
@@ -2466,6 +2479,14 @@ public sealed class MainWindow : Window
 
         _documentDock.ActiveDockable = _inspectorDockable;
         _documentDock.DefaultDockable = _inspectorDockable;
+        _dockWorkspaceControl?.InvalidateVisual();
+    }
+
+    private void ActivateSourceDocument()
+    {
+        if (_sourceDockable is null || _documentDock is null) return;
+        _documentDock.ActiveDockable = _sourceDockable;
+        _documentDock.DefaultDockable = _sourceDockable;
         _dockWorkspaceControl?.InvalidateVisual();
     }
 
@@ -3027,6 +3048,11 @@ public sealed class MainWindow : Window
         else if (e.PropertyName == nameof(MainWindowViewModel.ProjectName))
         {
             CloseGateDocuments();
+            ActivateSourceDocument();
+        }
+        else if (e.PropertyName == nameof(MainWindowViewModel.SourceNavigationVersion))
+        {
+            ActivateSourceDocument();
         }
     }
 
@@ -3310,6 +3336,7 @@ public sealed class MainWindow : Window
         double rightWidth = _rightDockPane?.Bounds.Width > 0 ? _rightDockPane.Bounds.Width : viewModel.RightDockWidth;
         double bottomHeight = _bottomDockPane?.Bounds.Height > 0 ? _bottomDockPane.Bounds.Height : viewModel.BottomDockHeight;
         viewModel.UpdateLayoutMetrics(leftWidth, rightWidth, bottomHeight);
+        viewModel.StopLiveReload();
         foreach (ToolPanelWindow floatingWindow in _floatingToolWindows.Values.ToArray())
         {
             floatingWindow.Close();

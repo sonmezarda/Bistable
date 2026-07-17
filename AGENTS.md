@@ -4,7 +4,7 @@
 > It tells you what the project is, what is *actually true in the code* (docs
 > drift), which document to trust for what, and the guardrails you must not break.
 >
-> **Last reconciled with code:** 2026-07-16. If you find code that contradicts
+> **Last reconciled with code:** 2026-07-17. If you find code that contradicts
 > this file, trust the code and update this file in the same change.
 
 ---
@@ -86,7 +86,8 @@ abstraction removes proven duplication:
 | `docs/SCHEMATIC_ROUTING_BACKENDS.md` | Which router backend is active and why |
 | `docs/ELK_ROUTING_PERFORMANCE_ANALYSIS.md` | ELK routing presets + perf numbers (2026-06-12) |
 | `docs/GATE_LEVEL_SCHEMATIC.md` | User-facing gate viewer behavior |
-| `docs/PHASES/PHASE-6.5.md` + `docs/HANDOFFS/PHASE-6.5-GATE-PIN-LABELS-NEXT.md` | **Active work**: gate-level viewer status, open closure gates, next tasks |
+| `docs/PHASES/PHASE-9.md` | **Active work:** live-reload pipeline and IDE-like Source/Problems workspace; automatic gates complete, owner manual acceptance pending |
+| `docs/PHASES/PHASE-6.5.md` + `docs/HANDOFFS/PHASE-6.5-GATE-PIN-LABELS-NEXT.md` | Historical gate-level status; remaining closure moved to Phase 13 |
 | `docs/RTL_SCHEMATIC_VISUAL_ISSUES.md` | RTL-schematic expand-defects: Issues 1–5 **done** (2026-07-16); open follow-ups = Issue 4 **Stage 2** (MemoryWritePrimitive) + pending user visual acceptance on `riscv_single_cycle` |
 | `docs/DESIGN_AST.md` | Design IR / AST spec (`Bistable.Core.Design.Ast`) |
 | `docs/PROTOCOL.md` | GUI ↔ worker JSON line protocol |
@@ -101,15 +102,18 @@ abstraction removes proven duplication:
 | `docs/PROFESSIONAL_TOOL_CAPABILITY_ANALYSIS.md` | 2026-06-02 snapshot; synthesis, RTL-vs-gate compare, async ELK, and RV32I have since landed (see the note at its top). |
 | `docs/DESIGN_FANOUT_SPEC.md` | Draft spec for deferred RTL packed-struct rendering (`P2-11`); not the gate-level `GateHighFanoutRouter`. |
 | `docs/RTL_COVERAGE_TODO.md` | Explicit-unsupported endpoints, not a reopened phase. |
-| `docs/PHASES/PHASE-0..6.md` | Older phase history. Phase status is stated per file; PHASE-6.5 is the live one. |
+| `docs/PHASES/PHASE-0..6.5.md` | Older phase history. Remaining Phase 6.5 closure is tracked by Phase 13. |
 
-## 6. Current status snapshot (2026-07-16)
+## 6. Current status snapshot (2026-07-17)
 
 - Branch `schematic/label-placement`, ahead of `main`, with **uncommitted work**
   in the tree (RTL-schematic fixes + docs + this file). Do not commit without
   explicit user approval.
-- Build clean (0/0); full suite green apart from the known parallel-load timing
-  families above, which pass in isolation.
+- Build clean (0/0). Phase 9 validation: 919/924 tests passed in the parallel
+  full run; the three known `ElkRunnerCancellation*`, one
+  `SimulationWorkerClientCancellation*`, and one `GateSchematicPerformance*`
+  timing failures all passed in isolated family runs. Golden snapshots are
+  unchanged.
 - **Most recent work (this session):** Phases 7 and 8 completed. Phase 7 added
   `CombinationalProjector`, comb target/read coverage, the `u_alu.zero` edge
   regression, and owner-accepted visual closure. Phase 8 added protocol v3
@@ -118,8 +122,9 @@ abstraction removes proven duplication:
   rejection. The 128-probe measurement improved from 533.9 ms / 128 IPC turns
   to 7.7 ms / one turn.
 - **Open work is governed by `docs/ROADMAP.md`** (phases 7–14, binding order):
-  Phases 7 and 8 are complete; next is **Phase 9** (watch → incremental
-  elaborate live loop). Old follow-ups were
+  Phases 7 and 8 are complete; active work is **Phase 9** (watch → incremental
+  elaborate live loop + its source/diagnostics workspace). Its automatic gates
+  are implemented; owner manual acceptance remains before Phase 10. Old follow-ups were
   absorbed: Issue 4 Stage 2 → P12-9, Phase 6.5 closure + Expand Cone → Phase 13,
   SVG export → Phase 10. Do not start visual-polish work before Phases 7–9 close
   (owner's instruction).

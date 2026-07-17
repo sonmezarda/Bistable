@@ -125,7 +125,61 @@ public sealed class PreferencesWindow : Window
             "Controls whether multi-bit connections use one routed trunk with endpoint fan-out or remain as individual bit wires. Automatic switches by zoom.",
             BuildGateBusWireEditor()));
 
+        root.Children.Add(new TextBlock
+        {
+            Text = "Live development",
+            FontSize = 18,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = TextBrush,
+            Margin = new Thickness(0, 14, 0, 0),
+        });
+        root.Children.Add(BuildField(
+            "Automatic HDL reload",
+            "Watch project HDL files, re-elaborate after saves, and keep the last good schematic visible when Verilator reports an error.",
+            BuildLiveReloadEditor()));
+
         return root;
+    }
+
+    private Control BuildLiveReloadEditor()
+    {
+        StackPanel editor = new()
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 8,
+            Margin = new Thickness(0, 6, 0, 0)
+        };
+        editor.Children.Add(new CheckBox
+        {
+            Content = "Enable live reload",
+            Foreground = TextBrush,
+            [!ToggleButton.IsCheckedProperty] = new Binding("LiveReloadEnabled", BindingMode.TwoWay)
+        });
+        Grid debounce = new()
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(new GridLength(110))
+            },
+            ColumnSpacing = 10
+        };
+        debounce.Children.Add(ThresholdLabel("Save debounce"));
+        NumericUpDown value = new()
+        {
+            Minimum = 100,
+            Maximum = 5000,
+            Increment = 50,
+            FormatString = "0 ms",
+            Background = SurfaceAltBrush,
+            Foreground = TextBrush,
+            BorderBrush = StrokeBrush,
+            [!NumericUpDown.ValueProperty] = new Binding("LiveReloadDebounceMs", BindingMode.TwoWay),
+            [Grid.ColumnProperty] = 1
+        };
+        debounce.Children.Add(value);
+        editor.Children.Add(debounce);
+        return editor;
     }
 
     private Control BuildField(string label, string description, Control editor)

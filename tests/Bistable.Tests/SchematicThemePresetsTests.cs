@@ -154,6 +154,29 @@ public sealed class SchematicThemePresetsTests
     }
 
     [Fact]
+    public void UserPreferencesStore_RoundtripsLiveReloadSettings()
+    {
+        string tempPath = Path.Combine(Path.GetTempPath(), $"bistable-live-prefs-{Guid.NewGuid():N}.json");
+        try
+        {
+            UserPreferencesStore store = new(tempPath);
+            store.Save(new UserPreferences
+            {
+                LiveReloadEnabled = false,
+                LiveReloadDebounceMs = 850
+            });
+
+            UserPreferences loaded = store.Load();
+            Assert.False(loaded.LiveReloadEnabled);
+            Assert.Equal(850, loaded.LiveReloadDebounceMs);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
     public void MainWindowViewModel_SchematicRouterChange_PersistsAndKeepsTheme()
     {
         string layoutPath = Path.Combine(Path.GetTempPath(), $"bistable-tests-{Guid.NewGuid():N}", "layout.json");

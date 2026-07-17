@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
 using System.Windows.Input;
@@ -9,6 +10,7 @@ using Bistable.App.Infrastructure;
 using Bistable.App.Services;
 using Bistable.Core.Design;
 using Bistable.Core.Design.Ast;
+using Bistable.Core.Design.Ast.Passes;
 using Bistable.Core.Projects;
 using Bistable.Protocol;
 using Bistable.Verilator;
@@ -78,6 +80,22 @@ public sealed class MainWindowViewModel : ViewModelBase
     // sticks across app restarts. `SchematicTheme` is the resolved record bound
     // to the preview control's Palette property.
     private readonly UserPreferencesStore _preferencesStore;
+    private readonly ProjectFileWatcherService _projectFileWatcher = new();
+    private readonly ProjectReloadCoordinator _projectReloadCoordinator;
+    private readonly SimulationWorkerHotSwapService _workerHotSwapService;
+    private bool _liveReloadEnabled;
+    private int _liveReloadDebounceMs;
+    private bool _hasUserLiveReloadDebounceOverride;
+    private bool _isSchematicStale;
+    private bool _isLiveReloadBuilding;
+    private string _liveReloadStatus = "Live reload idle";
+    private double _lastLiveReloadElapsedMs;
+    private SourceDocumentViewModel? _selectedSourceDocument;
+    private ElaborationDiagnostic? _selectedElaborationDiagnostic;
+    private int _sourceNavigationLine = 1;
+    private int _sourceNavigationColumn = 1;
+    private long _sourceNavigationVersion;
+    private int _hotReloadWorkerSlot;
     private SchematicThemePreset _schematicThemePreset;
     private SchematicTheme _schematicTheme = SchematicTheme.Dark;
     private SchematicRoutingEngine _schematicRouter = SchematicRoutingEngine.Elk;
@@ -120,6 +138,12 @@ public sealed class MainWindowViewModel : ViewModelBase
         _schematicThemePreset = prefs.SchematicTheme;
         _schematicTheme = SchematicThemePresets.Get(_schematicThemePreset);
         _schematicRouter = prefs.SchematicRouter;
+        _liveReloadEnabled = prefs.LiveReloadEnabled;
+        _hasUserLiveReloadDebounceOverride = prefs.LiveReloadDebounceMs.HasValue;
+        _liveReloadDebounceMs = Math.Clamp(prefs.LiveReloadDebounceMs ?? 400, 100, 5000);
+        _projectReloadCoordinator = new ProjectReloadCoordinator(ReloadProjectFromChangesAsync);
+        _workerHotSwapService = new SimulationWorkerHotSwapService(_workspace.WorkerBuilder);
+        _projectFileWatcher.FilesChanged += OnProjectFilesChanged;
         _cancelSimulationCommand = new RelayCommand(
             CancelActiveSimulationOperation,
             () => IsSimulationBusy);
@@ -171,6 +195,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         SaveProjectSettingsCommand = new AsyncCommand(SaveProjectSettingsAsync,
             () => _currentProject is not null && _currentProjectPath is not null);
         SaveSynthesisSettingsCommand = SaveProjectSettingsCommand;
+        SaveSourceCommand = new AsyncCommand(SaveSelectedSourceAsync, () => SelectedSourceDocument?.IsDirty == true);
         RemoveSelectedWaveformSignalCommand = new RelayCommand(RemoveSelectedWaveformSignal);
         ClearWaveformCommand = new RelayCommand(ClearWaveform);
         // P2.7-5: chip-strip "Clear all" — fires through the wired action so the
@@ -315,6 +340,113 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ObservableCollection<WaveformLaneViewModel> WaveformLanes { get; } = [];
 
     public ObservableCollection<string> AvailableClocks { get; } = [];
+
+    public ObservableCollection<SourceDocumentViewModel> SourceDocuments { get; } = [];
+
+    public ObservableCollection<ElaborationDiagnostic> ElaborationDiagnostics { get; } = [];
+
+    public SourceDocumentViewModel? SelectedSourceDocument
+    {
+        get => _selectedSourceDocument;
+        set
+        {
+            if (ReferenceEquals(_selectedSourceDocument, value)) return;
+            if (_selectedSourceDocument is not null)
+            {
+                _selectedSourceDocument.PropertyChanged -= OnSelectedSourceDocumentPropertyChanged;
+            }
+            if (!SetProperty(ref _selectedSourceDocument, value)) return;
+            if (_selectedSourceDocument is not null)
+            {
+                _selectedSourceDocument.PropertyChanged += OnSelectedSourceDocumentPropertyChanged;
+            }
+            ((AsyncCommand)SaveSourceCommand).RaiseCanExecuteChanged();
+        }
+    }
+
+    public ElaborationDiagnostic? SelectedElaborationDiagnostic
+    {
+        get => _selectedElaborationDiagnostic;
+        set
+        {
+            if (SetProperty(ref _selectedElaborationDiagnostic, value) && value is not null)
+            {
+                NavigateToSource(value.FilePath, value.Line, value.Column);
+            }
+        }
+    }
+
+    public int SourceNavigationLine
+    {
+        get => _sourceNavigationLine;
+        private set => SetProperty(ref _sourceNavigationLine, Math.Max(1, value));
+    }
+
+    public int SourceNavigationColumn
+    {
+        get => _sourceNavigationColumn;
+        private set => SetProperty(ref _sourceNavigationColumn, Math.Max(1, value));
+    }
+
+    public long SourceNavigationVersion
+    {
+        get => _sourceNavigationVersion;
+        private set => SetProperty(ref _sourceNavigationVersion, value);
+    }
+
+    public ICommand SaveSourceCommand { get; }
+
+    public bool LiveReloadEnabled
+    {
+        get => _liveReloadEnabled;
+        set
+        {
+            if (!SetProperty(ref _liveReloadEnabled, value)) return;
+            SaveUserPreferences();
+            ConfigureProjectFileWatcher();
+            OnPropertyChanged(nameof(IsLiveReloadActive));
+        }
+    }
+
+    public int LiveReloadDebounceMs
+    {
+        get => _liveReloadDebounceMs;
+        set
+        {
+            int normalized = Math.Clamp(value, 100, 5000);
+            if (!SetProperty(ref _liveReloadDebounceMs, normalized)) return;
+            _hasUserLiveReloadDebounceOverride = true;
+            SaveUserPreferences();
+            ConfigureProjectFileWatcher();
+        }
+    }
+
+    public bool IsLiveReloadActive =>
+        _liveReloadEnabled && (_currentProject?.LiveReload.Enabled ?? false);
+
+    public bool IsSchematicStale
+    {
+        get => _isSchematicStale;
+        private set => SetProperty(ref _isSchematicStale, value);
+    }
+
+    public bool IsLiveReloadBuilding
+    {
+        get => _isLiveReloadBuilding;
+        private set => SetProperty(ref _isLiveReloadBuilding, value);
+    }
+
+    public string LiveReloadStatus
+    {
+        get => _liveReloadStatus;
+        private set => SetProperty(ref _liveReloadStatus, value);
+    }
+
+    public double LastLiveReloadElapsedMs
+    {
+        get => _lastLiveReloadElapsedMs;
+        private set => SetProperty(ref _lastLiveReloadElapsedMs, value);
+    }
 
     public ObservableCollection<DockPanelViewModel> LeftDockPanels { get; } = [];
 
@@ -1608,11 +1740,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             if (SetProperty(ref _schematicThemePreset, value))
             {
                 SchematicTheme = SchematicThemePresets.Get(value);
-                _preferencesStore.Save(new UserPreferences
-                {
-                    SchematicTheme = value,
-                    SchematicRouter = _schematicRouter,
-                });
+                SaveUserPreferences();
             }
         }
     }
@@ -1635,17 +1763,29 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             if (SetProperty(ref _schematicRouter, value))
             {
-                _preferencesStore.Save(new UserPreferences
-                {
-                    SchematicTheme = _schematicThemePreset,
-                    SchematicRouter = value,
-                });
+                SaveUserPreferences();
             }
         }
     }
 
     public IReadOnlyList<SchematicRoutingEngine> AvailableSchematicRouters { get; } =
         Enum.GetValues<SchematicRoutingEngine>();
+
+    private void SaveUserPreferences() => _preferencesStore.Save(new UserPreferences
+    {
+        SchematicTheme = _schematicThemePreset,
+        SchematicRouter = _schematicRouter,
+        LiveReloadEnabled = _liveReloadEnabled,
+        LiveReloadDebounceMs = _hasUserLiveReloadDebounceOverride ? _liveReloadDebounceMs : null,
+    });
+
+    private void OnSelectedSourceDocumentPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(SourceDocumentViewModel.IsDirty) or nameof(SourceDocumentViewModel.Text))
+        {
+            ((AsyncCommand)SaveSourceCommand).RaiseCanExecuteChanged();
+        }
+    }
 
     public bool IsToastVisible
     {
@@ -1718,6 +1858,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(CanEnterSubSim));
                 OnPropertyChanged(nameof(SubSimStatusLabel));
+                ConfigureProjectFileWatcher();
                 OnPropertyChanged(nameof(CanCompareRtlAndGate));
                 ((RelayCommand)ExitSubSimulationCommand).RaiseCanExecuteChanged();
                 ((AsyncCommand)CompareRtlAndGateCommand).RaiseCanExecuteChanged();
@@ -2201,6 +2342,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public async Task LoadProjectFromPathAsync(string path, CancellationToken cancellationToken)
     {
+        _projectFileWatcher.Stop();
         try
         {
             Status = "Running Verilator XML elaboration...";
@@ -2258,6 +2400,11 @@ public sealed class MainWindowViewModel : ViewModelBase
             VerilatorVersion = result.VerilatorVersion;
             _currentProjectPath = path;
             _currentProject = result.Project;
+            if (!_hasUserLiveReloadDebounceOverride)
+            {
+                _liveReloadDebounceMs = Math.Clamp(result.Project.LiveReload.DebounceMs, 100, 5000);
+                OnPropertyChanged(nameof(LiveReloadDebounceMs));
+            }
             // P5-8: notify the "Run CPU" button binding so the IsVisible
             // NotNullConverter can pick up the new project's CpuRuntime.
             OnPropertyChanged(nameof(CpuRuntime));
@@ -2271,6 +2418,11 @@ public sealed class MainWindowViewModel : ViewModelBase
             ((RelayCommand)OpenDiagnosticsCommand).RaiseCanExecuteChanged();
             RaiseSynthesisSettingsChanged();
             _currentProjectDirectory = result.ProjectDirectory;
+            await RefreshSourceDocumentsAsync(result.Project, result.ProjectDirectory, cancellationToken);
+            ElaborationDiagnostics.Clear();
+            IsSchematicStale = false;
+            LiveReloadStatus = "Live reload idle";
+            OnPropertyChanged(nameof(IsLiveReloadActive));
             RebuildPrimitivesByModule();
             SchematicExpandedPaths.Clear();
             OnPropertyChanged(nameof(IsSelectedHierarchyScopeExpanded));
@@ -2290,6 +2442,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             SelectedHierarchyNode = HierarchyRoot;
             await DisposeGateLevelWorkerAsync();
             await DisposeWorkerAsync();
+            ConfigureProjectFileWatcher();
             Status = $"Loaded {result.Metadata.Ports.Count} top-level ports.";
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException)
@@ -2297,6 +2450,461 @@ public sealed class MainWindowViewModel : ViewModelBase
             Status = ex.Message;
         }
     }
+
+    private void ConfigureProjectFileWatcher()
+    {
+        _projectFileWatcher.Stop();
+        if (!IsLiveReloadActive
+            || _isSubSimActive
+            || _currentProject is null
+            || _currentProjectPath is null
+            || _currentProjectDirectory is null)
+        {
+            LiveReloadStatus = LiveReloadEnabled ? "Live reload unavailable" : "Live reload disabled";
+            return;
+        }
+
+        _projectFileWatcher.Start(
+            _currentProject,
+            _currentProjectPath,
+            _currentProjectDirectory,
+            _liveReloadDebounceMs);
+        LiveReloadStatus = $"Watching HDL files ({_liveReloadDebounceMs} ms debounce)";
+    }
+
+    private void OnProjectFilesChanged(object? sender, ProjectFilesChangedEventArgs e) =>
+        _projectReloadCoordinator.Queue(e.Paths);
+
+    private async Task ReloadProjectFromChangesAsync(
+        IReadOnlyCollection<string> changedPaths,
+        CancellationToken cancellationToken)
+    {
+        TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                await ExecuteSimulationOperationAsync(
+                    "Live reload",
+                    token => ReloadProjectCoreAsync(changedPaths, token),
+                    cancellationToken);
+                completion.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                completion.TrySetException(ex);
+            }
+        });
+        await completion.Task.WaitAsync(cancellationToken);
+    }
+
+    private async Task ReloadProjectCoreAsync(
+        IReadOnlyCollection<string> changedPaths,
+        CancellationToken cancellationToken)
+    {
+        if (_currentProjectPath is null || _currentProjectDirectory is null || _currentProject is null)
+        {
+            return;
+        }
+
+        string projectPath = _currentProjectPath;
+        string projectDirectory = _currentProjectDirectory;
+        DesignAst? previousAst = _currentAst;
+        SimulationWorkerClient? workerAtStart = _worker;
+        Dictionary<string, string> inputValues = Inputs.ToDictionary(
+            static input => input.Name,
+            static input => input.Value,
+            StringComparer.OrdinalIgnoreCase);
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        IsLiveReloadBuilding = true;
+        LiveReloadStatus = $"Elaborating {changedPaths.Count} changed file(s)…";
+
+        try
+        {
+            DesignLoadResult result = await _workspace.DesignLoader.LoadAsync(projectPath, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            AstModuleDiffResult diff = AstModuleDiff.Compare(previousAst, result.Ast!, result.Project.TopModule);
+            await RefreshSourceDocumentsAsync(result.Project, result.ProjectDirectory, cancellationToken);
+
+            if (!diff.HasChanges)
+            {
+                stopwatch.Stop();
+                LastLiveReloadElapsedMs = stopwatch.Elapsed.TotalMilliseconds;
+                ElaborationDiagnostics.Clear();
+                IsSchematicStale = false;
+                LiveReloadStatus = $"No semantic HDL change ({stopwatch.Elapsed.TotalMilliseconds:F0} ms)";
+                ConfigureProjectFileWatcher();
+                return;
+            }
+
+            string? selectedHierarchyPath = SelectedHierarchyPath;
+            await DisposeGateLevelWorkerAsync();
+            ApplyReloadedDesign(result, diff, selectedHierarchyPath, inputValues);
+            stopwatch.Stop();
+            LastLiveReloadElapsedMs = stopwatch.Elapsed.TotalMilliseconds;
+            IsSchematicStale = false;
+            ElaborationDiagnostics.Clear();
+            LiveReloadStatus =
+                $"Schematic refreshed in {stopwatch.Elapsed.TotalMilliseconds:F0} ms; {diff.DirtyModules.Count} module(s) changed";
+            ConfigureProjectFileWatcher();
+
+            if (workerAtStart is not null && ReferenceEquals(_worker, workerAtStart))
+            {
+                try
+                {
+                    await RebuildAndSwapWorkerAsync(
+                        result,
+                        workerAtStart,
+                        inputValues,
+                        diff.TopInterfaceChanged,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is VerilatorInvocationException
+                    or IOException
+                    or InvalidDataException
+                    or InvalidOperationException)
+                {
+                    ShowWorkerReloadFailure(ex, result.ProjectDirectory);
+                    return;
+                }
+            }
+            Status = $"Live reload complete in {stopwatch.Elapsed.TotalMilliseconds:F0} ms.";
+        }
+        catch (VerilatorInvocationException ex)
+        {
+            stopwatch.Stop();
+            LastLiveReloadElapsedMs = stopwatch.Elapsed.TotalMilliseconds;
+            await RefreshChangedSourceDocumentsAsync(changedPaths, projectDirectory, cancellationToken);
+            ShowElaborationFailure(
+                ElaborationDiagnosticsParser.Parse(ex.StandardError, projectDirectory),
+                ex.Message,
+                changedPaths);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException)
+        {
+            stopwatch.Stop();
+            LastLiveReloadElapsedMs = stopwatch.Elapsed.TotalMilliseconds;
+            ShowElaborationFailure([], ex.Message, changedPaths);
+        }
+        finally
+        {
+            IsLiveReloadBuilding = false;
+        }
+    }
+
+    private void ApplyReloadedDesign(
+        DesignLoadResult result,
+        AstModuleDiffResult diff,
+        string? selectedHierarchyPath,
+        IReadOnlyDictionary<string, string> priorInputValues)
+    {
+        _currentProject = result.Project;
+        _currentMetadata = result.Metadata;
+        _currentDesign = result.Design;
+        _currentAst = result.Ast;
+        _currentProjectDirectory = result.ProjectDirectory;
+        TopModule = result.Metadata.Name;
+        VerilatorVersion = result.VerilatorVersion;
+        OnPropertyChanged(nameof(CpuRuntime));
+        RaiseSynthesisSettingsChanged();
+
+        if (diff.TopInterfaceChanged)
+        {
+            RebuildTopPortCollections(result, priorInputValues);
+        }
+
+        RebuildPrimitivesByModule();
+        HierarchyRoot = new HierarchyNodeViewModel(result.Design.HierarchyRoot);
+        SelectedHierarchyNode = HierarchyRoot;
+        if (!string.IsNullOrWhiteSpace(selectedHierarchyPath))
+        {
+            SelectedHierarchyPath = selectedHierarchyPath;
+        }
+        for (int i = SchematicExpandedPaths.Count - 1; i >= 0; i--)
+        {
+            if (FindHierarchyNode(HierarchyRoot, SchematicExpandedPaths[i]) is null)
+            {
+                SchematicExpandedPaths.RemoveAt(i);
+            }
+        }
+        OnPropertyChanged(nameof(IsSelectedHierarchyScopeExpanded));
+    }
+
+    private void RebuildTopPortCollections(
+        DesignLoadResult result,
+        IReadOnlyDictionary<string, string> priorInputValues)
+    {
+        UnsubscribeFromInputs();
+        Inputs.Clear();
+        Outputs.Clear();
+        AllSignals.Clear();
+        TraceSignals.Clear();
+        WaveformLanes.Clear();
+        AvailableClocks.Clear();
+        foreach (SignalPort port in result.Metadata.Ports.OrderBy(static port => port.PinIndex))
+        {
+            SignalViewModel signal = new(port);
+            if (signal.IsInput && priorInputValues.TryGetValue(signal.Name, out string? priorValue))
+            {
+                signal.Value = priorValue;
+            }
+            AllSignals.Add(signal);
+            if (signal.IsInput) Inputs.Add(signal); else Outputs.Add(signal);
+            if (signal.Direction == SignalDirection.Output
+                || result.Project.Clocks.Any(clock => string.Equals(clock.Name, signal.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                AddWaveformSignal(signal);
+            }
+        }
+        foreach (string clockName in ResolveAvailableClocks(result.Project, Inputs)) AvailableClocks.Add(clockName);
+        SelectedClockName = AvailableClocks.FirstOrDefault();
+        SubscribeToInputs();
+    }
+
+    private async Task RebuildAndSwapWorkerAsync(
+        DesignLoadResult result,
+        SimulationWorkerClient previousWorker,
+        IReadOnlyDictionary<string, string> inputValues,
+        bool interfaceChanged,
+        CancellationToken cancellationToken)
+    {
+        IsLiveReloadBuilding = true;
+        _hotReloadWorkerSlot = (_hotReloadWorkerSlot + 1) % 2;
+        LiveReloadStatus = interfaceChanged
+            ? "Port interface changed; building replacement worker…"
+            : "Building updated worker while current simulation stays live…";
+
+        PreparedSimulationWorker prepared = await _workerHotSwapService.PrepareAsync(
+            result.Project,
+            result.Metadata,
+            result.Ast,
+            result.ProjectDirectory,
+            inputValues,
+            _hotReloadWorkerSlot,
+            cancellationToken);
+        SimulationWorkerClient replacement = prepared.Client;
+        try
+        {
+            if (!ReferenceEquals(_worker, previousWorker)) return;
+
+            _liveProbes.AttachWorker(replacement);
+            try
+            {
+                await _liveProbes.RefreshDescriptorsAsync(cancellationToken);
+                ApplyFrame(prepared.InitialFrame);
+            }
+            catch
+            {
+                _liveProbes.AttachWorker(previousWorker);
+                await _liveProbes.RefreshDescriptorsAsync(CancellationToken.None);
+                throw;
+            }
+
+            _worker = replacement;
+            replacement = null!;
+            _rtlTraceFilePath = prepared.TraceFilePath;
+            _traceFilePath = _rtlTraceFilePath;
+            await previousWorker.DisposeAsync();
+            LiveReloadStatus = "Live reload ready; updated worker active";
+        }
+        finally
+        {
+            if (replacement is not null) await replacement.DisposeAsync();
+        }
+    }
+
+    private void ShowElaborationFailure(
+        IReadOnlyList<ElaborationDiagnostic> parsed,
+        string fallbackMessage,
+        IReadOnlyCollection<string> changedPaths)
+    {
+        ElaborationDiagnostics.Clear();
+        foreach (ElaborationDiagnostic diagnostic in parsed) ElaborationDiagnostics.Add(diagnostic);
+        if (ElaborationDiagnostics.Count == 0)
+        {
+            string path = changedPaths.FirstOrDefault() ?? _currentProjectPath ?? string.Empty;
+            ElaborationDiagnostics.Add(new ElaborationDiagnostic(
+                ElaborationDiagnosticSeverity.Error,
+                null,
+                fallbackMessage.ReplaceLineEndings(" "),
+                path,
+                1,
+                1,
+                fallbackMessage));
+        }
+        IsSchematicStale = true;
+        LiveReloadStatus = $"Elaboration failed; showing last good schematic ({LastLiveReloadElapsedMs:F0} ms)";
+        Status = ElaborationDiagnostics[0].DisplayText;
+    }
+
+    private void ShowWorkerReloadFailure(Exception exception, string projectDirectory)
+    {
+        ElaborationDiagnostics.Clear();
+        if (exception is VerilatorInvocationException invocation)
+        {
+            foreach (ElaborationDiagnostic diagnostic in ElaborationDiagnosticsParser.Parse(
+                invocation.StandardError,
+                projectDirectory))
+            {
+                ElaborationDiagnostics.Add(diagnostic);
+            }
+        }
+        if (ElaborationDiagnostics.Count == 0)
+        {
+            ElaborationDiagnostics.Add(new ElaborationDiagnostic(
+                ElaborationDiagnosticSeverity.Error,
+                null,
+                exception.Message.ReplaceLineEndings(" "),
+                _currentProjectPath ?? string.Empty,
+                1,
+                1,
+                exception.Message));
+        }
+
+        IsSchematicStale = false;
+        LiveReloadStatus = "Schematic current; worker rebuild failed, previous simulation retained";
+        Status = ElaborationDiagnostics[0].DisplayText;
+    }
+
+    private async Task RefreshSourceDocumentsAsync(
+        ProjectConfiguration project,
+        string projectDirectory,
+        CancellationToken cancellationToken)
+    {
+        List<string> paths = ResolveProjectSourcePaths(project, projectDirectory).ToList();
+        SourceDocumentSnapshot[] snapshots = await ReadSourceSnapshotsAsync(paths, projectDirectory, cancellationToken);
+        ApplySourceSnapshots(snapshots, removeMissing: true);
+    }
+
+    private async Task RefreshChangedSourceDocumentsAsync(
+        IEnumerable<string> changedPaths,
+        string projectDirectory,
+        CancellationToken cancellationToken)
+    {
+        SourceDocumentSnapshot[] snapshots = await ReadSourceSnapshotsAsync(
+            changedPaths.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase),
+            projectDirectory,
+            cancellationToken);
+        ApplySourceSnapshots(snapshots, removeMissing: false);
+    }
+
+    private void ApplySourceSnapshots(IReadOnlyList<SourceDocumentSnapshot> snapshots, bool removeMissing)
+    {
+        string? selectedPath = SelectedSourceDocument?.FilePath;
+        Dictionary<string, SourceDocumentViewModel> existing = SourceDocuments.ToDictionary(
+            static document => document.FilePath,
+            StringComparer.OrdinalIgnoreCase);
+        foreach (SourceDocumentSnapshot snapshot in snapshots)
+        {
+            if (existing.Remove(snapshot.FilePath, out SourceDocumentViewModel? document))
+            {
+                if (!document.IsDirty) document.ReplaceFromDisk(snapshot.Text);
+            }
+            else
+            {
+                SourceDocuments.Add(new SourceDocumentViewModel(snapshot.FilePath, snapshot.RelativePath, snapshot.Text));
+            }
+        }
+        if (removeMissing)
+        {
+            foreach (SourceDocumentViewModel obsolete in existing.Values.Where(static document => !document.IsDirty).ToArray())
+            {
+                SourceDocuments.Remove(obsolete);
+            }
+        }
+        SortSourceDocuments();
+        SelectedSourceDocument = SourceDocuments.FirstOrDefault(document =>
+            string.Equals(document.FilePath, selectedPath, StringComparison.OrdinalIgnoreCase))
+            ?? SourceDocuments.FirstOrDefault();
+    }
+
+    private void SortSourceDocuments()
+    {
+        SourceDocumentViewModel[] sorted = SourceDocuments
+            .OrderBy(static document => document.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        for (int target = 0; target < sorted.Length; target++)
+        {
+            int current = SourceDocuments.IndexOf(sorted[target]);
+            if (current != target) SourceDocuments.Move(current, target);
+        }
+    }
+
+    private IEnumerable<string> ResolveProjectSourcePaths(ProjectConfiguration project, string projectDirectory)
+    {
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+        if (_currentProjectPath is not null) paths.Add(Path.GetFullPath(_currentProjectPath));
+        foreach (string source in project.Sources)
+        {
+            paths.Add(Path.IsPathRooted(source) ? Path.GetFullPath(source) : Path.GetFullPath(source, projectDirectory));
+        }
+        foreach (string includeDir in project.IncludeDirs)
+        {
+            string root = Path.IsPathRooted(includeDir) ? Path.GetFullPath(includeDir) : Path.GetFullPath(includeDir, projectDirectory);
+            if (!Directory.Exists(root)) continue;
+            foreach (string pattern in new[] { "*.sv", "*.svh", "*.v", "*.vh" })
+            {
+                foreach (string file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories)) paths.Add(file);
+            }
+        }
+        return paths.Where(File.Exists).Order(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static async Task<SourceDocumentSnapshot[]> ReadSourceSnapshotsAsync(
+        IEnumerable<string> paths,
+        string projectDirectory,
+        CancellationToken cancellationToken)
+    {
+        List<SourceDocumentSnapshot> snapshots = [];
+        foreach (string path in paths)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string fullPath = Path.GetFullPath(path);
+            snapshots.Add(new SourceDocumentSnapshot(
+                fullPath,
+                Path.GetRelativePath(projectDirectory, fullPath),
+                await File.ReadAllTextAsync(fullPath, cancellationToken)));
+        }
+        return snapshots.ToArray();
+    }
+
+    private async Task SaveSelectedSourceAsync(CancellationToken cancellationToken)
+    {
+        SourceDocumentViewModel? document = SelectedSourceDocument;
+        if (document is null || !document.IsDirty) return;
+        await File.WriteAllTextAsync(document.FilePath, document.Text, cancellationToken);
+        document.MarkSaved();
+        ((AsyncCommand)SaveSourceCommand).RaiseCanExecuteChanged();
+        Status = $"Saved {document.RelativePath}.";
+    }
+
+    private void NavigateToSource(string filePath, int line, int column)
+    {
+        SourceDocumentViewModel? document = SourceDocuments.FirstOrDefault(candidate =>
+            string.Equals(candidate.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+        if (document is null) return;
+        SelectedSourceDocument = document;
+        SourceNavigationLine = line;
+        SourceNavigationColumn = column;
+        SourceNavigationVersion++;
+    }
+
+    public void StopLiveReload()
+    {
+        _projectFileWatcher.Stop();
+        _projectReloadCoordinator.Dispose();
+    }
+
+    internal void QueueLiveReloadForTest(IEnumerable<string> changedPaths) =>
+        _projectReloadCoordinator.Queue(changedPaths);
+
+    internal Task WhenLiveReloadIdleAsync() => _projectReloadCoordinator.WhenIdleAsync();
+
+    private sealed record SourceDocumentSnapshot(string FilePath, string RelativePath, string Text);
 
     private void LoadSamples()
     {

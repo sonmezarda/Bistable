@@ -6,6 +6,29 @@ namespace Bistable.Tests;
 public sealed class ProjectConfigurationTests
 {
     [Fact]
+    public async Task LoadAsync_LiveReloadSettings_RoundTrip()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"bistable-live-reload-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(path, """
+            {
+              "topModule": "top",
+              "sources": ["top.sv"],
+              "liveReload": { "enabled": false, "debounceMs": 725 }
+            }
+            """);
+        try
+        {
+            ProjectConfiguration configuration = await ProjectConfiguration.LoadAsync(path);
+            Assert.False(configuration.LiveReload.Enabled);
+            Assert.Equal(725, configuration.LiveReload.DebounceMs);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void DeserializesProjectConfiguration()
     {
         const string json = """

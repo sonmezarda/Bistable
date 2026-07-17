@@ -162,3 +162,19 @@ Mark slow tests with `[Trait("Speed", "Slow")]`. CI runs `dotnet test --filter "
 - [ ] Run the test locally; confirm it fails for the right reason (for regression) or passes (for new feature).
 - [ ] Update the relevant `docs/PHASES/PHASE-<N>.md` task table.
 - [ ] If you added a fixture or helper, document it here.
+
+## 11. Phase 9 live-development gates
+
+- `ProjectFileWatcherServiceTests` covers a real filesystem write, save-storm
+  coalescing, debounce, and irrelevant-file filtering.
+- `ProjectReloadCoordinatorTests` proves latest-save-wins cancellation.
+- `AstModuleDiffTests` locks module content/interface hashing; ELK cache-key
+  tests prove an unrelated module does not evict the current scope.
+- `LiveReloadWorkspaceTests` is the headless end-to-end gate: save → graph
+  change, invalid HDL → clickable diagnostic + stale schematic, valid save →
+  automatic recovery.
+- `SimulationWorkerHotSwapServiceTests` uses a real Verilator worker and proves
+  the old process remains responsive while replacement preparation runs.
+- `LiveReloadPerformanceTests.RiscvSingleCycle_XmlElaboration_CompletesWithinTwoSeconds`
+  is the automated ≤2 s acceptance budget. Run it in isolation when diagnosing
+  a parallel-load timing failure.

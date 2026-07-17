@@ -1,4 +1,4 @@
-# Architecture (current state — 2026-05-29)
+# Architecture (current state — 2026-07-17)
 
 This document is a layer map of the codebase as it stands today. Update it when layers move or new ones appear.
 
@@ -90,12 +90,21 @@ Full wire-format spec in `docs/PROTOCOL.md`.
 - `ViewModels/MainWindowViewModel.cs` — the main VM (large; refactor candidate).
 - `ViewModels/SignalViewModel.cs`, `HierarchyScopeInstanceViewModel.cs`, etc.
 - `Services/DesignLoadService.cs` — loads + elaborates designs.
+- `Services/ProjectFileWatcherService.cs` + `ProjectReloadCoordinator.cs` —
+  debounced project/source/include watching and latest-save-wins reload queue.
+- `Services/SimulationWorkerHotSwapService.cs` — prepares a replacement native
+  worker while the current simulation remains owned and responsive.
+- `Services/ElaborationDiagnosticsParser.cs` — Verilator stderr to clickable
+  file/line/column diagnostics.
 - `Services/VcdTraceDocument.cs` — currently memory-loaded; Phase 6 will stream.
 - `Services/Routing/Elk/ElkGraphBuilder.cs` — design → ELK graph.
 - `Services/Routing/Elk/ElkSchematicEngine.cs` — LRU-cached layout pipeline.
 - `Services/Routing/Elk/ElkRunner.cs` — Node subprocess bridge to elkjs.
 - `Views/SchematicPreviewControl.*.cs` — multi-file partial class (rendering, hit-test, ELK draw, viewport).
 - `Views/MainWindow.cs` — top-level UI composition.
+- `Views/SourceWorkspaceView.cs` — Dock.Avalonia document containing the
+  AvaloniaEdit HDL editor, source explorer, live-reload controls, and Problems
+  panel. Broad XAML/platform migration remains Phase 14 work.
 
 ## 4. Threading model (current)
 
@@ -106,6 +115,9 @@ Full wire-format spec in `docs/PROTOCOL.md`.
 | `ElkRunner.Layout` | background | `ElkRunner.Layout` itself is still synchronous, but callers reach it through `SchematicLayoutService.LayoutAsync(CancellationToken)`, which serializes on `_layoutGate`, runs off the UI thread, is cancellable, and raises `LayoutStillRunning` on soft timeout |
 | `ElkSchematicEngine.Compute` | caller | LRU-cached (8-entry, SHA-1 key); gate hierarchy path adds `GateLevelLayoutCache` fingerprinting |
 | `DesignLoadService.LoadAsync` | background (Task) | Verilator XML generation off UI thread |
+| `ProjectFileWatcherService` | filesystem callback + async debounce | Coalesces project/source/include events; never mutates UI collections directly |
+| `ProjectReloadCoordinator` | background runner | One reload at a time; a newer save cancels the active pass and queues the newest path set |
+| `SimulationWorkerHotSwapService` | background subprocess build | Old worker remains live until replacement has started, restored inputs, and produced its first frame |
 | `MainWindowViewModel.ApplyFrame` | UI thread | mutates ObservableCollections |
 
 **Status (2026-07-16):** the "Phase 6" async/cancellable layout goal above is
@@ -217,6 +229,35 @@ Full wire-format spec: `docs/PROTOCOL.md`. Phase 3 task board:
 `docs/PHASES/PHASE-3.md`. Phase 4 (live values on schematic) consumes this
 API; Phase 5 (sub-sim maturation) reuses the probe table to enumerate a
 sub-module's internal signals.
+
+### Live development pipeline (Phase 9)
+
+```
+file/project save
+      │
+      ▼
+ProjectFileWatcherService ──debounce/coalesce──> ProjectReloadCoordinator
+      │                                              │ latest save cancels active
+      ▼                                              ▼
+DesignLoadService.LoadAsync ──> AstModuleDiff ──> updated schematic/catalog
+      │                              │
+      │ error                        └── unchanged scope keeps ELK cache key
+      ▼
+Problems + STALE last-good schematic
+
+successful semantic change ──> SimulationWorkerHotSwapService
+                                      │ old worker remains responsive
+                                      ▼
+                               restore inputs + first frame
+                                      │
+                                      ▼
+                                  atomic swap
+```
+
+The project contract stores `liveReload.enabled` and `liveReload.debounceMs`;
+global preferences can disable the feature or override debounce. Source edits
+live in `SourceDocumentViewModel` until Ctrl+S/Save writes the file, after which
+the same watcher path is used as for an external IDE.
 
 ## 8. Sub-simulation
 

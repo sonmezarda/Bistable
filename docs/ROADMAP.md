@@ -31,7 +31,7 @@ test, extension destekli profesyonel açık kaynak araç.
 |---|---|---|---|---|
 | **7** ✓ | [Şematik Dürüstlüğü — `always_comb` decode + coverage sözleşmesi](PHASES/PHASE-7.md) | **P0** | — | H2 (güven) |
 | **8** ✓ | [Canlı Değer Kanalı — `ReadSignals` batch IPC](PHASES/PHASE-8.md) | **P0** | — | H2 (ölçek) |
-| **9** | [Canlı Döngü — izle → artımlı elaborasyon → tazele](PHASES/PHASE-9.md) | **P0** | 7, 8 | **H1** (çekirdek) |
+| **9** ▶ | [Canlı Döngü — izle → artımlı elaborasyon → tazele](PHASES/PHASE-9.md) | **P0** | 7, 8 | **H1** (çekirdek) |
 | **10** | [Şematik Export — SVG/PNG](PHASES/PHASE-10.md) | P1 | 7 (yumuşak) | H4 |
 | **11** | [Testbench Akışı — tek tık derle & koştur](PHASES/PHASE-11.md) | P1 | 9 (yumuşak) | H3 |
 | **12** | [Çekirdek Sağlık — ayrıştırma, temizlik, performans](PHASES/PHASE-12.md) | P1/P2 | — | H6 (zemin) |

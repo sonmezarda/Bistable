@@ -15,6 +15,12 @@ public sealed class UserPreferences
 
     [JsonPropertyName("schematicRouter")]
     public SchematicRoutingEngine SchematicRouter { get; set; } = SchematicRoutingEngine.Elk;
+
+    [JsonPropertyName("liveReloadEnabled")]
+    public bool LiveReloadEnabled { get; set; } = true;
+
+    [JsonPropertyName("liveReloadDebounceMs")]
+    public int? LiveReloadDebounceMs { get; set; }
 }
 
 public sealed class UserPreferencesStore

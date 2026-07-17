@@ -50,6 +50,13 @@ public sealed record ProjectConfiguration
     public SchematicConfiguration Schematic { get; init; } = new();
 
     /// <summary>
+    /// Phase 9 project-scoped live-reload policy. User preferences can disable
+    /// live reload globally; this section controls whether the project opts in
+    /// and its default watcher debounce.
+    /// </summary>
+    public LiveReloadConfiguration LiveReload { get; init; } = new();
+
+    /// <summary>
     /// Phase 5: optional CPU-style runtime metadata. When present, the GUI
     /// exposes a Run panel that drives reset cycles, loads program images
     /// into the probed memory paths, and ticks the clock through one of the

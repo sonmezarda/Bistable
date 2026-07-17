@@ -127,7 +127,7 @@ public sealed class ElkSchematicEngine
         AppendLocalSignals(sb, scope.LocalSignals);
         AppendContAssigns(sb, scope.ContAssigns);
         AppendPrimitives(sb, scope.Primitives);
-        AppendPrimitiveCatalog(sb, scope.PrimitivesByModule);
+        AppendPrimitiveCatalog(sb, scope.PrimitivesByModule, CollectRelevantModules(scope.ChildScopes));
 
         byte[] hash = SHA1.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexString(hash);
@@ -210,14 +210,35 @@ public sealed class ElkSchematicEngine
 
     private static void AppendPrimitiveCatalog(
         StringBuilder sb,
-        IReadOnlyDictionary<string, IReadOnlyList<SchematicPrimitive>>? catalog)
+        IReadOnlyDictionary<string, IReadOnlyList<SchematicPrimitive>>? catalog,
+        IReadOnlySet<string> relevantModules)
     {
         if (catalog is null) return;
         foreach ((string moduleName, IReadOnlyList<SchematicPrimitive> primitives) in
-                 catalog.OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+                 catalog.Where(pair => relevantModules.Contains(pair.Key))
+                     .OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase))
         {
             sb.Append("RM:").Append(moduleName).Append('|');
             AppendPrimitives(sb, primitives);
+        }
+    }
+
+    private static IReadOnlySet<string> CollectRelevantModules(
+        IReadOnlyList<HierarchyScopeInstanceViewModel> children)
+    {
+        HashSet<string> modules = new(StringComparer.OrdinalIgnoreCase);
+        CollectRelevantModules(children, modules);
+        return modules;
+    }
+
+    private static void CollectRelevantModules(
+        IEnumerable<HierarchyScopeInstanceViewModel> children,
+        HashSet<string> modules)
+    {
+        foreach (HierarchyScopeInstanceViewModel child in children)
+        {
+            modules.Add(child.ModuleName);
+            CollectRelevantModules(child.ChildInstances, modules);
         }
     }
 }

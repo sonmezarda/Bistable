@@ -90,8 +90,7 @@ public sealed class VerilatorTool
 
             if (!onlyDeprecatedWarnings)
             {
-                throw new InvalidOperationException(
-                    $"Verilator XML generation failed with exit code {result.ExitCode}.{Environment.NewLine}{result.StandardError}");
+                throw new VerilatorInvocationException("XML generation", result.ExitCode, result.StandardError);
             }
         }
     }
@@ -108,8 +107,7 @@ public sealed class VerilatorTool
 
         if (result.ExitCode != 0)
         {
-            throw new InvalidOperationException(
-                $"Verilator failed with exit code {result.ExitCode}.{Environment.NewLine}{result.StandardError}");
+            throw new VerilatorInvocationException("command", result.ExitCode, result.StandardError);
         }
     }
 

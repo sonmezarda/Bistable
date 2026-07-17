@@ -114,6 +114,9 @@ public sealed partial class SchematicPreviewControl : Control
             nameof(RoutingEngine),
             SchematicRoutingEngine.Elk);
 
+    public static readonly StyledProperty<bool> IsStaleProperty =
+        AvaloniaProperty.Register<SchematicPreviewControl, bool>(nameof(IsStale));
+
     private SchematicTheme Palette => GetValue(PaletteProperty);
 
     private static readonly Typeface MonoTypeface = new("monospace");
@@ -438,6 +441,12 @@ public sealed partial class SchematicPreviewControl : Control
         set => SetValue(RoutingEngineProperty, value);
     }
 
+    public bool IsStale
+    {
+        get => GetValue(IsStaleProperty);
+        set => SetValue(IsStaleProperty, value);
+    }
+
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
@@ -595,6 +604,19 @@ public sealed partial class SchematicPreviewControl : Control
             {
                 _scopeHitTargets.Add(new ScopeHitTarget(topHierarchyPath, moduleRect, CanExpand: childScopes.Count > 0));
             }
+        }
+
+        if (IsStale)
+        {
+            context.FillRectangle(new SolidColorBrush(Color.FromArgb(105, 12, 16, 24)), viewportBounds);
+            Rect badge = new(18, 18, 250, 34);
+            context.FillRectangle(new SolidColorBrush(Color.FromRgb(92, 48, 28)), badge, 5);
+            context.DrawRectangle(
+                null,
+                new Pen(new SolidColorBrush(Color.FromRgb(255, 164, 82)), 1.2),
+                badge,
+                5);
+            DrawText(context, "STALE — fix diagnostics to refresh", 30, 28, Brushes.White, 12);
         }
     }
 

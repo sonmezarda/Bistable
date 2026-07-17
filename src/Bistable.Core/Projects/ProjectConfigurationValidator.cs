@@ -58,6 +58,11 @@ public sealed class ProjectConfigurationValidator
             }
         }
 
+        if (configuration.LiveReload.DebounceMs is < 100 or > 5000)
+        {
+            errors.Add("Live reload debounce must be between 100 and 5000 milliseconds.");
+        }
+
         return errors;
     }
 }

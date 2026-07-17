@@ -37,6 +37,10 @@
     "gateBusTrunkMaxZoom": 0.9,
     "gatePinVisibilityMode": "All"
   },
+  "liveReload": {
+    "enabled": true,
+    "debounceMs": 400
+  },
   "runtime": {
     "reset": {
       "signal": "rst_n",
