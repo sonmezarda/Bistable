@@ -1,0 +1,41 @@
+{
+  "name": "@bistable/theia-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bistable product widgets and .NET engine bridge for Eclipse Theia",
+  "keywords": [
+    "theia-extension",
+    "bistable",
+    "systemverilog"
+  ],
+  "files": [
+    "lib",
+    "src"
+  ],
+  "dependencies": {
+    "@theia/core": "1.73.1",
+    "@theia/filesystem": "1.73.1",
+    "@theia/markers": "1.73.1",
+    "@theia/workspace": "1.73.1",
+    "elkjs": "0.9.3",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
+    "rimraf": "^6.0.1",
+    "typescript": "~5.7.3"
+  },
+  "scripts": {
+    "clean": "rimraf lib",
+    "build": "tsc",
+    "watch": "tsc -w --preserveWatchOutput"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/bistable-workbench-frontend-module",
+      "backend": "lib/node/bistable-workbench-backend-module"
+    }
+  ]
+}

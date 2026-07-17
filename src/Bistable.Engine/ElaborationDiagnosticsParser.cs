@@ -1,6 +1,7 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
-namespace Bistable.App.Services;
+namespace Bistable.Engine;
 
 public static partial class ElaborationDiagnosticsParser
 {
@@ -18,7 +19,9 @@ public static partial class ElaborationDiagnosticsParser
             Match match = DiagnosticPattern().Match(rawLine.Trim());
             if (!match.Success) continue;
             string file = match.Groups["file"].Value;
-            string fullPath = Path.IsPathRooted(file) ? Path.GetFullPath(file) : Path.GetFullPath(file, projectDirectory);
+            string fullPath = Path.IsPathRooted(file)
+                ? Path.GetFullPath(file)
+                : Path.GetFullPath(file, projectDirectory);
             diagnostics.Add(new ElaborationDiagnostic(
                 string.Equals(match.Groups["severity"].Value, "Error", StringComparison.OrdinalIgnoreCase)
                     ? ElaborationDiagnosticSeverity.Error
@@ -26,8 +29,8 @@ public static partial class ElaborationDiagnosticsParser
                 match.Groups["code"].Success ? match.Groups["code"].Value : null,
                 match.Groups["message"].Value.Trim(),
                 fullPath,
-                int.Parse(match.Groups["line"].Value, System.Globalization.CultureInfo.InvariantCulture),
-                int.Parse(match.Groups["column"].Value, System.Globalization.CultureInfo.InvariantCulture),
+                int.Parse(match.Groups["line"].Value, CultureInfo.InvariantCulture),
+                int.Parse(match.Groups["column"].Value, CultureInfo.InvariantCulture),
                 rawLine.Trim()));
         }
         return diagnostics;

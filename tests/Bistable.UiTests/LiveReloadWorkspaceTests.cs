@@ -3,6 +3,7 @@ using Bistable.App.Services;
 using Bistable.App.ViewModels;
 using Bistable.App.Views;
 using Bistable.Core.Design.Schematic;
+using Bistable.Engine;
 
 namespace Bistable.UiTests;
 

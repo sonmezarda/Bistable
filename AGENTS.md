@@ -11,7 +11,8 @@
 
 ## 1. What Bistable is
 
-An interactive **desktop EDA tool** (.NET 10 + Avalonia) for inspecting, simulating,
+An interactive **desktop EDA tool** (.NET 10 engine; retained Avalonia frontend
+plus an active Eclipse Theia workbench POC) for inspecting, simulating,
 and now synthesizing SystemVerilog designs through **Verilator** and **Yosys**.
 The north-star target is a **Vivado-class schematic viewer + live simulation
 debugger** that scales to RV32-class CPU cores.
@@ -29,6 +30,9 @@ inspect ports, hierarchy, internal signals, waveform, and schematic live.
 | `src/Bistable.Protocol` | JSON line-protocol between GUI and native worker |
 | `src/Bistable.Verilator` | Verilator XML reader + native worker generation |
 | `src/Bistable.Yosys` | Gate-level synthesis: `YosysTool`, `YosysScriptBuilder`, `YosysJsonReader`, `GateCellLibrary` |
+| `src/Bistable.Engine` | UI-independent elaboration services and shared diagnostics |
+| `src/Bistable.EngineHost` | Versioned JSON-line process boundary for external frontends |
+| `src/Bistable.Theia` | Phase 9.5 Theia browser/Electron product-shell POC |
 
 Tests: `tests/Bistable.Tests` (unit/algorithmic), `tests/Bistable.Regression`
 (one test per fixed bug), `tests/Bistable.Snapshots` (golden ELK graphs),
@@ -86,7 +90,8 @@ abstraction removes proven duplication:
 | `docs/SCHEMATIC_ROUTING_BACKENDS.md` | Which router backend is active and why |
 | `docs/ELK_ROUTING_PERFORMANCE_ANALYSIS.md` | ELK routing presets + perf numbers (2026-06-12) |
 | `docs/GATE_LEVEL_SCHEMATIC.md` | User-facing gate viewer behavior |
-| `docs/PHASES/PHASE-9.md` | **Active work:** live-reload pipeline and IDE-like Source/Problems workspace; automatic gates complete, owner manual acceptance pending |
+| `docs/PHASES/PHASE-9.5.md` | **Active work:** owner-approved Theia + .NET Engine Host workbench spike; measured go/no-go before more UI-heavy phases |
+| `docs/PHASES/PHASE-9.md` | Live-reload backend complete; Avalonia Source/dock manual UI gate rejected and moved to Phase 9.5 |
 | `docs/PHASES/PHASE-6.5.md` + `docs/HANDOFFS/PHASE-6.5-GATE-PIN-LABELS-NEXT.md` | Historical gate-level status; remaining closure moved to Phase 13 |
 | `docs/RTL_SCHEMATIC_VISUAL_ISSUES.md` | RTL-schematic expand-defects: Issues 1–5 **done** (2026-07-16); open follow-ups = Issue 4 **Stage 2** (MemoryWritePrimitive) + pending user visual acceptance on `riscv_single_cycle` |
 | `docs/DESIGN_AST.md` | Design IR / AST spec (`Bistable.Core.Design.Ast`) |
@@ -106,14 +111,14 @@ abstraction removes proven duplication:
 
 ## 6. Current status snapshot (2026-07-17)
 
-- Branch `schematic/label-placement`, ahead of `main`, with **uncommitted work**
-  in the tree (RTL-schematic fixes + docs + this file). Do not commit without
-  explicit user approval.
-- Build clean (0/0). Phase 9 validation: 919/924 tests passed in the parallel
-  full run; the three known `ElkRunnerCancellation*`, one
-  `SimulationWorkerClientCancellation*`, and one `GateSchematicPerformance*`
-  timing failures all passed in isolated family runs. Golden snapshots are
-  unchanged.
+- Branch `theia/workbench-poc`, created after fast-forwarding local `main` to
+  the user-committed `new_phases` tip. Phase 9.5 work is uncommitted; do not
+  commit or push without explicit user approval.
+- Build clean (0/0). Current validation: 926/930 passed in the parallel full
+  run; known timing failures in `ElkRunnerCancellation*` (two),
+  `SimulationWorkerClientCancellation*` (one), and
+  `GateSchematicPerformance*` (one) passed in isolated family runs (3/3, 2/2,
+  5/5). Golden snapshots are unchanged.
 - **Most recent work (this session):** Phases 7 and 8 completed. Phase 7 added
   `CombinationalProjector`, comb target/read coverage, the `u_alu.zero` edge
   regression, and owner-accepted visual closure. Phase 8 added protocol v3
@@ -121,13 +126,24 @@ abstraction removes proven duplication:
   chunking, one-event `LiveProbeService` frame refresh, and stale-worker
   rejection. The 128-probe measurement improved from 533.9 ms / 128 IPC turns
   to 7.7 ms / one turn.
-- **Open work is governed by `docs/ROADMAP.md`** (phases 7–14, binding order):
-  Phases 7 and 8 are complete; active work is **Phase 9** (watch → incremental
-  elaborate live loop + its source/diagnostics workspace). Its automatic gates
-  are implemented; owner manual acceptance remains before Phase 10. Old follow-ups were
+- **Open work is governed by `docs/ROADMAP.md`**. Phases 7 and 8 are complete;
+  Phase 9 backend gates are implemented, but its Avalonia workbench failed
+  owner manual acceptance. Active work is owner-approved **Phase 9.5**: a
+  measured Theia + .NET Engine Host spike before Phase 10. Old follow-ups were
   absorbed: Issue 4 Stage 2 → P12-9, Phase 6.5 closure + Expand Cone → Phase 13,
   SVG export → Phase 10. Do not start visual-polish work before Phases 7–9 close
   (owner's instruction).
+- **Phase 9.5 first slice:** Theia 1.73.1 browser workbench, closeable Bistable
+  widget, Explorer/Monaco/Problems packages, `Bistable.Engine`, and protocol-v1
+  EngineHost are implemented. Electron validation still needs the host's
+  `libxkbfile-dev`/`libsecret-1-dev`; measured migration closure remains open.
+- **Phase 9.5 migration slice:** the owner accepted Theia as the strategic UI
+  direction. Root project auto-load, 400 ms latest-save-wins HDL reload,
+  Problems error/recovery lifecycle, and a top-module schematic graph DTO + SVG
+  renderer are implemented. The schematic is now a separate main document;
+  ELK runs in the Theia backend and the frontend uses typed RTL symbols/pins
+  instead of generic cards. Hierarchical module documents, simulation/waveform
+  transport, Electron packaging, and measured migration closure remain open.
 
 ## 7. Guardrails (do not break these)
 

@@ -1,6 +1,6 @@
 # Bistable — Vizyon Yol Haritası (Plan of Record)
 
-**Tarih:** 2026-07-16
+**Tarih:** 2026-07-17
 **Kaynak analiz:** [VISION_GAP_ANALYSIS.md](VISION_GAP_ANALYSIS.md)
 **Statü:** Bu dosya, projenin **tek geçerli plan kaydıdır**. Yeni iş önerileri
 önce bu sıraya vurulur; sıradaki faz kapanmadan sonrakine geçilmez
@@ -31,7 +31,8 @@ test, extension destekli profesyonel açık kaynak araç.
 |---|---|---|---|---|
 | **7** ✓ | [Şematik Dürüstlüğü — `always_comb` decode + coverage sözleşmesi](PHASES/PHASE-7.md) | **P0** | — | H2 (güven) |
 | **8** ✓ | [Canlı Değer Kanalı — `ReadSignals` batch IPC](PHASES/PHASE-8.md) | **P0** | — | H2 (ölçek) |
-| **9** ▶ | [Canlı Döngü — izle → artımlı elaborasyon → tazele](PHASES/PHASE-9.md) | **P0** | 7, 8 | **H1** (çekirdek) |
+| **9** ◐ | [Canlı Döngü — izle → artımlı elaborasyon → tazele](PHASES/PHASE-9.md) | **P0** | 7, 8 | **Backend kapıları tamam; Avalonia IDE yüzeyi sahibi tarafından reddedildi** |
+| **9.5** ▶ | [Theia Workbench Geçişi — .NET Engine Host](PHASES/PHASE-9.5.md) | **P0 uygulama kapısı** | 9 backend | H1 + H6 (ürün kabuğu) |
 | **10** | [Şematik Export — SVG/PNG](PHASES/PHASE-10.md) | P1 | 7 (yumuşak) | H4 |
 | **11** | [Testbench Akışı — tek tık derle & koştur](PHASES/PHASE-11.md) | P1 | 9 (yumuşak) | H3 |
 | **12** | [Çekirdek Sağlık — ayrıştırma, temizlik, performans](PHASES/PHASE-12.md) | P1/P2 | — | H6 (zemin) |
@@ -46,6 +47,12 @@ test, extension destekli profesyonel açık kaynak araç.
   aksi hâlde 9'un "canlı" vaadi büyük görünümde tıkanır.
 - **9 = vizyonun kalbi:** 7+8 bitmeden başlamaz; bittiğinde ürünün varlık sebebi
   çalışıyor olur.
+- **9.5 sahibi kararıyla eklendi (2026-07-17):** Faz 9'un watcher/diff/hot-swap
+  backend'i kabul edilebilir; ancak Avalonia Source/dock prototipi profesyonel
+  IDE kapısını geçmedi. UI-ağır Faz 10–11 işlerine devam etmeden Theia tabanlı
+  ürün kabuğu uygulanır. Ürün sahibi Theia yönünü kabul etti; mevcut Avalonia
+  uygulaması Electron/live-loop/schematic/performance geçiş kapıları kapanana
+  kadar silinmez.
 - **10 ve 11 paralel edilebilir** (birbirinden bağımsız); sıra: küçük/moral (10),
   sonra 11.
 - **12, 14'ün ön şartı:** Extension API ancak servis sınırlarından tanımlanır;

@@ -1,0 +1,28 @@
+{
+  "name": "@bistable/theia-root",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bistable Theia workbench architecture spike",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  },
+  "workspaces": [
+    "browser-app",
+    "electron-app",
+    "extensions/*"
+  ],
+  "scripts": {
+    "build": "npm run build:extension && npm run build:browser",
+    "build:all": "npm run build:extension && npm run build:browser && npm run build:electron",
+    "build:browser": "npm rebuild drivelist && npm run bundle --workspace @bistable/theia-browser",
+    "build:extension": "npm run build --workspace @bistable/theia-workbench",
+    "build:electron": "npm run bundle --workspace @bistable/theia-electron",
+    "clean": "npm run clean --workspace @bistable/theia-workbench && npm run clean --workspace @bistable/theia-electron",
+    "start": "npm run start --workspace @bistable/theia-electron",
+    "start:browser": "npm run start --workspace @bistable/theia-browser",
+    "start:debug": "npm run start:debug --workspace @bistable/theia-electron",
+    "test": "npm run build:extension && node scripts/check-shared-react.mjs && node scripts/check-live-reload.mjs && node scripts/check-problem-lifecycle.mjs && node scripts/check-rtl-schematic.mjs",
+    "watch": "npm run watch --workspace @bistable/theia-electron"
+  }
+}

@@ -8,6 +8,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using AvaloniaEdit;
 using Bistable.App.ViewModels;
+using Engine = Bistable.Engine;
 
 namespace Bistable.App.Views;
 
@@ -207,11 +208,11 @@ public sealed class SourceWorkspaceView : UserControl
             Foreground = Text,
             [!ItemsControl.ItemsSourceProperty] = new Binding("ElaborationDiagnostics"),
             [!SelectingItemsControl.SelectedItemProperty] = new Binding("SelectedElaborationDiagnostic", BindingMode.TwoWay),
-            ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<Services.ElaborationDiagnostic>((diagnostic, _) =>
+            ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<Engine.ElaborationDiagnostic>((diagnostic, _) =>
                 new TextBlock
                 {
                     Text = diagnostic?.DisplayText ?? string.Empty,
-                    Foreground = diagnostic?.Severity == Services.ElaborationDiagnosticSeverity.Error
+                    Foreground = diagnostic?.Severity == Engine.ElaborationDiagnosticSeverity.Error
                         ? new SolidColorBrush(Color.FromRgb(255, 125, 110))
                         : new SolidColorBrush(Color.FromRgb(255, 196, 100)),
                     FontFamily = new FontFamily("monospace"),

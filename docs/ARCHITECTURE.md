@@ -9,7 +9,11 @@ src/
 ├── Bistable.Core/          ── design model, project config (no UI, no I/O)
 ├── Bistable.Protocol/      ── worker IPC types (request/response shapes)
 ├── Bistable.Verilator/     ── Verilator XML parser + worker build/client
-└── Bistable.App/           ── Avalonia UI + view models + services
+├── Bistable.Yosys/         ── Yosys synthesis + gate netlist reader
+├── Bistable.Engine/        ── UI-independent application services + diagnostics
+├── Bistable.EngineHost/    ── versioned JSON-line host for external frontends
+├── Bistable.App/           ── retained Avalonia UI + view models
+└── Bistable.Theia/         ── Phase 9.5 Theia workbench product-shell POC
 
 tests/
 ├── Bistable.Tests/         ── unit + integration tests
@@ -31,15 +35,22 @@ docs/                       ── this file, TESTING.md, PHASES/PHASE-*.md
 ## 2. Dependency direction (strict; do not violate)
 
 ```
-Bistable.App  ──depends on──>  Bistable.Verilator  ──depends on──>  Bistable.Core
-       │                                                                 ▲
-       └────────────────depends on (Bistable.Protocol)──────────────────┘
+Bistable.App ────────> Bistable.Engine ────────> Bistable.Verilator ──> Bistable.Core
+                              │                          │
+Bistable.EngineHost ──────────┘                          └─────────────> Bistable.Protocol
+
+Bistable.Theia ──versioned JSON-line stdio──> Bistable.EngineHost
 ```
 
 - `Bistable.Core` has zero external deps from this repo.
 - `Bistable.Protocol` references nothing from this repo.
 - `Bistable.Verilator` references `Bistable.Core` + `Bistable.Protocol`.
-- `Bistable.App` references all the above.
+- `Bistable.Engine` owns reusable application services; it has no UI dependency.
+- `Bistable.EngineHost` is the process/transport boundary for non-.NET shells.
+- `Bistable.App` remains a compatibility frontend and delegates elaboration to
+  `Bistable.Engine`.
+- `Bistable.Theia` never references .NET assemblies directly; its backend owns
+  one engine-host child process and verifies protocol v1 during handshake.
 
 **Why this matters:** when Phase 1 introduces a backend-agnostic AST, it lives in `Bistable.Core`. The Verilator-XML reader stays in `Bistable.Verilator`. A future Yosys reader would be a new project `Bistable.Yosys` referencing only `Bistable.Core` and `Bistable.Protocol`.
 
@@ -86,16 +97,38 @@ Full wire-format spec in `docs/PROTOCOL.md`.
   - `VerilatorXmlAstReader` — recursive-descent XML → `DesignAst`. Runs alongside the legacy parser.
   - `LegacyDesignFlattener` — `DesignAst` → `ElaboratedDesign`. Compatibility seam; `DesignLoadService` now calls reader + flattener instead of `VerilatorXmlParser` directly.
 
-### `Bistable.App`
+### `Bistable.Engine` and `Bistable.EngineHost`
+- `DesignElaborationService` — validates and elaborates a project independently
+  of either UI shell.
+- `ElaborationDiagnosticsParser` — Verilator stderr to shared file/line/column
+  diagnostics.
+- `EngineSchematicProjectionService` — top-module decoder output to an exact
+  signal-labelled, layout-agnostic node/edge transport graph.
+- `EngineRpcServer` — JSON-line methods `hello`, `loadProject`, and `shutdown`;
+  stdout is protocol-only and elaboration failures carry structured diagnostics.
+
+### `Bistable.Theia` (Phase 9.5 POC)
+- `browser-app` / `electron-app` — browser validation harness and branded
+  desktop workbench, pinned to Theia 1.73.1.
+- `extensions/bistable-workbench` — closeable/movable product widget plus the
+  frontend/backend proxy to `Bistable.EngineHost`.
+- The workbench auto-loads the root project and coalesces HDL saves through a
+  400 ms latest-save-wins coordinator. RTL schematic is a separate main-area
+  document widget; ELK layered/orthogonal layout executes in the Theia backend
+  process and the frontend draws typed RTL SVG symbols and pins. Hierarchical
+  module documents remain the next migration slice.
+- Explorer, Monaco, Problems, Terminal, Settings, document tabs, and dock
+  lifecycle come from Theia packages instead of custom Bistable controls.
+
+### `Bistable.App` (retained compatibility frontend)
 - `ViewModels/MainWindowViewModel.cs` — the main VM (large; refactor candidate).
 - `ViewModels/SignalViewModel.cs`, `HierarchyScopeInstanceViewModel.cs`, etc.
-- `Services/DesignLoadService.cs` — loads + elaborates designs.
+- `Services/DesignLoadService.cs` — compatibility adapter over
+  `Bistable.Engine.DesignElaborationService`.
 - `Services/ProjectFileWatcherService.cs` + `ProjectReloadCoordinator.cs` —
   debounced project/source/include watching and latest-save-wins reload queue.
 - `Services/SimulationWorkerHotSwapService.cs` — prepares a replacement native
   worker while the current simulation remains owned and responsive.
-- `Services/ElaborationDiagnosticsParser.cs` — Verilator stderr to clickable
-  file/line/column diagnostics.
 - `Services/VcdTraceDocument.cs` — currently memory-loaded; Phase 6 will stream.
 - `Services/Routing/Elk/ElkGraphBuilder.cs` — design → ELK graph.
 - `Services/Routing/Elk/ElkSchematicEngine.cs` — LRU-cached layout pipeline.
@@ -115,6 +148,8 @@ Full wire-format spec in `docs/PROTOCOL.md`.
 | `ElkRunner.Layout` | background | `ElkRunner.Layout` itself is still synchronous, but callers reach it through `SchematicLayoutService.LayoutAsync(CancellationToken)`, which serializes on `_layoutGate`, runs off the UI thread, is cancellable, and raises `LayoutStillRunning` on soft timeout |
 | `ElkSchematicEngine.Compute` | caller | LRU-cached (8-entry, SHA-1 key); gate hierarchy path adds `GateLevelLayoutCache` fingerprinting |
 | `DesignLoadService.LoadAsync` | background (Task) | Verilator XML generation off UI thread |
+| `Bistable.EngineHost` | own process | Theia backend owns stdin/stdout RPC and terminates the host with the workbench backend |
+| Theia frontend | browser/Electron renderer | Monaco and workbench widgets only; .NET elaboration stays out of the renderer thread |
 | `ProjectFileWatcherService` | filesystem callback + async debounce | Coalesces project/source/include events; never mutates UI collections directly |
 | `ProjectReloadCoordinator` | background runner | One reload at a time; a newer save cancels the active pass and queues the newest path set |
 | `SimulationWorkerHotSwapService` | background subprocess build | Old worker remains live until replacement has started, restored inputs, and produced its first frame |

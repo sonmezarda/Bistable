@@ -18,3 +18,14 @@ verilator-out/
 *.fst
 
 .agents/
+
+# Theia/Electron generated dependencies and bundles.
+src/Bistable.Theia/node_modules/
+src/Bistable.Theia/**/lib/
+src/Bistable.Theia/**/gen-webpack.config.js
+src/Bistable.Theia/**/webpack.config.js
+src/Bistable.Theia/**/gen-esbuild.*.mjs
+src/Bistable.Theia/**/esbuild.mjs
+src/Bistable.Theia/**/src-gen/
+src/Bistable.Theia/**/.webpack/
+src/Bistable.Theia/**/dist/

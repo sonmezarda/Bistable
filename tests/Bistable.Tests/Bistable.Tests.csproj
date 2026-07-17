@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Bistable.Core\Bistable.Core.csproj" />
+    <ProjectReference Include="..\..\src\Bistable.EngineHost\Bistable.EngineHost.csproj" />
     <ProjectReference Include="..\..\src\Bistable.Verilator\Bistable.Verilator.csproj" />
     <ProjectReference Include="..\..\src\Bistable.Yosys\Bistable.Yosys.csproj" />
     <ProjectReference Include="..\..\src\Bistable.Protocol\Bistable.Protocol.csproj" />

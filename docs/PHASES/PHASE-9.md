@@ -3,10 +3,10 @@
 **Plan kaydı:** [docs/ROADMAP.md](../ROADMAP.md) · Kaynak: [VISION_GAP_ANALYSIS.md §7 H1+H2](../VISION_GAP_ANALYSIS.md)
 **Öncelik:** P0 — **vizyonun kalbi**
 **Önkoşul:** Faz 7 (dürüst şematik) + Faz 8 (batch değer kanalı) kapanmış olmalı.
-**Durum (2026-07-17):** Otomatik kapılar tamamlandı; sahibin `riscv_single_cycle`
-ile elle kaydet→şematik ve IDE çalışma yüzeyi kabulü bekleniyor. Sahibin
-IDE-benzeri kaynak/diagnostics talebi P9-5 ve P9-8 kapsamına alındı; geniş
-XAML/platform modernizasyonu ROADMAP sırasındaki Faz 14'te kalır.
+**Durum (2026-07-17):** Backend ve otomatik kapılar tamamlandı. Avalonia
+IDE-benzeri Source/dock yüzeyi sahibin manuel kabulünü geçmedi; kalıcı ürün
+kabuğu kararı [Faz 9.5](PHASE-9.5.md) Theia spike'ına taşındı. Faz 9 bu karar
+kapısı sonuçlanana kadar kısmi durumda kalır.
 **Hedef deneyim:** *Dosyayı kaydet → ≤1–2 sn içinde şematik güncel → değerler
 canlı akmaya devam ediyor → hata varsa satır referanslı panelde.*
 

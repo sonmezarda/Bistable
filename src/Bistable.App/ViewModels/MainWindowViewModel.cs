@@ -12,6 +12,7 @@ using Bistable.Core.Design;
 using Bistable.Core.Design.Ast;
 using Bistable.Core.Design.Ast.Passes;
 using Bistable.Core.Projects;
+using Bistable.Engine;
 using Bistable.Protocol;
 using Bistable.Verilator;
 
