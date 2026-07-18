@@ -1,4 +1,5 @@
 import {
+    EngineProjectPort,
     EngineSchematicLayoutNode,
     EngineSimulationFrame,
     EngineSimulationProbe,
@@ -18,6 +19,50 @@ export interface SelectedSignal {
     path: string;
     /** Kind of the owning node (Port / FlipFlop / …). */
     nodeKind: string;
+}
+
+export type PokeAction = 'toggle' | 'edit' | 'select';
+
+/**
+ * Only an exact top-level input Port is mutable in Poke mode. A scalar toggles,
+ * a bus opens the value editor, and every other signal remains selection-only.
+ */
+export function pokeAction(selected: SelectedSignal, port: EngineProjectPort | undefined): PokeAction {
+    if (selected.nodeKind !== 'Port'
+        || !port
+        || port.name !== selected.signal
+        || port.direction.toLowerCase() !== 'input') {
+        return 'select';
+    }
+    return port.width === 1 ? 'toggle' : 'edit';
+}
+
+/** Normalize supported worker scalar renderings without guessing for X/Z. */
+export function logicBitValue(raw: string | undefined): '0' | '1' | undefined {
+    if (raw === undefined) {
+        return undefined;
+    }
+    switch (raw.trim().toLowerCase().replaceAll('_', '')) {
+        case '0':
+        case '0x0':
+        case "1'h0":
+        case "1'b0":
+        case "1'd0":
+            return '0';
+        case '1':
+        case '0x1':
+        case "1'h1":
+        case "1'b1":
+        case "1'd1":
+            return '1';
+        default:
+            return undefined;
+    }
+}
+
+export function nextBinaryToggleValue(raw: string | undefined): '0' | '1' | undefined {
+    const current = logicBitValue(raw);
+    return current === undefined ? undefined : current === '0' ? '1' : '0';
 }
 
 /**

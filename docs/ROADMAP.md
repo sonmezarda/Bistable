@@ -57,7 +57,9 @@ test, extension destekli profesyonel açık kaynak araç.
   expand/collapse ve modül document navigation'dır. Manuel simülasyon UX'inde
   Logisim Evolution ve Digital referans alınır; Poke/Drive modu ve çok-bit
   popover sözleşmesi `docs/SIMULATION_INTERACTION_UX.md` içinde kayıtlıdır ve
-  hiyerarşi diliminden sonra uygulanır.
+  ürün sahibinin 2026-07-18 tarihli açık kararıyla temel Poke/Drive dilimi
+  hiyerarşiden önce uygulanmıştır. Bu istisna kalan sırayı değiştirmez;
+  hiyerarşi P9.5-10 yine sıradaki bağlayıcı iştir.
 - **10 ve 11 paralel edilebilir** (birbirinden bağımsız); sıra: küçük/moral (10),
   sonra 11.
 - **12, 14'ün ön şartı:** Extension API ancak servis sınırlarından tanımlanır;

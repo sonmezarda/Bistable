@@ -4,7 +4,7 @@
 > It tells you what the project is, what is *actually true in the code* (docs
 > drift), which document to trust for what, and the guardrails you must not break.
 >
-> **Last reconciled with code:** 2026-07-17. If you find code that contradicts
+> **Last reconciled with code:** 2026-07-18. If you find code that contradicts
 > this file, trust the code and update this file in the same change.
 
 ---
@@ -113,9 +113,9 @@ abstraction removes proven duplication:
 
 ## 6. Current status snapshot (2026-07-17)
 
-- Branch `theia/workbench-poc`, created after fast-forwarding local `main` to
-  the user-committed `new_phases` tip. Phase 9.5 work is uncommitted; do not
-  commit or push without explicit user approval.
+- Branch `theia/workbench-poc`. The owner committed the preceding Phase 9.5
+  work as `265414a`; the current Poke/Drive slice is uncommitted. Do not commit
+  or push without explicit user approval.
 - Build clean (0/0). Current validation: 954/958 passed in the parallel full
   run; known timing failures in `ElkRunnerCancellation*` (two),
   `SimulationWorkerClientCancellation*` (one), and
@@ -166,9 +166,12 @@ abstraction removes proven duplication:
   hierarchical instance expand/collapse + module documents/breadcrumbs.
 - **Phase 9.5 manual-simulation UX contract:** visible constant boxes now select
   their exact driven net and remain read-only. Logisim Evolution and Digital
-  are the primary interaction references: after the hierarchy slice, a separate
-  Poke/Drive mode will provide one-click 1-bit toggle and an anchored non-modal
-  multi-bit value popover. Select mode never mutates simulation state.
+  are the primary interaction references. The owner pulled this slice before
+  hierarchy on 2026-07-18: separate Poke/Drive mode now provides one-click
+  scalar toggle and an anchored non-modal multi-bit editor with
+  BIN/HEX/UDEC/SDEC, per-bit toggles, Apply/OK/Escape, and width-safe BigInt
+  conversion. Select mode never mutates simulation state. P9.5-10 hierarchy is
+  again the next binding slice after owner manual acceptance.
 
 ## 7. Guardrails (do not break these)
 

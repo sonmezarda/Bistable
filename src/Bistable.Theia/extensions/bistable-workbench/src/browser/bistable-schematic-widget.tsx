@@ -4,6 +4,7 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import {
     BistableEngineService,
+    EngineProjectPort,
     EngineProjectSummary,
     EngineSchematicLayout,
     EngineSchematicLayoutEdge,
@@ -15,12 +16,25 @@ import { renderRtlSymbol } from './rtl-symbol-renderer';
 import {
     emptySimulationState,
     liveValue,
+    logicBitValue,
+    nextBinaryToggleValue,
     nodeBodySelectionTarget,
     pinClasses,
+    pokeAction,
     probePath,
     SelectedSignal,
     SimulationState
 } from './simulation-state';
+import {
+    formatPokeValue,
+    parsePokeDraft,
+    parseWorkerBitPattern,
+    PokeRadix,
+    togglePokeBit
+} from './poke-value-editor';
+import { PokeEditorState, PokeValuePopover } from './poke-value-popover';
+
+type SchematicInteractionMode = 'hand' | 'select' | 'poke';
 
 @injectable()
 export class BistableSchematicWidget extends ReactWidget {
@@ -45,7 +59,10 @@ export class BistableSchematicWidget extends ReactWidget {
     private valueInput = '';
     private inputError = '';
     private busy = false;
-    private panMode: 'hand' | 'select' = 'hand';
+    private interactionMode: SchematicInteractionMode = 'hand';
+    private pokeEditor: PokeEditorState | undefined;
+    private pokeEditorId = 0;
+    private lastPokeRadix: PokeRadix = 'hex';
     private pan = { x: 0, y: 0 };
     private drag: { startX: number; startY: number; originX: number; originY: number } | undefined;
 
@@ -62,6 +79,12 @@ export class BistableSchematicWidget extends ReactWidget {
         this.toDispose.push(this.projectState.onDidChangeSimulation(state => {
             const becameReady = this.simulation.status !== 'ready' && state.status === 'ready';
             this.simulation = state;
+            if (state.status !== 'ready') {
+                this.pokeEditor = undefined;
+                if (this.interactionMode === 'poke') {
+                    this.interactionMode = 'select';
+                }
+            }
             this.update();
             // When the worker first becomes ready, read every visible signal once
             // so all readable wires light up — not just the top-level outputs the
@@ -88,15 +111,27 @@ export class BistableSchematicWidget extends ReactWidget {
                     {this.renderSimulationControls()}
                     <span className='bistable-schematic-mode'>
                         <button
-                            className={`theia-button ${this.panMode === 'hand' ? 'main' : 'secondary'}`}
+                            className={`theia-button ${this.interactionMode === 'hand' ? 'main' : 'secondary'}`}
                             title='Pan mode — drag to move (H, or Space to toggle)'
-                            onClick={() => this.setPanMode('hand')}
+                            aria-pressed={this.interactionMode === 'hand'}
+                            onClick={() => this.setInteractionMode('hand')}
                         ><span className='codicon codicon-move' /></button>
                         <button
-                            className={`theia-button ${this.panMode === 'select' ? 'main' : 'secondary'}`}
+                            className={`theia-button ${this.interactionMode === 'select' ? 'main' : 'secondary'}`}
                             title='Select mode — click wires/pins (V or S, or Space to toggle)'
-                            onClick={() => this.setPanMode('select')}
+                            aria-pressed={this.interactionMode === 'select'}
+                            onClick={() => this.setInteractionMode('select')}
                         ><span className='codicon codicon-inspect' /></button>
+                        <button
+                            className={`theia-button bistable-poke-mode-button ${this.interactionMode === 'poke' ? 'main' : 'secondary'}`}
+                            title={this.simulation.status === 'ready'
+                                ? 'Poke/Drive — toggle scalar inputs or edit bus values (P)'
+                                : 'Build the simulation before entering Poke/Drive mode'}
+                            aria-label='Poke/Drive mode'
+                            aria-pressed={this.interactionMode === 'poke'}
+                            disabled={this.simulation.status !== 'ready' || this.busy}
+                            onClick={() => this.setInteractionMode('poke')}
+                        ><span className='codicon codicon-symbol-boolean' /> Poke</button>
                     </span>
                     <button className='theia-button secondary' onClick={() => this.setZoom(this.zoom - 0.15)}>−</button>
                     <span>{Math.round(this.zoom * 100)}%</span>
@@ -223,7 +258,7 @@ export class BistableSchematicWidget extends ReactWidget {
     private renderCanvas(layout: EngineSchematicLayout): React.ReactElement {
         const topModule = this.projectState.project?.topModule ?? '';
         return <div
-            className={`bistable-schematic-canvas bistable-pan-${this.panMode}${this.drag ? ' bistable-panning' : ''}`}
+            className={`bistable-schematic-canvas bistable-interaction-${this.interactionMode}${this.drag ? ' bistable-panning' : ''}`}
             tabIndex={0}
             onMouseDown={event => this.onCanvasMouseDown(event)}
             onMouseMove={event => this.onCanvasMouseMove(event)}
@@ -255,6 +290,22 @@ export class BistableSchematicWidget extends ReactWidget {
                     {layout.nodes.map(node => this.renderNodeOverlay(node))}
                 </g>
             </svg>
+            {this.pokeEditor && <PokeValuePopover
+                key={this.pokeEditor.id}
+                editor={this.pokeEditor}
+                currentValue={liveValue(
+                    this.pokeEditor.selected.signal,
+                    this.pokeEditor.selected.path,
+                    this.simulation
+                ) ?? '—'}
+                busy={this.busy}
+                onClose={() => this.closePokeEditor()}
+                onRadixChange={radix => this.setPokeRadix(radix)}
+                onDraftChange={draft => this.updatePokeDraft(draft)}
+                onToggleBit={bit => this.toggleEditorBit(bit)}
+                onApply={closeAfterApply => void this.applyPokeEditor(closeAfterApply)}
+                onKeyDown={event => this.onPokeEditorKeyDown(event)}
+            />}
         </div>;
     }
 
@@ -318,22 +369,11 @@ export class BistableSchematicWidget extends ReactWidget {
 
     /** Live logic level of a 1-bit net: '1', '0', or undefined when unknown. */
     private bitLevel(signal: string, path: string): '0' | '1' | undefined {
-        const raw = liveValue(signal, path, this.simulation);
-        if (raw === undefined) {
-            return undefined;
-        }
-        const normalized = raw.trim().toLowerCase();
-        if (normalized === '1' || normalized === '0x1' || normalized === "1'h1") {
-            return '1';
-        }
-        if (normalized === '0' || normalized === '0x0' || normalized === "1'h0") {
-            return '0';
-        }
-        return undefined;
+        return logicBitValue(liveValue(signal, path, this.simulation));
     }
 
     private onEdgeClick(event: React.MouseEvent, signal: string, topModule: string): void {
-        if (this.panMode !== 'select') {
+        if (this.interactionMode === 'hand') {
             return;
         }
         event.stopPropagation();
@@ -342,7 +382,7 @@ export class BistableSchematicWidget extends ReactWidget {
 
     private onCanvasMouseDown(event: React.MouseEvent): void {
         // Left-drag pans in hand mode; middle-drag always pans.
-        const leftInHand = this.panMode === 'hand' && event.button === 0;
+        const leftInHand = this.interactionMode === 'hand' && event.button === 0;
         const middle = event.button === 1;
         if (leftInHand || middle) {
             this.drag = { startX: event.clientX, startY: event.clientY, originX: this.pan.x, originY: this.pan.y };
@@ -394,15 +434,22 @@ export class BistableSchematicWidget extends ReactWidget {
             return;
         }
         switch (event.key.toLowerCase()) {
-            case 'h': this.setPanMode('hand'); break;
+            case 'h': this.setInteractionMode('hand'); break;
             case 'v':
-            case 's': this.setPanMode('select'); break;
+            case 's': this.setInteractionMode('select'); break;
+            case 'p': this.setInteractionMode('poke'); break;
             case ' ': // Space toggles between the two modes.
                 event.preventDefault();
-                this.setPanMode(this.panMode === 'hand' ? 'select' : 'hand');
+                this.setInteractionMode(this.interactionMode === 'hand' ? 'select' : 'hand');
                 break;
             case 'f': this.resetView(); break;
-            case 'escape': this.select(undefined); break;
+            case 'escape':
+                if (this.pokeEditor) {
+                    this.closePokeEditor();
+                } else {
+                    this.select(undefined);
+                }
+                break;
             default: return;
         }
     }
@@ -425,16 +472,21 @@ export class BistableSchematicWidget extends ReactWidget {
         if (!target) {
             return undefined;
         }
+        const action = this.pokeActionFor(target.selected);
         return <rect
-            className={`bistable-node-body-hit ${this.simulation.selected?.path === target.selected.path ? 'bistable-node-body-hit-selected' : ''}`}
+            className={`bistable-node-body-hit ${this.interactionMode === 'poke' && action !== 'select' ? 'bistable-node-body-hit-poke' : ''} ${this.simulation.selected?.path === target.selected.path ? 'bistable-node-body-hit-selected' : ''}`}
             x={target.x}
             y={target.y}
             width={target.width}
             height={target.height}
             rx={node.kind === 'Constant' ? 4 : undefined}
-            onMouseDown={event => event.stopPropagation()}
-            onClick={event => { event.stopPropagation(); this.select(target.selected); }}
-        ><title>{`Select ${target.selected.signal}`}</title></rect>;
+            onMouseDown={event => { if (this.interactionMode !== 'hand') { event.stopPropagation(); } }}
+            onClick={event => this.onSignalClick(event, target.selected)}
+        ><title>{this.interactionMode === 'poke' && action === 'toggle'
+                ? `Toggle ${target.selected.signal} (0 ↔ 1)`
+                : this.interactionMode === 'poke' && action === 'edit'
+                    ? `Edit ${target.selected.signal}`
+                    : `Select ${target.selected.signal}`}</title></rect>;
     }
 
     private renderPinOverlay(
@@ -444,22 +496,241 @@ export class BistableSchematicWidget extends ReactWidget {
     ): React.ReactElement {
         const path = probePath(topModule, pin.signal);
         const selected: SelectedSignal = { signal: pin.signal, path, nodeKind: node.kind };
+        const action = this.pokeActionFor(selected);
         // The live value is drawn along the wire (renderEdgeValue); the pin
         // overlay is just the clickable/selectable hit ring.
         return <g
             key={`ov:${pin.id}`}
-            className={pinClasses(pin.signal, path, this.simulation)}
-            onMouseDown={event => event.stopPropagation()}
-            onClick={event => { event.stopPropagation(); this.select(selected); }}
+            className={`${pinClasses(pin.signal, path, this.simulation)} ${this.interactionMode === 'poke' && action !== 'select' ? 'bistable-pin-poke' : ''}`}
+            onMouseDown={event => { if (this.interactionMode !== 'hand') { event.stopPropagation(); } }}
+            onClick={event => this.onSignalClick(event, selected)}
         >
             <circle className='bistable-pin-hit' cx={pin.x} cy={pin.y} r='7' />
         </g>;
     }
 
     private select(selected: SelectedSignal | undefined): void {
+        this.pokeEditor = undefined;
         this.valueInput = '';
         this.inputError = '';
         this.projectState.setSelectedSignal(selected);
+    }
+
+    private onSignalClick(event: React.MouseEvent, selected: SelectedSignal): void {
+        if (this.interactionMode === 'hand') {
+            return;
+        }
+        const anchor = { clientX: event.clientX, clientY: event.clientY };
+        event.stopPropagation();
+        this.select(selected);
+        if (this.interactionMode === 'poke') {
+            void this.poke(selected, anchor);
+        }
+    }
+
+    private portFor(selected: SelectedSignal): EngineProjectPort | undefined {
+        return this.projectState.project?.ports.find(candidate => candidate.name === selected.signal);
+    }
+
+    private pokeActionFor(selected: SelectedSignal): ReturnType<typeof pokeAction> {
+        return pokeAction(selected, this.portFor(selected));
+    }
+
+    private async poke(
+        selected: SelectedSignal,
+        anchor: { clientX: number; clientY: number }
+    ): Promise<void> {
+        const port = this.portFor(selected);
+        const action = pokeAction(selected, port);
+        if (!port || action === 'select' || this.busy) {
+            return;
+        }
+        if (this.simulation.status !== 'ready') {
+            this.inputError = 'Build the simulation before driving an input.';
+            this.update();
+            return;
+        }
+
+        this.busy = true;
+        this.inputError = '';
+        this.update();
+        try {
+            let current = liveValue(selected.signal, selected.path, this.simulation);
+            if (current === undefined) {
+                // The initial frame contains outputs. Resolve this exact input
+                // once if the automatic visible-probe read has not finished.
+                await this.projectState.readVisible([selected.path]);
+                current = liveValue(selected.signal, selected.path, this.simulation);
+            }
+
+            if (action === 'toggle') {
+                const next = nextBinaryToggleValue(current);
+                if (next === undefined) {
+                    this.inputError = `Cannot toggle ${selected.signal}: current value is unavailable or not 0/1.`;
+                    return;
+                }
+                this.inputError = await this.projectState.applyInput(
+                    selected.signal,
+                    next,
+                    this.visiblePaths
+                ) ?? '';
+                return;
+            }
+
+            this.openPokeEditor(selected, port, current, anchor);
+        } catch (error) {
+            this.inputError = error instanceof Error ? error.message : String(error);
+        } finally {
+            this.busy = false;
+            this.update();
+        }
+    }
+
+    private openPokeEditor(
+        selected: SelectedSignal,
+        port: EngineProjectPort,
+        current: string | undefined,
+        anchor: { clientX: number; clientY: number }
+    ): void {
+        const canvas = this.node.querySelector('.bistable-schematic-canvas') as HTMLElement | null;
+        const rect = canvas?.getBoundingClientRect();
+        const localX = rect ? anchor.clientX - rect.left : 8;
+        const localY = rect ? anchor.clientY - rect.top : 8;
+        const editorWidth = 380;
+        const editorHeight = 440;
+        const x = rect ? Math.max(8, Math.min(localX + 12, rect.width - editorWidth - 8)) : 8;
+        const y = rect
+            ? localY + 12 + editorHeight <= rect.height
+                ? localY + 12
+                : Math.max(8, localY - editorHeight - 12)
+            : 8;
+        const pattern = parseWorkerBitPattern(current, port.width);
+        const radix = this.lastPokeRadix;
+        this.pokeEditor = {
+            id: ++this.pokeEditorId,
+            selected,
+            port,
+            x,
+            y,
+            radix,
+            draft: pattern === undefined ? '' : formatPokeValue(pattern, radix, port.width),
+            error: pattern === undefined
+                ? 'Current value is unavailable or contains X/Z; enter an explicit replacement.'
+                : undefined
+        };
+    }
+
+    private updatePokeDraft(draft: string): void {
+        if (!this.pokeEditor || this.busy) {
+            return;
+        }
+        this.pokeEditor = { ...this.pokeEditor, draft, error: undefined };
+        this.update();
+    }
+
+    private setPokeRadix(radix: PokeRadix): void {
+        const editor = this.pokeEditor;
+        if (!editor || editor.radix === radix || this.busy) {
+            return;
+        }
+        const parsed = parsePokeDraft(editor.draft, editor.radix, editor.port.width);
+        if (parsed.value === undefined) {
+            this.pokeEditor = { ...editor, error: parsed.error };
+            this.update();
+            return;
+        }
+        this.lastPokeRadix = radix;
+        this.pokeEditor = {
+            ...editor,
+            radix,
+            draft: formatPokeValue(parsed.value, radix, editor.port.width),
+            error: undefined
+        };
+        this.update();
+    }
+
+    private toggleEditorBit(bit: number): void {
+        const editor = this.pokeEditor;
+        if (!editor || this.busy) {
+            return;
+        }
+        const parsed = parsePokeDraft(editor.draft, editor.radix, editor.port.width);
+        if (parsed.value === undefined) {
+            this.pokeEditor = { ...editor, error: parsed.error };
+            this.update();
+            return;
+        }
+        const toggled = togglePokeBit(parsed.value, bit, editor.port.width);
+        this.pokeEditor = {
+            ...editor,
+            draft: formatPokeValue(toggled, editor.radix, editor.port.width),
+            error: undefined
+        };
+        this.update();
+    }
+
+    private async applyPokeEditor(closeAfterApply: boolean): Promise<void> {
+        const editor = this.pokeEditor;
+        if (!editor || this.busy) {
+            return;
+        }
+        const parsed = parsePokeDraft(editor.draft, editor.radix, editor.port.width);
+        if (parsed.value === undefined) {
+            this.pokeEditor = { ...editor, error: parsed.error };
+            this.update();
+            return;
+        }
+
+        this.busy = true;
+        this.update();
+        try {
+            const error = await this.projectState.applyInput(
+                editor.selected.signal,
+                parsed.value.toString(10),
+                this.visiblePaths
+            );
+            if (this.pokeEditor?.id !== editor.id) {
+                return;
+            }
+            if (error) {
+                this.pokeEditor = { ...editor, error };
+            } else if (closeAfterApply) {
+                this.pokeEditor = undefined;
+            } else {
+                this.pokeEditor = {
+                    ...editor,
+                    draft: formatPokeValue(parsed.value, editor.radix, editor.port.width),
+                    error: undefined
+                };
+            }
+        } catch (error) {
+            if (this.pokeEditor?.id === editor.id) {
+                this.pokeEditor = {
+                    ...editor,
+                    error: error instanceof Error ? error.message : String(error)
+                };
+            }
+        } finally {
+            this.busy = false;
+            this.update();
+        }
+    }
+
+    private onPokeEditorKeyDown(event: React.KeyboardEvent): void {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            this.closePokeEditor();
+        } else if (event.key === 'Enter') {
+            event.preventDefault();
+            event.stopPropagation();
+            void this.applyPokeEditor(false);
+        }
+    }
+
+    private closePokeEditor(): void {
+        this.pokeEditor = undefined;
+        this.update();
     }
 
     private async applyValue(selected: SelectedSignal): Promise<void> {
@@ -551,8 +822,16 @@ export class BistableSchematicWidget extends ReactWidget {
         this.update();
     }
 
-    private setPanMode(mode: 'hand' | 'select'): void {
-        this.panMode = mode;
+    private setInteractionMode(mode: SchematicInteractionMode): void {
+        if (mode === 'poke' && this.simulation.status !== 'ready') {
+            this.inputError = 'Build the simulation before entering Poke/Drive mode.';
+            this.update();
+            return;
+        }
+        if (mode !== 'poke') {
+            this.pokeEditor = undefined;
+        }
+        this.interactionMode = mode;
         this.update();
     }
 

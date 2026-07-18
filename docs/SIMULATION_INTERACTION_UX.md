@@ -1,9 +1,11 @@
 # Manuel Simülasyon Etkileşimi — UX Sözleşmesi
 
-**Durum:** Araştırma ve ürün sözleşmesi tamamlandı, uygulama P9.5-10 hiyerarşi
-diliminden sonra başlayacak  
-**Karar tarihi:** 2026-07-17  
-**Görsel referans:** AMD Vivado  
+**Durum:** Poke/Drive, scalar toggle ve multi-bit popover uygulandı; manuel kabul bekleniyor
+
+**Karar tarihi:** 2026-07-17; uygulama önceliği sahibi tarafından 2026-07-18'de öne alındı
+
+**Görsel referans:** AMD Vivado
+
 **Manuel simülasyon referansları:** Logisim Evolution ve Digital
 
 ## Ürün hedefi
@@ -71,6 +73,9 @@ Kaynaklar: [InputShape](https://github.com/hneemann/Digital/blob/master/src/main
   port tıklaması sadece seçer ve Inspector'ı açar.
 - Input'un clock/reset/button rolü adından (`clk`, `rst` vb.) tahmin edilmez.
   Özel etkileşim ancak proje/port metadata'sında açıkça tanımlanır.
+- Poke modu ancak native simulation worker hazırken etkinleşir. Hand modunda
+  sembol/pin üzerinde başlayan sürükleme pan yapar; Select hiçbir devre
+  mutasyonu üretmez.
 
 ### 3. Tek bit giriş
 
@@ -98,6 +103,11 @@ içinde tutulan bir Theia popover'ı açar:
 Son radix tercihi korunur. Apply, mevcut canlı döngünün tek batched refresh
 sözleşmesini kullanır ve ELK layout'u tekrar çalıştırmaz.
 
+Uygulanan ilk sürüm bit düğmelerini MSB→LSB dizer. 64 bite kadar her bit
+görünür; daha geniş bus'larda DOM maliyetini sınırlamak için en düşük 64 bit
+gösterilir ve tam değer radix alanından girilir. Sayısal dönüşüm JavaScript
+`Number` yerine `BigInt` ile yapılır; 32/64-bit değerlerde precision kaybı yoktur.
+
 ### 5. Clock ve momentary kontrol
 
 - Şimdilik toolbar `Tick` clock semantiğinin tek yetkili yoludur. Port adından
@@ -110,10 +120,11 @@ sözleşmesini kullanır ve ELK layout'u tekrar çalıştırmaz.
 
 1. **Tamamlandı:** Port ve constant gövdesi exact net seçimi; constant read-only
    Inspector davranışı.
-2. **Sıradaki bağlayıcı iş:** P9.5-10 Vivado-tarzı hiyerarşik aç/kapa, module
+2. **Uygulandı, manuel kabul bekliyor:** Poke/Drive modu, tek-bit toggle ve
+   çok-bit anchored non-modal popover; BIN/HEX/UDEC/SDEC, bit toggle,
+   Apply/OK/Escape.
+3. **Sıradaki bağlayıcı iş:** P9.5-10 Vivado-tarzı hiyerarşik aç/kapa, module
    document ve breadcrumb.
-3. **Sonraki simülasyon dilimi:** Poke/Drive modu, tek-bit toggle ve çok-bit
-   non-modal popover.
 4. Açık input-role metadata'sı sonrası clock ve momentary-button etkileşimi.
 
 ## Kabul kapısı
@@ -127,3 +138,9 @@ sözleşmesini kullanır ve ELK layout'u tekrar çalıştırmaz.
 4. Select modunda hiçbir tıklama devre durumunu değiştirmez.
 5. Her davranış per-bit kimliği, session generation/stale-frame koruması ve
    relayout-yok performans guardrail'lerini koruyan regresyon testiyle gelir.
+
+## Uygulama notu — 2026-07-18
+
+Ürün sahibi P9.5-11'in temel manuel sürme dilimini P9.5-10'dan önce açıkça öne
+aldı. Bu istisna yalnız burada tanımlı Poke/Drive davranışını kapsar; kalan
+hiyerarşi işi yine sıradaki bağlayıcı dilimdir.

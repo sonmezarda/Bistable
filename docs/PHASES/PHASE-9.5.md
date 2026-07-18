@@ -72,8 +72,8 @@ kapanana kadar Avalonia karşılaştırma ve geri dönüş yüzeyi olarak korunu
 | P9.5-7 | Otomatik testler, performans ölçümü ve ADR go/no-go sonucu | Aktif |
 | P9.5-8 | Canlı döngü ilk kapısı: Engine session servisi + EngineHost RPC v2 + şematik sür/izle | **Otomatik testler yeşil; sahibin görsel/etkileşim kabulü bekleniyor** |
 | P9.5-9 | Vivado-tarzı şematik okunabilirlik sözleşmesi: semantik pinler, ölçülü kolonlar, elision/LOD | **Uygulandı; sahibi görsel kabulü bekleniyor** |
-| P9.5-10 | Hiyerarşik aç/kapa: instance içine girme, modül document kimliği, breadcrumb ve cone navigation | **Sıradaki dilim** |
-| P9.5-11 | Logisim/Digital-tarzı manuel sürme: Poke modu, 1-bit toggle, çok-bit non-modal popover | **UX sözleşmesi tamam; P9.5-10 sonrasında** |
+| P9.5-10 | Hiyerarşik aç/kapa: instance içine girme, modül document kimliği, breadcrumb ve cone navigation | **P9.5-11 owner-directed diliminden sonra sıradaki** |
+| P9.5-11 | Logisim/Digital-tarzı manuel sürme: Poke modu, 1-bit toggle, çok-bit non-modal popover | **Uygulandı; sahibin manuel kabulü bekleniyor** |
 
 ## İlk dilim sonucu — 2026-07-17
 
@@ -191,6 +191,12 @@ ve Digital'dır. Bağlayıcı ayrıntılar
   komutunda kalır; özel etkileşim ancak açık input-role metadata'sıyla eklenir.
 - Her sürme aynı `SetInput → Eval → tek batch ReadSignals` yolunu kullanır;
   şematik layout'u yeniden çalıştırmaz.
+- **Sahip öncelik kararı, 2026-07-18:** P9.5-11'in manuel sürme dilimi
+  P9.5-10'dan önce uygulanmıştır. Toolbar'daki ayrı Poke modu yalnız worker
+  hazırken açılır. Scalar input tek tıkla toggle edilir; multi-bit input
+  tıklanan noktada BIN/HEX/UDEC/SDEC, bit düğmeleri, Apply/OK/Escape taşıyan
+  non-modal popover açar. Select salt-okunur kalır. Bu dar öncelik değişikliği
+  sonrasında P9.5-10 yine sıradaki bağlayıcı iştir.
 
 ## Hedef mimari
 
