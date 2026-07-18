@@ -1,21 +1,50 @@
 import * as React from '@theia/core/shared/react';
 import { EngineSchematicLayoutNode } from '../common/bistable-engine-protocol';
+import {
+    displayNodeTitle,
+    elideMiddle,
+    showsPinLabels
+} from '../common/schematic-visual-contract';
 
 export function renderRtlSymbol(node: EngineSchematicLayoutNode): React.ReactElement {
+    const inputClipId = clipId(node.id, 'input');
+    const outputClipId = clipId(node.id, 'output');
     return <g
         key={node.id}
         className={`bistable-rtl-node bistable-rtl-node-${node.kind.toLowerCase()}`}
         transform={`translate(${node.x}, ${node.y})`}
     >
-        <title>{`${node.label} · ${node.kind}`}</title>
+        <title>{`${node.label}${node.typeLabel ? ` : ${node.typeLabel}` : ''} · ${node.kind}`}</title>
+        {showsPinLabels(node) && <defs>
+            <clipPath id={inputClipId}>
+                <rect x='10' y={node.headerHeight} width={node.pinLabelColumnWidth + 4} height={node.height - node.headerHeight} />
+            </clipPath>
+            <clipPath id={outputClipId}>
+                <rect
+                    x={node.width - node.pinLabelColumnWidth - 14}
+                    y={node.headerHeight}
+                    width={node.pinLabelColumnWidth + 4}
+                    height={node.height - node.headerHeight}
+                />
+            </clipPath>
+        </defs>}
         {renderBody(node)}
         {node.pins.map(pin => <g key={pin.id} className={`bistable-rtl-pin bistable-rtl-pin-${pin.direction}`}>
-            <circle cx={pin.x} cy={pin.y} r='3.5' />
-            {node.kind !== 'Port' && <text
-                x={pin.direction === 'input' ? pin.x + 7 : pin.x - 7}
+            {/* Short stub bridges the gap between the edge and inset symbol shapes. */}
+            <line
+                className='bistable-rtl-pin-stub'
+                x1={pin.x}
+                y1={pin.y}
+                x2={pin.direction === 'input' ? pin.x + 9 : pin.x - 9}
+                y2={pin.y}
+            />
+            <circle cx={pin.x} cy={pin.y} r='2.4' />
+            {showsPinLabels(node) && <text
+                x={pin.direction === 'input' ? pin.x + 14 : pin.x - 14}
                 y={pin.y + 3}
                 textAnchor={pin.direction === 'input' ? 'start' : 'end'}
-            >{shorten(pin.signal, 13)}<title>{pin.signal}</title></text>}
+                clipPath={`url(#${pin.direction === 'input' ? inputClipId : outputClipId})`}
+            >{pin.displayLabel}<title>{`${pin.label} · ${pin.signal}`}</title></text>}
         </g>)}
     </g>;
 }
@@ -50,16 +79,20 @@ function renderPort(node: EngineSchematicLayoutNode): React.ReactElement {
     return <g>
         <polygon className='bistable-rtl-body' points={points} />
         <text className='bistable-rtl-label' x={w / 2} y={h / 2 + 4} textAnchor='middle'>
-            {shorten(node.label, 11)}
+            {elideMiddle(node.label, 15)}
+            <title>{node.label}</title>
         </text>
     </g>;
 }
 
 function renderMux(node: EngineSchematicLayoutNode): React.ReactElement {
+    // Left wall flush at x=0 so input pins sit on the body; the trapezoid slant
+    // is vertical-only. The "MUX" mark is a small top caption, not a big centred
+    // operator, so it never covers the pin labels.
     const { width: w, height: h } = node;
     return <g>
-        <path className='bistable-rtl-body' d={`M 8 0 L ${w - 8} 12 L ${w - 8} ${h - 12} L 8 ${h} Z`} />
-        <text className='bistable-rtl-operator' x={w / 2} y={h / 2 + 5} textAnchor='middle'>MUX</text>
+        <path className='bistable-rtl-body' d={`M 0 0 L ${w} 12 L ${w} ${h - 12} L 0 ${h} Z`} />
+        <text className='bistable-rtl-mux-mark' x={w / 2} y='15' textAnchor='middle'>MUX</text>
     </g>;
 }
 
@@ -116,23 +149,40 @@ function renderSequential(node: EngineSchematicLayoutNode, caption: string): Rea
 }
 
 function renderInstance(node: EngineSchematicLayoutNode): React.ReactElement {
+    const separatorY = node.headerHeight - 4;
     return <g>
         <rect className='bistable-rtl-body bistable-rtl-instance-body' width={node.width} height={node.height} rx='3' />
-        <line className='bistable-rtl-detail' x1='0' y1='24' x2={node.width} y2='24' />
-        <text className='bistable-rtl-caption' x='9' y='16'>{shorten(node.label, 21)}</text>
-        <text className='bistable-rtl-instance-mark' x={node.width / 2} y={node.height / 2 + 10} textAnchor='middle'>MODULE</text>
+        <text className='bistable-rtl-caption bistable-rtl-instance-name' x={node.width / 2} y='18' textAnchor='middle'>
+            {displayNodeTitle(node.label)}<title>{node.label}</title>
+        </text>
+        {node.typeLabel && <text className='bistable-rtl-instance-type' x={node.width / 2} y='33' textAnchor='middle'>
+            {displayNodeTitle(node.typeLabel)}<title>{node.typeLabel}</title>
+        </text>}
+        <line className='bistable-rtl-detail' x1='0' y1={separatorY} x2={node.width} y2={separatorY} />
     </g>;
 }
 
 function renderConstant(node: EngineSchematicLayoutNode): React.ReactElement {
-    const x = node.width / 2;
-    const y = node.height / 2;
+    // A constant is a literal value box rather than a ground symbol — the value
+    // is the whole point, so show it plainly.
+    const { width: w, height: h } = node;
+    const boxHeight = Math.min(h, 26);
+    const y = (h - boxHeight) / 2;
     return <g>
-        <line className='bistable-rtl-detail' x1={x} y1='4' x2={x} y2={y} />
-        <line className='bistable-rtl-detail' x1={x - 15} y1={y} x2={x + 15} y2={y} />
-        <line className='bistable-rtl-detail' x1={x - 10} y1={y + 6} x2={x + 10} y2={y + 6} />
-        <line className='bistable-rtl-detail' x1={x - 4} y1={y + 12} x2={x + 4} y2={y + 12} />
-        <text className='bistable-rtl-caption' x={x} y={node.height - 4} textAnchor='middle'>{shorten(node.label, 12)}</text>
+        <rect
+            className='bistable-rtl-body bistable-rtl-constant-body'
+            x='2'
+            y={y}
+            width={w - 4}
+            height={boxHeight}
+            rx='4'
+        />
+        <text
+            className='bistable-rtl-constant-value'
+            x={w / 2}
+            y={h / 2 + 4}
+            textAnchor='middle'
+        >{shorten(node.label, 12)}<title>{node.label}</title></text>
     </g>;
 }
 
@@ -175,4 +225,13 @@ function arithmeticOperator(kind: string): string {
 
 function shorten(value: string, length: number): string {
     return value.length > length ? `${value.slice(0, length - 1)}…` : value;
+}
+
+function clipId(nodeId: string, direction: 'input' | 'output'): string {
+    let hash = 2166136261;
+    for (let index = 0; index < nodeId.length; index++) {
+        hash ^= nodeId.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return `bistable-pin-clip-${direction}-${(hash >>> 0).toString(36)}`;
 }

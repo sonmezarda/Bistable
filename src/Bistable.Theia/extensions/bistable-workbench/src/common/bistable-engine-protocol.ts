@@ -37,6 +37,11 @@ export interface EngineSchematicNode {
     label: string;
     inputs: string[];
     outputs: string[];
+    /** Short semantic pin names (A/B/Y, D/Q/CLK, module port names). */
+    inputLabels?: string[];
+    outputLabels?: string[];
+    /** Module type for instance symbols; `label` remains the instance name. */
+    typeLabel?: string;
 }
 
 export interface EngineSchematicEdge {
@@ -58,12 +63,18 @@ export interface EngineSchematicLayoutNode extends EngineSchematicNode {
     y: number;
     width: number;
     height: number;
+    pinLabelColumnWidth: number;
+    headerHeight: number;
     pins: EngineSchematicPin[];
 }
 
 export interface EngineSchematicPin {
     id: string;
     signal: string;
+    /** Full semantic label. Exact net identity remains in `signal`. */
+    label: string;
+    /** Pixel-budgeted label rendered inside the symbol. */
+    displayLabel: string;
     direction: 'input' | 'output';
     x: number;
     y: number;
@@ -95,8 +106,61 @@ export interface EngineProjectLoadResult {
     errorMessage?: string;
 }
 
+// ── simulation.* (engine protocol v2) ────────────────────────────────────
+
+export interface EngineSimulationSignal {
+    signal: string;
+    value: string;
+}
+
+export interface EngineSimulationFrame {
+    time: number;
+    signals: EngineSimulationSignal[];
+}
+
+export interface EngineSimulationProbe {
+    path: string;
+    width: number;
+    isSigned: boolean;
+    isRegistered: boolean;
+    isMemory: boolean;
+}
+
+export interface EngineSimulationSnapshot {
+    topModule: string;
+    ports: EngineProjectPort[];
+    probes: EngineSimulationProbe[];
+    initialFrame: EngineSimulationFrame;
+}
+
+export interface EngineSimulationReadOutcome {
+    path: string;
+    value?: string;
+    width: number;
+    isSigned: boolean;
+    error?: string;
+}
+
+export interface EngineSimulationReadResult {
+    results: EngineSimulationReadOutcome[];
+}
+
+/**
+ * A caller value that failed width/format validation before any worker IPC.
+ * Surfaced as a rejected promise carrying the structured engine message.
+ */
+export class EngineSimulationValidationError extends Error {
+}
+
 export interface BistableEngineService {
     hello(): Promise<EngineHelloResult>;
     loadProject(projectPath: string): Promise<EngineProjectLoadResult>;
     layoutSchematic(graph: EngineSchematicGraph): Promise<EngineSchematicLayout>;
+    startSimulation(projectPath: string): Promise<EngineSimulationSnapshot>;
+    setInput(signal: string, value: string): Promise<EngineSimulationFrame>;
+    evalDesign(): Promise<EngineSimulationFrame>;
+    tick(clock?: string): Promise<EngineSimulationFrame>;
+    reset(): Promise<EngineSimulationFrame>;
+    readSignals(paths: string[]): Promise<EngineSimulationReadResult>;
+    stopSimulation(): Promise<void>;
 }

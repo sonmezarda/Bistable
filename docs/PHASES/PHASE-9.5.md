@@ -68,8 +68,12 @@ kapanana kadar Avalonia karşılaştırma ve geri dönüş yüzeyi olarak korunu
 | P9.5-3 | `Bistable.Engine.Host`: sürümlü JSON-line RPC, süreç yaşam döngüsü, diagnostics | **Tamamlandı** |
 | P9.5-4 | Theia backend extension: engine host süreç sahipliği ve frontend proxy | **Tamamlandı** |
 | P9.5-5 | Bistable workbench widget + Explorer/Monaco/Problems entegrasyonu | **Tamamlandı; sahibi yön kabulü verdi** |
-| P9.5-6 | Live reload ve şematik veri/render köprüsü | **Dockable top RTL + ELK sembolleri tamam; hiyerarşi aktif iş** |
+| P9.5-6 | Live reload ve şematik veri/render köprüsü | **Dockable top RTL + ELK sembolleri tamam; canlı simülasyon döngüsü (sür/izle) tamam; hiyerarşi bir sonraki dilim** |
 | P9.5-7 | Otomatik testler, performans ölçümü ve ADR go/no-go sonucu | Aktif |
+| P9.5-8 | Canlı döngü ilk kapısı: Engine session servisi + EngineHost RPC v2 + şematik sür/izle | **Otomatik testler yeşil; sahibin görsel/etkileşim kabulü bekleniyor** |
+| P9.5-9 | Vivado-tarzı şematik okunabilirlik sözleşmesi: semantik pinler, ölçülü kolonlar, elision/LOD | **Uygulandı; sahibi görsel kabulü bekleniyor** |
+| P9.5-10 | Hiyerarşik aç/kapa: instance içine girme, modül document kimliği, breadcrumb ve cone navigation | **Sıradaki dilim** |
+| P9.5-11 | Logisim/Digital-tarzı manuel sürme: Poke modu, 1-bit toggle, çok-bit non-modal popover | **UX sözleşmesi tamam; P9.5-10 sonrasında** |
 
 ## İlk dilim sonucu — 2026-07-17
 
@@ -110,6 +114,83 @@ kapanana kadar Avalonia karşılaştırma ve geri dönüş yüzeyi olarak korunu
   instance için RTL sembolleri ve gerçek pin konumları çizer.
 - Top-modül document yolu tamamdır. Instance içine girme, breadcrumb ve her
   modül için ayrı document kimliği bir sonraki hiyerarşi dilimidir.
+
+## Canlı döngü ilk kapısı — 2026-07-17
+
+Vizyonun kalbi (sür → gör → izle) artık Theia şematiği üzerinde çalışır. C#
+simülasyon matematiği TypeScript'e kopyalanmadı; native Verilator worker'ı
+`Bistable.Engine` tarafındaki yeni `SimulationSessionService` sahiplenir.
+
+- **`Bistable.Engine`:** `SimulationSessionService` bir yüklü proje için worker'ı
+  `SimulationWorkerBuilder` ile derler, `Hello` (protokol v3) el sıkışması yapar,
+  probe kataloğunu okur ve canlı döngüyü sunar: `SetInput` (genişlik/format
+  doğrulaması *IPC öncesi*), `Eval`/`Tick`/`Reset`, tek turlu `ReadSignals`.
+  Her başlatma **session generation** artırır; proje reload'ında yeni worker
+  hazırlanıp eskisi atomik olarak bırakılır, geç gelen frame/okuma düşürülür.
+  Transport için UI'dan bağımsız `EngineSimulationWorker` (App
+  `SimulationWorkerClient`'ının atomik gönder/boşalt disiplininin aynısı, sim
+  matematiği yok) eklendi. Değer doğrulaması `SimulationValueValidator`'da
+  izole edildi.
+- **`Bistable.EngineHost`:** protokol **v1 → v2**. `simulation.start`,
+  `simulation.setInput`, `simulation.eval`, `simulation.tick`, `simulation.reset`,
+  `simulation.readSignals`, `simulation.stop` metotları; doğrulama hataları
+  `invalid_value` koduyla yapılandırılmış döner. Eski/uyumsuz sürüm handshake'te
+  reddedilir. stdout yalnız protokol; loglar stderr.
+- **Theia frontend:** `BistableProjectState` artık simülasyon dilimini de
+  sahiplenir (`onDidChangeSimulation`, değer haritası, seçili sinyal, driven
+  kümesi). Şematik document seçim (pin bazlı, görünen etikete güvenmez),
+  inspector (path/direction/width/değer), bin/hex/dec giriş + Apply
+  (SetInput→Eval→tek batch ReadSignals→canlı overlay) ve Eval/Tick/Reset
+  kontrolleri taşır. Değer overlay'leri mevcut ELK geometrisi üzerine saf SVG;
+  değer değişiminde layout yeniden çalışmaz. Görünür probe yolu kümesi yalnız
+  layout değişiminde hesaplanır (frame başına tam graf taraması yok).
+- **Testler:** Engine session (sür→frame, tek batch, doğrulama IPC'siz reddeder,
+  dispose'da sızıntı yok, reload generation), EngineHost RPC v2 (hello v2 +
+  capabilities, tam lifecycle, invalid_value), Theia `check-simulation-state.mjs`
+  (selected/driven/live → CSS + stale generation). Avalonia simülasyon testleri
+  değişmedi.
+
+## Şematik görsel sözleşmesi — Vivado birincil referans, 2026-07-17
+
+Ürün sahibi RTL şematik gösteriminde birincil görsel/davranış referansı olarak
+AMD Vivado'yu seçti. Bistable marka ve canlı-debug yeteneklerini korur; fakat
+sembol/pin yoğunluğu, hiyerarşik keşif ve long-text davranışında Vivado'nun
+profesyonel okunabilirlik ilkeleri izlenir.
+
+- Exact net adı bağlantı, probe ve seçim kimliğidir; görünür pin etiketi değildir.
+  Transport düğümleri artık paralel `inputLabels`/`outputLabels` metadata'sı
+  taşır. MUX `S/I0…/Y`, gate `A/B…/Y`, register `D/CLK/ARST/Q`; instance ise
+  gerçek HDL port adlarını gösterir. `__schematic_*` adları tooltip/Inspector'da
+  denetlenebilir kalır ancak sembol yüzeyini doldurmaz.
+- Node-side `schematic-visual-contract.ts`, sabit monospace metrikleriyle label
+  kolonunu ölçer ve ELK'ye içerik-duyarlı fakat üst sınırlandırılmış node boyutu
+  verir. Sol/sağ pin kolonları arasında sembol tipine göre korumalı merkez
+  boşluğu vardır; SVG clip-path son güvenlik katmanıdır.
+- Instance header'ı iki satırdır: güçlü instance adı + ikincil module type.
+  Uzun metin prefix ve suffix'i koruyan orta elision ile kısalır; tam değer
+  tooltip'tedir.
+- Overview zoom'da pin/module-type/live-value ayrıntıları gizlenir; topoloji ve
+  ana semboller kalır. Bu LOD yalnız çizimi değiştirir, bağlantı/selection
+  semantiğini veya layout geometrisini değiştirmez.
+- Bir sonraki zorunlu dilim P9.5-10'dur: Vivado benzeri seçici hiyerarşi
+  expand/collapse, instance document navigation ve breadcrumb. Küçük görsel
+  cilalar bu navigasyon kapısının önüne geçmez.
+
+## Manuel simülasyon etkileşimi — Logisim + Digital referansı, 2026-07-17
+
+Manuel sürme davranışı için araştırılmış birincil referanslar Logisim Evolution
+ve Digital'dır. Bağlayıcı ayrıntılar
+[docs/SIMULATION_INTERACTION_UX.md](../SIMULATION_INTERACTION_UX.md) içindedir.
+
+- Port/pin seçiminden sonra constant literal kutusunun tamamı da exact output
+  netini seçer; Inspector bunu `constant · read only` gösterir.
+- Gezinme güvenliği için Select mutasyon yapmaz. P9.5-10 sonrasındaki sürme
+  dilimi ayrı Poke/Drive modu taşır: 1-bit input tek tıkla toggle olur; çok-bit
+  input Digital benzeri anchored, non-modal Apply/OK/Escape popover'ı açar.
+- Clock/reset/button rolleri isimden tahmin edilmez. Tick mevcut toolbar
+  komutunda kalır; özel etkileşim ancak açık input-role metadata'sıyla eklenir.
+- Her sürme aynı `SetInput → Eval → tek batch ReadSignals` yolunu kullanır;
+  şematik layout'u yeniden çalıştırmaz.
 
 ## Hedef mimari
 

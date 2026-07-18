@@ -30,8 +30,8 @@ inspect ports, hierarchy, internal signals, waveform, and schematic live.
 | `src/Bistable.Protocol` | JSON line-protocol between GUI and native worker |
 | `src/Bistable.Verilator` | Verilator XML reader + native worker generation |
 | `src/Bistable.Yosys` | Gate-level synthesis: `YosysTool`, `YosysScriptBuilder`, `YosysJsonReader`, `GateCellLibrary` |
-| `src/Bistable.Engine` | UI-independent elaboration services and shared diagnostics |
-| `src/Bistable.EngineHost` | Versioned JSON-line process boundary for external frontends |
+| `src/Bistable.Engine` | UI-independent elaboration + simulation-session services and shared diagnostics |
+| `src/Bistable.EngineHost` | Versioned JSON-line process boundary (protocol v2 with `simulation.*`) for external frontends |
 | `src/Bistable.Theia` | Phase 9.5 Theia browser/Electron product-shell POC |
 
 Tests: `tests/Bistable.Tests` (unit/algorithmic), `tests/Bistable.Regression`
@@ -96,6 +96,8 @@ abstraction removes proven duplication:
 | `docs/RTL_SCHEMATIC_VISUAL_ISSUES.md` | RTL-schematic expand-defects: Issues 1–5 **done** (2026-07-16); open follow-ups = Issue 4 **Stage 2** (MemoryWritePrimitive) + pending user visual acceptance on `riscv_single_cycle` |
 | `docs/DESIGN_AST.md` | Design IR / AST spec (`Bistable.Core.Design.Ast`) |
 | `docs/PROTOCOL.md` | GUI ↔ worker JSON line protocol |
+| `docs/ENGINE_HOST_PROTOCOL.md` | Frontend ↔ EngineHost RPC (v2, incl. `simulation.*`) used by Theia |
+| `docs/SIMULATION_INTERACTION_UX.md` | Binding manual-drive UX: Vivado visual + Logisim/Digital Poke/popover semantics |
 | `docs/SCHEMATIC_COVERAGE.md` | "What the renderer understood" coverage model (Phase 2.9) |
 | `docs/TESTING.md` | Test project layout and conventions |
 
@@ -114,11 +116,11 @@ abstraction removes proven duplication:
 - Branch `theia/workbench-poc`, created after fast-forwarding local `main` to
   the user-committed `new_phases` tip. Phase 9.5 work is uncommitted; do not
   commit or push without explicit user approval.
-- Build clean (0/0). Current validation: 926/930 passed in the parallel full
+- Build clean (0/0). Current validation: 954/958 passed in the parallel full
   run; known timing failures in `ElkRunnerCancellation*` (two),
   `SimulationWorkerClientCancellation*` (one), and
-  `GateSchematicPerformance*` (one) passed in isolated family runs (3/3, 2/2,
-  5/5). Golden snapshots are unchanged.
+  `GateSchematicPerformance*` (one) passed in isolated family runs (combined
+  cancellation 5/5, gate performance 5/5). Golden snapshots are unchanged.
 - **Most recent work (this session):** Phases 7 and 8 completed. Phase 7 added
   `CombinationalProjector`, comb target/read coverage, the `u_alu.zero` edge
   regression, and owner-accepted visual closure. Phase 8 added protocol v3
@@ -142,8 +144,31 @@ abstraction removes proven duplication:
   Problems error/recovery lifecycle, and a top-module schematic graph DTO + SVG
   renderer are implemented. The schematic is now a separate main document;
   ELK runs in the Theia backend and the frontend uses typed RTL symbols/pins
-  instead of generic cards. Hierarchical module documents, simulation/waveform
-  transport, Electron packaging, and measured migration closure remain open.
+  instead of generic cards. Hierarchical module documents, waveform transport,
+  Electron packaging, and measured migration closure remain open.
+- **Phase 9.5 live-loop first gate (this session):** the drive→watch loop runs
+  on the Theia schematic. `Bistable.Engine.SimulationSessionService` owns the
+  native worker (build/`Hello`/probes/live loop) with session generations for
+  atomic reload swap; `SimulationValueValidator` rejects bad values before any
+  IPC. EngineHost is protocol **v2** with the `simulation.*` methods
+  (`docs/ENGINE_HOST_PROTOCOL.md`). The Theia frontend selects a signal, shows
+  path/dir/width/value, drives bin/hex/dec + Apply (SetInput→Eval→one batched
+  `ReadSignals`), and has Eval/Tick/Reset — value overlays reuse existing
+  geometry (no per-frame re-layout). No C# sim math is duplicated in TypeScript.
+  Automated tests are green; **owner visual/interaction acceptance is pending.**
+- **Phase 9.5 schematic visual contract:** the owner selected AMD Vivado as the
+  primary schematic UX reference. Exact net/probe identity is now separate from
+  semantic display pins (`S/I0/Y`, `A/B/Y`, `D/CLK/Q`, instance HDL ports).
+  Node-side deterministic text metrics give ELK bounded content-aware sizes;
+  protected left/right label columns, middle elision, clip paths, two-line
+  instance headers, tooltips, and overview LOD prevent generated
+  `__schematic_*` names from covering symbols. The next binding slice is
+  hierarchical instance expand/collapse + module documents/breadcrumbs.
+- **Phase 9.5 manual-simulation UX contract:** visible constant boxes now select
+  their exact driven net and remain read-only. Logisim Evolution and Digital
+  are the primary interaction references: after the hierarchy slice, a separate
+  Poke/Drive mode will provide one-click 1-bit toggle and an anchored non-modal
+  multi-bit value popover. Select mode never mutates simulation state.
 
 ## 7. Guardrails (do not break these)
 

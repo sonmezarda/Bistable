@@ -104,8 +104,20 @@ Full wire-format spec in `docs/PROTOCOL.md`.
   diagnostics.
 - `EngineSchematicProjectionService` — top-module decoder output to an exact
   signal-labelled, layout-agnostic node/edge transport graph.
-- `EngineRpcServer` — JSON-line methods `hello`, `loadProject`, and `shutdown`;
-  stdout is protocol-only and elaboration failures carry structured diagnostics.
+- `EngineRpcServer` — JSON-line methods `hello`, `loadProject`, `shutdown`, and
+  the protocol-v2 `simulation.*` family (`start`/`setInput`/`eval`/`tick`/
+  `reset`/`readSignals`/`stop`); stdout is protocol-only and elaboration/
+  validation failures carry structured diagnostics/`invalid_value` codes.
+- `SimulationSessionService` (`Bistable.Engine`) — owns the native Verilator
+  worker for one loaded project via `SimulationWorkerBuilder`. Drives the live
+  loop (validate → SetInput → Eval/Tick/Reset → one batched `ReadSignals`), and
+  keys each start with a **session generation** so a project reload swaps the
+  worker atomically and drops late results from the superseded generation.
+- `EngineSimulationWorker` (`Bistable.Engine`) — UI-independent worker transport
+  mirroring `SimulationWorkerClient`'s atomic send/drain + `Hello`/`ReadSignals`
+  discipline; no simulation math (the compiled worker owns all of it).
+- `SimulationValueValidator` — parses bin/hex/dec and range-checks against a
+  port width **before** any worker IPC; a bad value never reaches the worker.
 
 ### `Bistable.Theia` (Phase 9.5 POC)
 - `browser-app` / `electron-app` — browser validation harness and branded
@@ -115,8 +127,23 @@ Full wire-format spec in `docs/PROTOCOL.md`.
 - The workbench auto-loads the root project and coalesces HDL saves through a
   400 ms latest-save-wins coordinator. RTL schematic is a separate main-area
   document widget; ELK layered/orthogonal layout executes in the Theia backend
-  process and the frontend draws typed RTL SVG symbols and pins. Hierarchical
-  module documents remain the next migration slice.
+  process and the frontend draws typed RTL SVG symbols and pins. The transport
+  keeps exact net identity separate from semantic display-pin metadata; the
+  shared `schematic-visual-contract.ts` computes bounded text-aware node sizes,
+  protected input/output columns, middle elision and overview LOD before ELK
+  runs. Instance headers separate instance name from module type. Hierarchical
+  module documents and Vivado-style selective expand/collapse remain the next
+  migration slice.
+- `bistable-project-state.ts` is the single owner of the loaded-project and
+  live-simulation state; the schematic widget observes it and refreshes values
+  **without reopening** the document. Pin selection carries exact signal +
+  hierarchical path (never the display label). Live values overlay the existing
+  geometry as SVG text — value changes never re-run ELK — and the visible-probe
+  set is computed once per layout. `simulation-state.ts` holds the DOM-free
+  state helpers (snapshot/frame/read merge, `pinClasses`, `liveValue`).
+- The backend `BistableEngineService` proxy owns the engine-host child process
+  and forwards the `simulation.*` methods; it guards protocol v2 at handshake.
+  No worker ownership lives in the renderer or the frontend.
 - Explorer, Monaco, Problems, Terminal, Settings, document tabs, and dock
   lifecycle come from Theia packages instead of custom Bistable controls.
 

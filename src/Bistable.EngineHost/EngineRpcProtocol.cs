@@ -6,7 +6,10 @@ namespace Bistable.EngineHost;
 
 public static class EngineRpcProtocol
 {
-    public const int Version = 1;
+    // v2 adds the simulation.* method family (start/setInput/eval/tick/reset/
+    // readSignals/stop). A frontend built for a different generation is rejected
+    // at the hello handshake.
+    public const int Version = 2;
 
     public static JsonSerializerOptions JsonOptions { get; } = new(JsonSerializerDefaults.Web)
     {
@@ -50,3 +53,31 @@ public sealed record EngineProjectSummary(
     string VerilatorVersion,
     double ElapsedMs,
     EngineSchematicGraph Schematic);
+
+// ── simulation.* (protocol v2) ───────────────────────────────────────────
+
+public sealed record EngineSimulationSignal(string Signal, string Value);
+
+public sealed record EngineSimulationFrame(ulong Time, IReadOnlyList<EngineSimulationSignal> Signals);
+
+public sealed record EngineSimulationProbe(
+    string Path,
+    int Width,
+    bool IsSigned,
+    bool IsRegistered,
+    bool IsMemory);
+
+public sealed record EngineSimulationSnapshot(
+    string TopModule,
+    IReadOnlyList<EngineProjectPort> Ports,
+    IReadOnlyList<EngineSimulationProbe> Probes,
+    EngineSimulationFrame InitialFrame);
+
+public sealed record EngineSimulationReadOutcome(
+    string Path,
+    string? Value,
+    int Width,
+    bool IsSigned,
+    string? Error);
+
+public sealed record EngineSimulationReadResult(IReadOnlyList<EngineSimulationReadOutcome> Results);

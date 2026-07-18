@@ -13,7 +13,11 @@ import {
     EngineProjectLoadResult,
     EngineProjectSummary,
     EngineSchematicGraph,
-    EngineSchematicLayout
+    EngineSchematicLayout,
+    EngineSimulationFrame,
+    EngineSimulationReadResult,
+    EngineSimulationSnapshot,
+    EngineSimulationValidationError
 } from '../common/bistable-engine-protocol';
 import { layoutSchematicWithElk } from './bistable-schematic-layout-service';
 
@@ -37,14 +41,14 @@ interface EngineElaborationErrorData {
 }
 
 class EngineRequestError extends Error {
-    constructor(message: string, readonly data?: unknown) {
+    constructor(message: string, readonly code?: string, readonly data?: unknown) {
         super(message);
     }
 }
 
 @injectable()
 export class BistableEngineServiceImpl implements BistableEngineService, BackendApplicationContribution {
-    private static readonly ProtocolVersion = 1;
+    private static readonly ProtocolVersion = 2;
 
     @inject(ILogger)
     protected readonly logger!: ILogger;
@@ -81,6 +85,47 @@ export class BistableEngineServiceImpl implements BistableEngineService, Backend
 
     layoutSchematic(graph: EngineSchematicGraph): Promise<EngineSchematicLayout> {
         return layoutSchematicWithElk(graph);
+    }
+
+    startSimulation(projectPath: string): Promise<EngineSimulationSnapshot> {
+        return this.simulationRequest('simulation.start', { projectPath });
+    }
+
+    setInput(signal: string, value: string): Promise<EngineSimulationFrame> {
+        return this.simulationRequest('simulation.setInput', { signal, value });
+    }
+
+    evalDesign(): Promise<EngineSimulationFrame> {
+        return this.simulationRequest('simulation.eval', {});
+    }
+
+    tick(clock?: string): Promise<EngineSimulationFrame> {
+        return this.simulationRequest('simulation.tick', clock ? { clock } : {});
+    }
+
+    reset(): Promise<EngineSimulationFrame> {
+        return this.simulationRequest('simulation.reset', {});
+    }
+
+    readSignals(paths: string[]): Promise<EngineSimulationReadResult> {
+        return this.simulationRequest('simulation.readSignals', { paths });
+    }
+
+    async stopSimulation(): Promise<void> {
+        await this.simulationRequest('simulation.stop', {});
+    }
+
+    private async simulationRequest<T>(method: string, params: object): Promise<T> {
+        try {
+            return await this.request<T>(method, params);
+        } catch (error) {
+            // A value that failed width/format validation is a user error, not a
+            // transport failure — surface it as a distinct type the widget can show.
+            if (error instanceof EngineRequestError && error.code === 'invalid_value') {
+                throw new EngineSimulationValidationError(error.message);
+            }
+            throw error;
+        }
     }
 
     async onStop(): Promise<void> {
@@ -163,6 +208,7 @@ export class BistableEngineServiceImpl implements BistableEngineService, Backend
             const detail = response.error.data ? ` ${JSON.stringify(response.error.data)}` : '';
             pending.reject(new EngineRequestError(
                 `[${response.error.code}] ${response.error.message}${detail}`,
+                response.error.code,
                 response.error.data));
         } else {
             pending.resolve(response.result);

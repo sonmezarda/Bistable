@@ -52,7 +52,12 @@ test, extension destekli profesyonel açık kaynak araç.
   IDE kapısını geçmedi. UI-ağır Faz 10–11 işlerine devam etmeden Theia tabanlı
   ürün kabuğu uygulanır. Ürün sahibi Theia yönünü kabul etti; mevcut Avalonia
   uygulaması Electron/live-loop/schematic/performance geçiş kapıları kapanana
-  kadar silinmez.
+  kadar silinmez. Şematik UX için birincil referans AMD Vivado'dur; semantik
+  pin/ölçülü label sözleşmesinden sonraki bağlayıcı dilim seçici hiyerarşi
+  expand/collapse ve modül document navigation'dır. Manuel simülasyon UX'inde
+  Logisim Evolution ve Digital referans alınır; Poke/Drive modu ve çok-bit
+  popover sözleşmesi `docs/SIMULATION_INTERACTION_UX.md` içinde kayıtlıdır ve
+  hiyerarşi diliminden sonra uygulanır.
 - **10 ve 11 paralel edilebilir** (birbirinden bağımsız); sıra: küçük/moral (10),
   sonra 11.
 - **12, 14'ün ön şartı:** Extension API ancak servis sınırlarından tanımlanır;

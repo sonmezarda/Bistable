@@ -140,6 +140,9 @@ export class BistableWorkbenchWidget extends ReactWidget {
             this.projectState.setProject(result.project);
             this.reloadRevision++;
             this.status = 'ready';
+            // Build/attach the native simulation worker in the background so the
+            // schematic appears immediately; live values light up when it's ready.
+            void this.projectState.startSimulation(projectPath);
         } catch (error) {
             this.setError(error);
         }

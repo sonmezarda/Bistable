@@ -5,10 +5,22 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import {
     BistableEngineService,
     EngineProjectSummary,
-    EngineSchematicLayout
+    EngineSchematicLayout,
+    EngineSchematicLayoutEdge,
+    EngineSchematicLayoutNode,
+    EngineSchematicPin
 } from '../common/bistable-engine-protocol';
 import { BistableProjectState } from './bistable-project-state';
 import { renderRtlSymbol } from './rtl-symbol-renderer';
+import {
+    emptySimulationState,
+    liveValue,
+    nodeBodySelectionTarget,
+    pinClasses,
+    probePath,
+    SelectedSignal,
+    SimulationState
+} from './simulation-state';
 
 @injectable()
 export class BistableSchematicWidget extends ReactWidget {
@@ -25,6 +37,17 @@ export class BistableSchematicWidget extends ReactWidget {
     private errorMessage = '';
     private zoom = 1;
     private layoutGeneration = 0;
+    // Seeded from the injected project state in init() — a field initializer runs
+    // before inversify property injection, so we cannot read projectState here.
+    private simulation: SimulationState = emptySimulationState();
+    /** Probe paths for the currently-laid-out signals; rebuilt only on layout change. */
+    private visiblePaths: string[] = [];
+    private valueInput = '';
+    private inputError = '';
+    private busy = false;
+    private panMode: 'hand' | 'select' = 'hand';
+    private pan = { x: 0, y: 0 };
+    private drag: { startX: number; startY: number; originX: number; originY: number } | undefined;
 
     @postConstruct()
     protected init(): void {
@@ -34,7 +57,19 @@ export class BistableSchematicWidget extends ReactWidget {
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-type-hierarchy-sub';
         this.addClass('bistable-schematic-document');
+        this.simulation = this.projectState.simulationState;
         this.toDispose.push(this.projectState.onDidChangeProject(project => void this.refresh(project)));
+        this.toDispose.push(this.projectState.onDidChangeSimulation(state => {
+            const becameReady = this.simulation.status !== 'ready' && state.status === 'ready';
+            this.simulation = state;
+            this.update();
+            // When the worker first becomes ready, read every visible signal once
+            // so all readable wires light up — not just the top-level outputs the
+            // initial frame carries.
+            if (becameReady && this.visiblePaths.length > 0) {
+                void this.projectState.readVisible(this.visiblePaths);
+            }
+        }));
         const project = this.projectState.project;
         if (project) {
             void this.refresh(project);
@@ -50,33 +85,415 @@ export class BistableSchematicWidget extends ReactWidget {
                     <span>{this.statusText()}</span>
                 </div>
                 <div className='bistable-schematic-tools'>
+                    {this.renderSimulationControls()}
+                    <span className='bistable-schematic-mode'>
+                        <button
+                            className={`theia-button ${this.panMode === 'hand' ? 'main' : 'secondary'}`}
+                            title='Pan mode — drag to move (H, or Space to toggle)'
+                            onClick={() => this.setPanMode('hand')}
+                        ><span className='codicon codicon-move' /></button>
+                        <button
+                            className={`theia-button ${this.panMode === 'select' ? 'main' : 'secondary'}`}
+                            title='Select mode — click wires/pins (V or S, or Space to toggle)'
+                            onClick={() => this.setPanMode('select')}
+                        ><span className='codicon codicon-inspect' /></button>
+                    </span>
                     <button className='theia-button secondary' onClick={() => this.setZoom(this.zoom - 0.15)}>−</button>
                     <span>{Math.round(this.zoom * 100)}%</span>
                     <button className='theia-button secondary' onClick={() => this.setZoom(this.zoom + 0.15)}>+</button>
-                    <button className='theia-button secondary' onClick={() => this.setZoom(1)}>Reset</button>
+                    <button className='theia-button secondary' onClick={() => this.resetView()}>Fit</button>
                 </div>
             </div>
+            {this.renderSimulationBanner()}
+            {this.renderInspector()}
             {this.status === 'error' && <div className='bistable-schematic-error'>{this.errorMessage}</div>}
             {!this.schematicLayout && this.status !== 'error' && <div className='bistable-schematic-empty'>
                 {this.status === 'layout' ? 'Routing RTL graph with ELK…' : 'Load a Bistable project to open its schematic.'}
             </div>}
-            {this.schematicLayout && <div className='bistable-schematic-canvas'>
-                <svg
-                    width={this.schematicLayout.width * this.zoom}
-                    height={this.schematicLayout.height * this.zoom}
-                    viewBox={`0 0 ${this.schematicLayout.width} ${this.schematicLayout.height}`}
-                    role='img'
-                    aria-label={`${this.projectState.project?.topModule ?? 'RTL'} schematic`}
-                >
-                    {this.schematicLayout.edges.map(edge => <polyline
+            {this.schematicLayout && this.renderCanvas(this.schematicLayout)}
+        </div>;
+    }
+
+    private renderSimulationBanner(): React.ReactElement | undefined {
+        const sim = this.simulation;
+        if (sim.status === 'starting') {
+            return <div className='bistable-sim-banner bistable-sim-banner-info'>
+                <span className='codicon codicon-loading codicon-modifier-spin' />
+                Building the native simulation worker (Verilator compile)…
+            </div>;
+        }
+        if (sim.status === 'error') {
+            return <div className='bistable-sim-banner bistable-sim-banner-error'>
+                <span className='codicon codicon-error' />
+                Simulation build failed: {sim.errorMessage ?? 'unknown error'}
+            </div>;
+        }
+        if (sim.status === 'stale') {
+            return <div className='bistable-sim-banner bistable-sim-banner-warn'>
+                <span className='codicon codicon-warning' />
+                Simulation is stale after a reload — press Build to re-attach.
+            </div>;
+        }
+        return undefined;
+    }
+
+    private renderSimulationControls(): React.ReactElement {
+        const status = this.simulation.status;
+        const ready = status === 'ready';
+        const building = status === 'starting' || this.busy;
+        const stepDisabled = this.busy || !ready;
+        const buildLabel = this.buildButtonLabel(status);
+        return <span className='bistable-sim-controls'>
+            <button
+                className='theia-button main'
+                disabled={building}
+                title='Build/attach the native simulation worker'
+                onClick={() => void this.startSimulation()}
+            >{buildLabel}</button>
+            <button className='theia-button' disabled={stepDisabled} onClick={() => void this.run(paths => this.projectState.evalDesign(paths))}>Eval</button>
+            <button className='theia-button' disabled={stepDisabled} onClick={() => void this.run(paths => this.projectState.tick(paths))}>Tick</button>
+            <button className='theia-button' disabled={stepDisabled} onClick={() => void this.run(paths => this.projectState.reset(paths))}>Reset</button>
+        </span>;
+    }
+
+    private buildButtonLabel(status: SimulationState['status']): string {
+        switch (status) {
+            case 'starting': return 'Building…';
+            case 'ready': return 'Rebuild';
+            case 'error': return 'Retry build';
+            default: return 'Build';
+        }
+    }
+
+    private async startSimulation(): Promise<void> {
+        const project = this.projectState.project;
+        if (!project) {
+            return;
+        }
+        await this.projectState.startSimulation(project.projectPath);
+    }
+
+    private renderInspector(): React.ReactElement | undefined {
+        const selected = this.simulation.selected;
+        if (!selected) {
+            return undefined;
+        }
+        const probe = this.simulation.probes.get(selected.path);
+        const current = liveValue(selected.signal, selected.path, this.simulation) ?? '—';
+        const direction = this.directionOf(selected);
+        const drivable = direction === 'input';
+        const ready = this.simulation.status === 'ready';
+        return <div className='bistable-sim-inspector'>
+            <div className='bistable-sim-inspector-meta'>
+                <code>{selected.path}</code>
+                <span>{direction} · {probe ? `${probe.width}b` : 'width ?'} · = {current}</span>
+                <button
+                    className='theia-button secondary bistable-sim-close'
+                    title='Clear selection'
+                    onClick={() => this.select(undefined)}
+                ><span className='codicon codicon-close' /></button>
+            </div>
+            {drivable && <div className='bistable-sim-inspector-drive'>
+                <input
+                    className='theia-input'
+                    placeholder={ready ? 'bin 0b… / hex 0x… / dec' : 'Build the simulation first'}
+                    value={this.valueInput}
+                    disabled={this.busy || !ready}
+                    onChange={event => { this.valueInput = event.target.value; this.update(); }}
+                    onKeyDown={event => { if (event.key === 'Enter') { void this.applyValue(selected); } }}
+                />
+                <button
+                    className='theia-button main'
+                    disabled={this.busy || !ready || this.valueInput.length === 0}
+                    onClick={() => void this.applyValue(selected)}
+                >Apply</button>
+            </div>}
+            {!drivable && <div className='bistable-sim-inspector-hint'>
+                {direction === 'output' ? 'Output — read only. Drive top-level inputs (far left) to change it.'
+                    : direction === 'constant' ? 'Constant — read only. Select its driven wire to follow the value.'
+                    : 'Internal net — read only. Drive top-level inputs (far left).'}
+            </div>}
+            {!ready && drivable && <div className='bistable-sim-inspector-hint'>
+                Press <strong>Build</strong> in the toolbar to attach the simulator, then Apply becomes active.
+            </div>}
+            {this.inputError && <div className='bistable-sim-inspector-error'>{this.inputError}</div>}
+        </div>;
+    }
+
+    private renderCanvas(layout: EngineSchematicLayout): React.ReactElement {
+        const topModule = this.projectState.project?.topModule ?? '';
+        return <div
+            className={`bistable-schematic-canvas bistable-pan-${this.panMode}${this.drag ? ' bistable-panning' : ''}`}
+            tabIndex={0}
+            onMouseDown={event => this.onCanvasMouseDown(event)}
+            onMouseMove={event => this.onCanvasMouseMove(event)}
+            onMouseUp={() => this.onCanvasMouseUp()}
+            onMouseLeave={() => this.onCanvasMouseUp()}
+            onWheel={event => this.onCanvasWheel(event)}
+            onKeyDown={event => this.onCanvasKeyDown(event)}
+        >
+            <svg
+                className={`bistable-schematic-svg ${this.zoom < 0.55 ? 'bistable-schematic-lod-overview' : 'bistable-schematic-lod-detail'}`}
+                role='img'
+                aria-label={`${topModule} schematic`}
+            >
+                <g transform={`translate(${this.pan.x}, ${this.pan.y}) scale(${this.zoom})`}>
+                    {/* Wide, invisible hit lines under each net make wires easy to click. */}
+                    {layout.edges.map(edge => <polyline
+                        key={`hit:${edge.id}`}
+                        className='bistable-rtl-edge-hit'
+                        points={edge.points.map(point => `${point.x},${point.y}`).join(' ')}
+                        onClick={event => this.onEdgeClick(event, edge.signal, topModule)}
+                    ><title>{edge.signal}</title></polyline>)}
+                    {layout.edges.map(edge => <polyline
                         key={edge.id}
-                        className='bistable-rtl-edge'
+                        className={this.edgeClass(edge.signal, topModule)}
                         points={edge.points.map(point => `${point.x},${point.y}`).join(' ')}
                     ><title>{edge.signal}</title></polyline>)}
-                    {this.schematicLayout.nodes.map(renderRtlSymbol)}
-                </svg>
-            </div>}
+                    {layout.nodes.map(renderRtlSymbol)}
+                    {layout.edges.map(edge => this.renderEdgeValue(edge, topModule))}
+                    {layout.nodes.map(node => this.renderNodeOverlay(node))}
+                </g>
+            </svg>
         </div>;
+    }
+
+    /** Draw the live value at the middle of a wire (multi-bit buses especially). */
+    private renderEdgeValue(edge: EngineSchematicLayoutEdge, topModule: string): React.ReactElement | undefined {
+        const path = probePath(topModule, edge.signal);
+        const value = liveValue(edge.signal, path, this.simulation);
+        if (value === undefined || edge.points.length < 2) {
+            return undefined;
+        }
+        // Pick a point on a horizontal run so the label sits along the wire.
+        const mid = this.horizontalMidpoint(edge.points);
+        return <text
+            key={`val:${edge.id}`}
+            className='bistable-edge-value'
+            x={mid.x}
+            y={mid.y - 3}
+            textAnchor='middle'
+        >{value}<title>{`${edge.signal} = ${value}`}</title></text>;
+    }
+
+    private horizontalMidpoint(points: { x: number; y: number }[]): { x: number; y: number } {
+        let best = points[Math.floor(points.length / 2)];
+        let bestLen = -1;
+        for (let i = 1; i < points.length; i++) {
+            const a = points[i - 1];
+            const b = points[i];
+            if (Math.abs(a.y - b.y) < 0.5) {
+                const len = Math.abs(a.x - b.x);
+                if (len > bestLen) {
+                    bestLen = len;
+                    best = { x: (a.x + b.x) / 2, y: a.y };
+                }
+            }
+        }
+        return best;
+    }
+
+    private edgeClass(signal: string, topModule: string): string {
+        const path = probePath(topModule, signal);
+        const classes = ['bistable-rtl-edge'];
+        const probe = this.simulation.probes.get(path);
+        // Bus (>1 bit) vs single-bit wires get distinct thickness/colour.
+        if (probe && probe.width > 1) {
+            classes.push('bistable-rtl-edge-bus');
+        } else {
+            classes.push('bistable-rtl-edge-bit');
+            // For a single-bit wire, colour it by its live logic level.
+            const level = this.bitLevel(signal, path);
+            if (level === '1') {
+                classes.push('bistable-rtl-edge-high');
+            } else if (level === '0') {
+                classes.push('bistable-rtl-edge-low');
+            }
+        }
+        if (this.simulation.selected?.path === path) {
+            classes.push('bistable-rtl-edge-selected');
+        }
+        return classes.join(' ');
+    }
+
+    /** Live logic level of a 1-bit net: '1', '0', or undefined when unknown. */
+    private bitLevel(signal: string, path: string): '0' | '1' | undefined {
+        const raw = liveValue(signal, path, this.simulation);
+        if (raw === undefined) {
+            return undefined;
+        }
+        const normalized = raw.trim().toLowerCase();
+        if (normalized === '1' || normalized === '0x1' || normalized === "1'h1") {
+            return '1';
+        }
+        if (normalized === '0' || normalized === '0x0' || normalized === "1'h0") {
+            return '0';
+        }
+        return undefined;
+    }
+
+    private onEdgeClick(event: React.MouseEvent, signal: string, topModule: string): void {
+        if (this.panMode !== 'select') {
+            return;
+        }
+        event.stopPropagation();
+        this.select({ signal, path: probePath(topModule, signal), nodeKind: 'Net' });
+    }
+
+    private onCanvasMouseDown(event: React.MouseEvent): void {
+        // Left-drag pans in hand mode; middle-drag always pans.
+        const leftInHand = this.panMode === 'hand' && event.button === 0;
+        const middle = event.button === 1;
+        if (leftInHand || middle) {
+            this.drag = { startX: event.clientX, startY: event.clientY, originX: this.pan.x, originY: this.pan.y };
+        }
+    }
+
+    private onCanvasMouseMove(event: React.MouseEvent): void {
+        if (!this.drag) {
+            return;
+        }
+        this.pan = {
+            x: this.drag.originX + (event.clientX - this.drag.startX),
+            y: this.drag.originY + (event.clientY - this.drag.startY)
+        };
+        this.update();
+    }
+
+    private onCanvasMouseUp(): void {
+        if (this.drag) {
+            this.drag = undefined;
+            this.update();
+        }
+    }
+
+    private onCanvasWheel(event: React.WheelEvent): void {
+        // Plain wheel zooms toward the cursor so the point under the mouse stays put.
+        event.preventDefault();
+        const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+        const nextZoom = Math.min(2.5, Math.max(0.2, this.zoom * factor));
+        if (nextZoom === this.zoom) {
+            return;
+        }
+        const rect = event.currentTarget.getBoundingClientRect();
+        const cursorX = event.clientX - rect.left;
+        const cursorY = event.clientY - rect.top;
+        // Keep the world point under the cursor fixed across the zoom change.
+        const ratio = nextZoom / this.zoom;
+        this.pan = {
+            x: cursorX - (cursorX - this.pan.x) * ratio,
+            y: cursorY - (cursorY - this.pan.y) * ratio
+        };
+        this.zoom = nextZoom;
+        this.update();
+    }
+
+    private onCanvasKeyDown(event: React.KeyboardEvent): void {
+        // Don't hijack keys while typing into the value field.
+        if (event.target instanceof HTMLInputElement) {
+            return;
+        }
+        switch (event.key.toLowerCase()) {
+            case 'h': this.setPanMode('hand'); break;
+            case 'v':
+            case 's': this.setPanMode('select'); break;
+            case ' ': // Space toggles between the two modes.
+                event.preventDefault();
+                this.setPanMode(this.panMode === 'hand' ? 'select' : 'hand');
+                break;
+            case 'f': this.resetView(); break;
+            case 'escape': this.select(undefined); break;
+            default: return;
+        }
+    }
+
+    /**
+     * Interaction + live-value layer drawn on top of the static symbols. Pure
+     * SVG over the existing geometry — value changes never re-run ELK.
+     */
+    private renderNodeOverlay(node: EngineSchematicLayoutNode): React.ReactElement {
+        const topModule = this.projectState.project?.topModule ?? '';
+        return <g key={`overlay:${node.id}`} transform={`translate(${node.x}, ${node.y})`}>
+            {this.renderNodeBodyHit(node, topModule)}
+            {node.pins.map(pin => this.renderPinOverlay(node, pin, topModule))}
+        </g>;
+    }
+
+    /** Make one-signal bodies (boundary ports and literals) exact click targets. */
+    private renderNodeBodyHit(node: EngineSchematicLayoutNode, topModule: string): React.ReactElement | undefined {
+        const target = nodeBodySelectionTarget(node, topModule);
+        if (!target) {
+            return undefined;
+        }
+        return <rect
+            className={`bistable-node-body-hit ${this.simulation.selected?.path === target.selected.path ? 'bistable-node-body-hit-selected' : ''}`}
+            x={target.x}
+            y={target.y}
+            width={target.width}
+            height={target.height}
+            rx={node.kind === 'Constant' ? 4 : undefined}
+            onMouseDown={event => event.stopPropagation()}
+            onClick={event => { event.stopPropagation(); this.select(target.selected); }}
+        ><title>{`Select ${target.selected.signal}`}</title></rect>;
+    }
+
+    private renderPinOverlay(
+        node: EngineSchematicLayoutNode,
+        pin: EngineSchematicPin,
+        topModule: string
+    ): React.ReactElement {
+        const path = probePath(topModule, pin.signal);
+        const selected: SelectedSignal = { signal: pin.signal, path, nodeKind: node.kind };
+        // The live value is drawn along the wire (renderEdgeValue); the pin
+        // overlay is just the clickable/selectable hit ring.
+        return <g
+            key={`ov:${pin.id}`}
+            className={pinClasses(pin.signal, path, this.simulation)}
+            onMouseDown={event => event.stopPropagation()}
+            onClick={event => { event.stopPropagation(); this.select(selected); }}
+        >
+            <circle className='bistable-pin-hit' cx={pin.x} cy={pin.y} r='7' />
+        </g>;
+    }
+
+    private select(selected: SelectedSignal | undefined): void {
+        this.valueInput = '';
+        this.inputError = '';
+        this.projectState.setSelectedSignal(selected);
+    }
+
+    private async applyValue(selected: SelectedSignal): Promise<void> {
+        if (this.busy) {
+            return;
+        }
+        this.busy = true;
+        this.inputError = '';
+        this.update();
+        try {
+            const error = await this.projectState.applyInput(selected.signal, this.valueInput, this.visiblePaths);
+            this.inputError = error ?? '';
+        } catch (error) {
+            this.inputError = error instanceof Error ? error.message : String(error);
+        } finally {
+            this.busy = false;
+            this.update();
+        }
+    }
+
+    private async run(action: (paths: string[]) => Promise<void>): Promise<void> {
+        if (this.busy) {
+            return;
+        }
+        this.busy = true;
+        this.update();
+        try {
+            await action(this.visiblePaths);
+        } catch (error) {
+            this.inputError = error instanceof Error ? error.message : String(error);
+        } finally {
+            this.busy = false;
+            this.update();
+        }
     }
 
     private async refresh(project: EngineProjectSummary): Promise<void> {
@@ -92,7 +509,10 @@ export class BistableSchematicWidget extends ReactWidget {
                 return;
             }
             this.schematicLayout = layout;
+            this.visiblePaths = this.computeVisiblePaths(layout, project.topModule);
             this.status = 'ready';
+            // Fit once after the canvas has been laid out by the browser.
+            window.requestAnimationFrame(() => this.resetView());
         } catch (error) {
             if (generation !== this.layoutGeneration) {
                 return;
@@ -103,12 +523,68 @@ export class BistableSchematicWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Distinct probe paths for every signal on a laid-out pin. Computed once per
+     * layout; the per-frame batched read reuses this list — no per-frame graph
+     * traversal or allocation over the full RV32 graph.
+     */
+    private computeVisiblePaths(layout: EngineSchematicLayout, topModule: string): string[] {
+        const paths = new Set<string>();
+        for (const node of layout.nodes) {
+            for (const pin of node.pins) {
+                paths.add(probePath(topModule, pin.signal));
+            }
+        }
+        return [...paths];
+    }
+
+    private directionOf(selected: SelectedSignal): string {
+        const port = this.projectState.project?.ports.find(p => p.name === selected.signal);
+        return port ? port.direction.toLowerCase()
+            : selected.nodeKind === 'Constant' ? 'constant'
+            : selected.nodeKind === 'Port' ? 'port'
+            : 'net';
+    }
+
     private setZoom(value: number): void {
-        this.zoom = Math.min(2.5, Math.max(0.35, value));
+        this.zoom = Math.min(2.5, Math.max(0.2, value));
+        this.update();
+    }
+
+    private setPanMode(mode: 'hand' | 'select'): void {
+        this.panMode = mode;
+        this.update();
+    }
+
+    /** Fit the whole graph into the visible canvas and re-center. */
+    private resetView(): void {
+        const layout = this.schematicLayout;
+        const host = this.node.querySelector('.bistable-schematic-canvas') as HTMLElement | null;
+        if (layout && host && host.clientWidth > 0 && host.clientHeight > 0) {
+            const margin = 24;
+            const scale = Math.min(
+                (host.clientWidth - margin * 2) / layout.width,
+                (host.clientHeight - margin * 2) / layout.height
+            );
+            this.zoom = Math.min(2.5, Math.max(0.2, scale));
+            this.pan = {
+                x: (host.clientWidth - layout.width * this.zoom) / 2,
+                y: (host.clientHeight - layout.height * this.zoom) / 2
+            };
+        } else {
+            this.zoom = 1;
+            this.pan = { x: 0, y: 0 };
+        }
         this.update();
     }
 
     private statusText(): string {
+        if (this.simulation.status === 'starting') {
+            return 'Building simulation worker…';
+        }
+        if (this.simulation.status === 'stale') {
+            return 'Simulation stale — reload pending';
+        }
         switch (this.status) {
             case 'waiting': return 'Waiting for project';
             case 'layout': return 'ELK layout running off the renderer thread';

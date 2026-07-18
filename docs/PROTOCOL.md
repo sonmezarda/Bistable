@@ -3,6 +3,11 @@
 This document specifies the JSON line-protocol between the GUI process
 (`Bistable.App`) and the Verilator-compiled worker process (`bistable-worker`).
 
+> **Note:** this is the low-level GUI↔worker protocol. The higher-level
+> frontend↔engine-host RPC used by the Theia workbench (which wraps this worker
+> protocol behind `simulation.*` methods) is specified in
+> `docs/ENGINE_HOST_PROTOCOL.md`.
+
 - **Transport:** newline-delimited JSON over the worker's stdin/stdout.
 - **Direction:** GUI writes a `SimulationCommand`; worker replies with exactly
   one `WorkerResponse` per command.

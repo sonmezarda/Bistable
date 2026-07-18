@@ -101,14 +101,16 @@
 }
 
 .bistable-schematic-document-content {
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
     width: 100%;
     height: 100%;
+    min-height: 0;
 }
 
 .bistable-schematic-toolbar {
     display: flex;
+    flex: none;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
@@ -116,6 +118,12 @@
     padding: 5px 10px;
     border-bottom: 1px solid var(--theia-panel-border);
     background: var(--theia-editorGroupHeader-tabsBackground);
+}
+
+.bistable-schematic-mode {
+    display: inline-flex;
+    gap: 2px;
+    margin: 0 4px;
 }
 
 .bistable-schematic-toolbar > div:first-child {
@@ -142,18 +150,25 @@
 }
 
 .bistable-schematic-canvas {
-    overflow: auto;
+    position: relative;
+    flex: 1;
+    overflow: hidden;
     background-color: var(--theia-editor-background);
     background-image:
         linear-gradient(color-mix(in srgb, var(--theia-panel-border) 22%, transparent) 1px, transparent 1px),
         linear-gradient(90deg, color-mix(in srgb, var(--theia-panel-border) 22%, transparent) 1px, transparent 1px);
     background-size: 20px 20px;
+    user-select: none;
 }
 
-.bistable-schematic-canvas svg {
+.bistable-schematic-canvas.bistable-pan-hand { cursor: grab; }
+.bistable-schematic-canvas.bistable-pan-hand.bistable-panning { cursor: grabbing; }
+.bistable-schematic-canvas.bistable-pan-select { cursor: default; }
+
+.bistable-schematic-svg {
     display: block;
-    min-width: 100%;
-    min-height: 100%;
+    width: 100%;
+    height: 100%;
 }
 
 .bistable-schematic-empty,
@@ -178,9 +193,52 @@
     vector-effect: non-scaling-stroke;
 }
 
+/* Multi-bit bus: thicker, cooler colour so it reads as a bundle. */
+.bistable-rtl-edge-bus {
+    stroke: var(--theia-charts-purple);
+    stroke-width: 2.6;
+    opacity: 0.85;
+}
+
+/* Single-bit wire, level unknown: thin neutral. */
+.bistable-rtl-edge-bit {
+    stroke: var(--theia-descriptionForeground);
+    stroke-width: 1.2;
+    opacity: 0.7;
+}
+
+/* Single-bit driven to 1: bright; driven to 0: dim. */
+.bistable-rtl-edge-high {
+    stroke: var(--theia-charts-green);
+    stroke-width: 1.6;
+    opacity: 1;
+}
+
+/* 1-bit driven to 0: a darker, muted green (still clearly "green wire"). */
+.bistable-rtl-edge-low {
+    stroke: color-mix(in srgb, var(--theia-charts-green) 55%, black);
+    stroke-width: 1.3;
+    opacity: 0.9;
+}
+
 .bistable-rtl-edge:hover {
     stroke: var(--theia-focusBorder);
-    stroke-width: 2.2;
+    stroke-width: 2.6;
+    opacity: 1;
+}
+
+/* Wide, invisible click target so a wire is easy to hit without pixel-perfect aim. */
+.bistable-rtl-edge-hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 12;
+    vector-effect: non-scaling-stroke;
+    cursor: pointer;
+}
+
+.bistable-rtl-edge-selected {
+    stroke: var(--theia-charts-blue);
+    stroke-width: 2.6;
     opacity: 1;
 }
 
@@ -206,8 +264,7 @@
 .bistable-rtl-label,
 .bistable-rtl-caption,
 .bistable-rtl-operator,
-.bistable-rtl-pin text,
-.bistable-rtl-instance-mark {
+.bistable-rtl-pin text {
     fill: var(--theia-foreground);
     font-family: var(--theia-code-font-family);
     pointer-events: none;
@@ -227,17 +284,56 @@
     font-weight: 600;
 }
 
-.bistable-rtl-instance-mark {
+.bistable-rtl-mux-mark {
     fill: var(--theia-descriptionForeground);
-    font-size: 10px;
-    letter-spacing: 1.2px;
+    font-family: var(--theia-code-font-family);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    pointer-events: none;
+}
+
+/* Instance title (module name) — keep it crisp, not faint. */
+.bistable-rtl-node-instance .bistable-rtl-caption {
+    fill: var(--theia-foreground);
+    font-size: 11px;
+    font-weight: 600;
 }
 
 .bistable-rtl-pin circle {
     fill: var(--theia-editor-background);
     stroke: var(--theia-charts-green);
-    stroke-width: 1.2;
+    stroke-width: 1;
     vector-effect: non-scaling-stroke;
+}
+
+.bistable-rtl-pin-stub {
+    stroke: var(--theia-charts-green);
+    stroke-width: 1;
+    opacity: 0.6;
+    vector-effect: non-scaling-stroke;
+}
+
+.bistable-rtl-pin text {
+    fill: var(--theia-descriptionForeground);
+    /* Fixed metrics keep Node-side layout sizing deterministic across themes. */
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 10px;
+}
+
+.bistable-rtl-instance-type {
+    fill: var(--theia-descriptionForeground);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 9px;
+    pointer-events: none;
+}
+
+/* Vivado-style level of detail: preserve topology at overview zoom and reveal
+   semantic pin names only when their glyphs have enough screen pixels. */
+.bistable-schematic-lod-overview .bistable-rtl-pin text,
+.bistable-schematic-lod-overview .bistable-rtl-instance-type,
+.bistable-schematic-lod-overview .bistable-edge-value {
+    display: none;
 }
 
 .bistable-rtl-instance-body {
@@ -252,4 +348,160 @@
 .bistable-rtl-node-memory .bistable-rtl-body,
 .bistable-rtl-node-memoryread .bistable-rtl-body {
     fill: color-mix(in srgb, var(--theia-charts-purple) 10%, var(--theia-sideBar-background));
+}
+
+.bistable-rtl-constant-body {
+    fill: color-mix(in srgb, var(--theia-charts-orange) 12%, var(--theia-sideBar-background));
+    stroke: color-mix(in srgb, var(--theia-charts-orange) 60%, var(--theia-panel-border));
+}
+
+.bistable-rtl-constant-value {
+    fill: var(--theia-foreground);
+    font-family: var(--theia-code-font-family, monospace);
+    font-size: 11px;
+}
+
+/* ── Live simulation: controls, inspector, value overlays (Phase 9.5) ─────── */
+
+.bistable-sim-controls {
+    display: inline-flex;
+    gap: 4px;
+    margin-right: 8px;
+}
+
+.bistable-sim-banner {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    font-size: 12px;
+    border-bottom: 1px solid var(--theia-editorGroup-border);
+}
+
+.bistable-sim-banner-info {
+    background: color-mix(in srgb, var(--theia-charts-blue) 12%, var(--theia-sideBar-background));
+    color: var(--theia-foreground);
+}
+
+.bistable-sim-banner-warn {
+    background: color-mix(in srgb, var(--theia-charts-yellow) 16%, var(--theia-sideBar-background));
+    color: var(--theia-foreground);
+}
+
+.bistable-sim-banner-error {
+    background: color-mix(in srgb, var(--theia-errorForeground) 14%, var(--theia-sideBar-background));
+    color: var(--theia-errorForeground);
+}
+
+.bistable-sim-inspector {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--theia-editorGroup-border);
+    background: var(--theia-sideBar-background);
+    font-size: 12px;
+}
+
+.bistable-sim-close {
+    margin-left: auto;
+    min-width: 22px;
+    padding: 1px 5px;
+}
+
+.bistable-sim-inspector-hint {
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.bistable-sim-inspector-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.bistable-sim-inspector-meta code {
+    font-weight: 600;
+    color: var(--theia-textLink-foreground);
+}
+
+.bistable-sim-inspector-drive {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.bistable-sim-inspector-drive .theia-input {
+    max-width: 220px;
+}
+
+.bistable-sim-inspector-error {
+    color: var(--theia-errorForeground);
+}
+
+/* Interaction/value overlay layer sits above the static symbols. The hit circle
+   is a faint clickable ring; it brightens on hover and when a value is live. */
+.bistable-pin-overlay .bistable-pin-hit {
+    fill: transparent;
+    stroke: color-mix(in srgb, var(--theia-charts-green) 55%, transparent);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+    cursor: pointer;
+}
+
+.bistable-pin-overlay:hover .bistable-pin-hit {
+    stroke: var(--theia-focusBorder);
+    stroke-width: 1.4;
+}
+
+.bistable-pin-overlay.bistable-pin-live .bistable-pin-hit {
+    stroke: var(--theia-charts-green);
+    stroke-width: 1.3;
+}
+
+/* A boundary port or literal box is a click target for its one exact net. */
+.bistable-node-body-hit {
+    fill: transparent;
+    cursor: pointer;
+}
+
+.bistable-node-body-hit:hover {
+    fill: color-mix(in srgb, var(--theia-charts-blue) 12%, transparent);
+}
+
+.bistable-node-body-hit-selected {
+    fill: color-mix(in srgb, var(--theia-charts-blue) 20%, transparent);
+    stroke: var(--theia-charts-blue);
+    stroke-width: 1.4;
+    vector-effect: non-scaling-stroke;
+}
+
+/* Live value drawn along the wire it belongs to. */
+.bistable-edge-value {
+    fill: var(--theia-charts-yellow, #e2c08d);
+    font-size: 9px;
+    font-weight: 600;
+    font-family: var(--theia-code-font-family, monospace);
+    pointer-events: none;
+    /* Dark outline so the value stays legible over wires and symbols. */
+    paint-order: stroke;
+    stroke: var(--theia-editor-background);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+}
+
+.bistable-pin-overlay.bistable-pin-selected .bistable-pin-hit {
+    fill: color-mix(in srgb, var(--theia-charts-blue) 28%, transparent);
+    stroke: var(--theia-charts-blue);
+    stroke-width: 1.4;
+    vector-effect: non-scaling-stroke;
+}
+
+/* A driven signal's live value stands out in green along its wire. */
+.bistable-rtl-edge-selected + .bistable-edge-value,
+.bistable-edge-value.bistable-edge-value-driven {
+    fill: var(--theia-charts-green);
+    font-weight: 700;
 }

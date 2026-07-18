@@ -11,6 +11,12 @@ import {
     EngineSchematicNode,
     EngineSchematicPin
 } from '../common/bistable-engine-protocol';
+import {
+    computeSymbolMetrics,
+    pinDisplayLabel,
+    pinLabel,
+    pinPositionY
+} from '../common/schematic-visual-contract';
 
 const elk = new ELK();
 const PinSize = 8;
@@ -59,48 +65,59 @@ export async function layoutSchematicWithElk(graph: EngineSchematicGraph): Promi
 }
 
 function toElkNode(node: EngineSchematicNode): ElkNode {
-    const size = symbolSize(node);
+    const metrics = computeSymbolMetrics(node);
+    const layoutOptions: Record<string, string> = {
+        // Every pin receives an explicit position inside the body region. This
+        // keeps captions clear and centers a lone output against many inputs.
+        'elk.portConstraints': 'FIXED_POS'
+    };
+    // Pin boundary ports to the outer layers so inputs sit at the far left and
+    // outputs at the far right, visually separated from internal logic.
+    const constraint = layerConstraint(node);
+    if (constraint) {
+        layoutOptions['elk.layered.layering.layerConstraint'] = constraint;
+    }
     return {
         id: node.id,
-        width: size.width,
-        height: size.height,
-        layoutOptions: {
-            'elk.portConstraints': 'FIXED_ORDER'
-        },
+        width: metrics.width,
+        height: metrics.height,
+        layoutOptions,
         ports: [
-            ...node.inputs.map((signal, index) => toElkPort(inputPinId(node, signal), 'WEST', index)),
-            ...node.outputs.map((signal, index) => toElkPort(outputPinId(node, signal), 'EAST', index))
+            ...node.inputs.map((signal, index) => fixedPort(
+                inputPinId(node, signal),
+                0,
+                pinPositionY(metrics, index, node.inputs.length))),
+            ...node.outputs.map((signal, index) => fixedPort(
+                outputPinId(node, signal),
+                metrics.width,
+                pinPositionY(metrics, index, node.outputs.length)))
         ]
     };
 }
 
-function toElkPort(id: string, side: 'WEST' | 'EAST', index: number): ElkPort {
+function fixedPort(id: string, x: number, y: number): ElkPort {
     return {
         id,
+        x: x - PinSize / 2,
+        y: y - PinSize / 2,
         width: PinSize,
-        height: PinSize,
-        layoutOptions: {
-            'elk.port.side': side,
-            'elk.port.index': String(index)
-        }
+        height: PinSize
     };
 }
 
-function symbolSize(node: EngineSchematicNode): { width: number; height: number } {
-    const pinRows = Math.max(node.inputs.length, node.outputs.length, 1);
-    switch (node.kind) {
-        case 'Port': return { width: 86, height: 32 };
-        case 'Mux': return { width: 92, height: Math.max(82, pinRows * 18 + 24) };
-        case 'Gate':
-        case 'Inverter':
-        case 'Buffer': return { width: 96, height: Math.max(64, pinRows * 18 + 16) };
-        case 'FlipFlop':
-        case 'Latch': return { width: 112, height: Math.max(86, pinRows * 18 + 24) };
-        case 'Instance': return { width: 168, height: Math.max(82, pinRows * 18 + 34) };
-        case 'Memory':
-        case 'MemoryRead': return { width: 132, height: Math.max(86, pinRows * 18 + 28) };
-        default: return { width: 112, height: Math.max(66, pinRows * 18 + 20) };
+/** FIRST for input boundary ports, LAST for output boundary ports, else none. */
+function layerConstraint(node: EngineSchematicNode): 'FIRST' | 'LAST' | undefined {
+    if (node.kind !== 'Port') {
+        return undefined;
     }
+    // An input port drives a signal out (has outputs); an output port consumes one.
+    if (node.outputs.length > 0 && node.inputs.length === 0) {
+        return 'FIRST';
+    }
+    if (node.inputs.length > 0 && node.outputs.length === 0) {
+        return 'LAST';
+    }
+    return undefined;
 }
 
 function toLayoutNode(
@@ -112,16 +129,24 @@ function toLayoutNode(
         throw new Error(`ELK returned unknown schematic node '${node.id}'.`);
     }
     const ports = new Map((node.ports ?? []).map(port => [port.id, port]));
+    const nodeWidth = node.width ?? 1;
+    const metrics = computeSymbolMetrics(source);
     const pins: EngineSchematicPin[] = [
-        ...source.inputs.map(signal => toLayoutPin(ports, inputPinId(source, signal), signal, 'input')),
-        ...source.outputs.map(signal => toLayoutPin(ports, outputPinId(source, signal), signal, 'output'))
+        ...source.inputs.map((signal, index) => toLayoutPin(
+            ports, inputPinId(source, signal), signal, pinLabel(source, 'input', index),
+            pinDisplayLabel(source, 'input', index), 'input', nodeWidth)),
+        ...source.outputs.map((signal, index) => toLayoutPin(
+            ports, outputPinId(source, signal), signal, pinLabel(source, 'output', index),
+            pinDisplayLabel(source, 'output', index), 'output', nodeWidth))
     ];
     return {
         ...source,
         x: node.x ?? 0,
         y: node.y ?? 0,
-        width: node.width ?? 1,
+        width: nodeWidth,
         height: node.height ?? 1,
+        pinLabelColumnWidth: metrics.pinLabelColumnWidth,
+        headerHeight: metrics.headerHeight,
         pins
     };
 }
@@ -130,7 +155,10 @@ function toLayoutPin(
     ports: Map<string, ElkPort>,
     id: string,
     signal: string,
-    direction: 'input' | 'output'
+    label: string,
+    displayLabel: string,
+    direction: 'input' | 'output',
+    nodeWidth: number
 ): EngineSchematicPin {
     const port = ports.get(id);
     if (!port) {
@@ -139,8 +167,12 @@ function toLayoutPin(
     return {
         id,
         signal,
+        label,
+        displayLabel,
         direction,
-        x: (port.x ?? 0) + (port.width ?? PinSize) / 2,
+        // Snap the connection point flush to the node edge (WEST = left, EAST =
+        // right) so the circle sits on the border instead of a few px inside.
+        x: direction === 'input' ? 0 : nodeWidth,
         y: (port.y ?? 0) + (port.height ?? PinSize) / 2
     };
 }
