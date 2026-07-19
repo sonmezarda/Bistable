@@ -111,16 +111,17 @@ abstraction removes proven duplication:
 | `docs/RTL_COVERAGE_TODO.md` | Explicit-unsupported endpoints, not a reopened phase. |
 | `docs/PHASES/PHASE-0..6.5.md` | Older phase history. Remaining Phase 6.5 closure is tracked by Phase 13. |
 
-## 6. Current status snapshot (2026-07-17)
+## 6. Current status snapshot (2026-07-18)
 
-- Branch `theia/workbench-poc`. The owner committed the preceding Phase 9.5
-  work as `265414a`; the current Poke/Drive slice is uncommitted. Do not commit
-  or push without explicit user approval.
-- Build clean (0/0). Current validation: 954/958 passed in the parallel full
-  run; known timing failures in `ElkRunnerCancellation*` (two),
-  `SimulationWorkerClientCancellation*` (one), and
-  `GateSchematicPerformance*` (one) passed in isolated family runs (combined
-  cancellation 5/5, gate performance 5/5). Golden snapshots are unchanged.
+- Branch `theia/workbench-poc`. The owner committed the Poke/Drive slice as
+  `9da4bb7`; the current P9.5-10 hierarchy-navigation slice is uncommitted. Do
+  not commit or push without explicit user approval.
+- Build clean (0/0). Current validation: 969/973 passed in the parallel full
+  run; known timing failures in `ElkRunnerCancellation*`/
+  `SimulationWorkerClientCancellation*` (three) and `GateSchematicPerformance*`
+  (one) passed in isolated family runs (cancellation 5/5, gate performance
+  5/5). Golden snapshots are unchanged; all six Theia check scripts pass and
+  the browser bundle builds with 0 errors.
 - **Most recent work (this session):** Phases 7 and 8 completed. Phase 7 added
   `CombinationalProjector`, comb target/read coverage, the `u_alu.zero` edge
   regression, and owner-accepted visual closure. Phase 8 added protocol v3
@@ -170,8 +171,29 @@ abstraction removes proven duplication:
   hierarchy on 2026-07-18: separate Poke/Drive mode now provides one-click
   scalar toggle and an anchored non-modal multi-bit editor with
   BIN/HEX/UDEC/SDEC, per-bit toggles, Apply/OK/Escape, and width-safe BigInt
-  conversion. Select mode never mutates simulation state. P9.5-10 hierarchy is
-  again the next binding slice after owner manual acceptance.
+  conversion. Select mode never mutates simulation state. Owner manual
+  acceptance of the Poke slice is still pending.
+- **Phase 9.5 hierarchy navigation (P9.5-10, this session, 2026-07-18):**
+  Vivado-style instance descent is implemented on the Theia schematic.
+  Double-clicking an instance opens its **hierarchical instance path**
+  (`top.u_core.u_alu` — never the module type) as a separate dockable
+  document; re-opening the same path activates the existing tab. Every
+  document shows a `top › u_core › u_alu` breadcrumb whose parent segments
+  navigate. EngineHost stays protocol v2 with an additive `schematic.module`
+  capability and `loadModuleSchematic` method (`docs/ENGINE_HOST_PROTOCOL.md`),
+  served from a cached elaboration; unresolved paths return `invalid_path`.
+  Child probe paths are prefixed with the document path, all open documents
+  refresh from one batched `ReadSignals` union, and the `topLevelDrivePort`
+  choke point keeps child boundary ports read-only even when their names
+  collide with top-level inputs (locked by `check-schematic-hierarchy.mjs` and
+  `EngineInstancePathResolverTests`). The second slice (2026-07-19) added
+  Vivado-style **selective inline expand/collapse**: `EngineSchematicComposer`
+  composes chosen instances as nested Container nodes with instance-namespaced
+  exact nets and pass-through boundary ports; `loadModuleSchematic` gained an
+  additive `expand[]` param (`schematic.expand` capability), ELK lays out the
+  nested containers in the backend, and the widget's ⊞/⊟ header toggle
+  expands/collapses with per-expansion-state memoization and generation-guard
+  cancellation. Remaining: owner visual acceptance (Poke + hierarchy).
 
 ## 7. Guardrails (do not break these)
 

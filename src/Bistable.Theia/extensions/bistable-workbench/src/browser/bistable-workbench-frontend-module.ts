@@ -5,6 +5,7 @@ import { BistableWorkbenchContribution } from './bistable-workbench-contribution
 import { BistableWorkbenchWidget } from './bistable-workbench-widget';
 import { BistableProjectState } from './bistable-project-state';
 import { BistableSchematicWidget } from './bistable-schematic-widget';
+import { BistableSchematicWidgetOptions, SchematicDocumentOptions } from './schematic-hierarchy';
 import '../../src/browser/style/bistable-workbench.css';
 
 export default new ContainerModule(bind => {
@@ -22,9 +23,16 @@ export default new ContainerModule(bind => {
         id: BistableWorkbenchWidget.ID,
         createWidget: () => context.container.get(BistableWorkbenchWidget)
     })).inSingletonScope();
-    bind(BistableSchematicWidget).toSelf();
+    // One schematic document per hierarchical instance path: the widget
+    // manager keys instances on the factory options, so the same path always
+    // resolves to the same dockable document.
     bind(WidgetFactory).toDynamicValue(context => ({
         id: BistableSchematicWidget.ID,
-        createWidget: () => context.container.get(BistableSchematicWidget)
+        createWidget: (options?: SchematicDocumentOptions) => {
+            const child = context.container.createChild();
+            child.bind(BistableSchematicWidgetOptions).toConstantValue(options ?? {});
+            child.bind(BistableSchematicWidget).toSelf();
+            return child.get(BistableSchematicWidget);
+        }
     })).inSingletonScope();
 });

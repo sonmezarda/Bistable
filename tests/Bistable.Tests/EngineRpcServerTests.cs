@@ -139,6 +139,74 @@ public sealed class EngineRpcServerTests
             .Select(static value => value.GetString()).ToArray();
         Assert.Contains("simulation.start", capabilities);
         Assert.Contains("simulation.readSignals", capabilities);
+        // Additive v2 capability: hierarchical module schematic documents.
+        Assert.Contains("schematic.module", capabilities);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task RunAsync_LoadModuleSchematic_ResolvesInstancePathFromCachedElaboration()
+    {
+        string root = FindRepositoryRoot();
+        string projectPath = Path.Combine(root, "samples", "riscv_single_cycle", "riscv_single_cycle.bistable.json");
+        string commands = string.Join(Environment.NewLine,
+            Line("load", "loadProject", new { projectPath }),
+            Line("alu", "loadModuleSchematic", new { projectPath, instancePath = "riscv_single_cycle_top.u_alu" }),
+            Line("imem", "loadModuleSchematic", new { projectPath, instancePath = "riscv_single_cycle_top.u_imem" }),
+            Line("bad", "loadModuleSchematic", new { projectPath, instancePath = "riscv_single_cycle_top.u_missing" }),
+            Line("expand", "loadModuleSchematic", new
+            {
+                projectPath,
+                instancePath = "riscv_single_cycle_top",
+                expand = new[] { "u_alu" }
+            }),
+            Line("bye", "shutdown", new { }));
+        StringWriter output = new();
+
+        await new EngineRpcServer(new DesignElaborationService())
+            .RunAsync(new StringReader(commands), output, CancellationToken.None);
+
+        string[] lines = output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+
+        using JsonDocument alu = JsonDocument.Parse(lines[1]);
+        JsonElement aluResult = alu.RootElement.GetProperty("result");
+        // The instance path is echoed back as the document identity; the
+        // module type is display metadata only.
+        Assert.Equal("riscv_single_cycle_top.u_alu", aluResult.GetProperty("instancePath").GetString());
+        Assert.Equal("riscv_alu", aluResult.GetProperty("moduleName").GetString());
+        JsonElement aluSchematic = aluResult.GetProperty("schematic");
+        Assert.Equal("riscv_alu", aluSchematic.GetProperty("moduleName").GetString());
+        Assert.NotEmpty(aluSchematic.GetProperty("nodes").EnumerateArray());
+        Assert.NotEmpty(aluSchematic.GetProperty("edges").EnumerateArray());
+        Assert.Contains(aluSchematic.GetProperty("nodes").EnumerateArray(),
+            static node => node.GetProperty("kind").GetString() == "Port");
+
+        // A second instance path of the design resolves to its own module type.
+        using JsonDocument imem = JsonDocument.Parse(lines[2]);
+        Assert.Equal(
+            "riscv_instruction_memory",
+            imem.RootElement.GetProperty("result").GetProperty("moduleName").GetString());
+
+        // An unknown segment fails with the structured invalid_path code.
+        using JsonDocument bad = JsonDocument.Parse(lines[3]);
+        Assert.Equal("invalid_path", bad.RootElement.GetProperty("error").GetProperty("code").GetString());
+
+        // Selective inline expansion: u_alu becomes a Container whose internals
+        // carry instance-namespaced exact nets; siblings stay collapsed.
+        using JsonDocument expanded = JsonDocument.Parse(lines[4]);
+        JsonElement expandedNodes = expanded.RootElement.GetProperty("result")
+            .GetProperty("schematic").GetProperty("nodes");
+        JsonElement containerNode = Assert.Single(expandedNodes.EnumerateArray(),
+            static node => node.GetProperty("kind").GetString() == "Container");
+        Assert.Equal("u_alu", containerNode.GetProperty("label").GetString());
+        Assert.Contains(expandedNodes.EnumerateArray(), static node =>
+            node.TryGetProperty("containerId", out JsonElement id)
+            && id.GetString() == "container:u_alu"
+            && node.GetProperty("outputs").EnumerateArray()
+                .Any(static signal => signal.GetString()!.StartsWith("u_alu.", StringComparison.Ordinal)));
+        Assert.Contains(expandedNodes.EnumerateArray(), static node =>
+            node.GetProperty("kind").GetString() == "Instance"
+            && node.GetProperty("label").GetString() == "u_imem");
     }
 
     [Fact]

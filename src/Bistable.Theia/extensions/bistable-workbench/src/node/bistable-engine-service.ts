@@ -10,6 +10,7 @@ import {
     BistableEngineService,
     EngineDiagnostic,
     EngineHelloResult,
+    EngineModuleSchematic,
     EngineProjectLoadResult,
     EngineProjectSummary,
     EngineSchematicGraph,
@@ -81,6 +82,14 @@ export class BistableEngineServiceImpl implements BistableEngineService, Backend
             }
             throw error;
         }
+    }
+
+    loadModuleSchematic(projectPath: string, instancePath: string, expand?: string[]): Promise<EngineModuleSchematic> {
+        return this.request<EngineModuleSchematic>('loadModuleSchematic', {
+            projectPath,
+            instancePath,
+            ...(expand && expand.length > 0 ? { expand } : {})
+        });
     }
 
     layoutSchematic(graph: EngineSchematicGraph): Promise<EngineSchematicLayout> {

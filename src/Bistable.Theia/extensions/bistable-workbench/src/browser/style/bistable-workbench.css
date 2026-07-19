@@ -137,6 +137,42 @@
     font-size: 11px;
 }
 
+/* Hierarchy breadcrumb: `top › u_core › u_alu` inside the document toolbar. */
+.bistable-schematic-breadcrumb {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    white-space: nowrap;
+}
+
+.bistable-schematic-breadcrumb .bistable-breadcrumb-separator {
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.bistable-breadcrumb-link {
+    padding: 0 2px;
+    color: var(--theia-textLink-foreground);
+    font: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.bistable-breadcrumb-link:hover {
+    text-decoration: underline;
+}
+
+.bistable-breadcrumb-current {
+    color: var(--theia-foreground);
+}
+
+.bistable-schematic-breadcrumb .bistable-breadcrumb-module {
+    margin-left: 4px;
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
 .bistable-schematic-tools {
     display: flex;
     align-items: center;
@@ -499,6 +535,53 @@
     stroke: var(--theia-charts-blue);
     stroke-width: 1.4;
     vector-effect: non-scaling-stroke;
+}
+
+/* An expanded instance: transparent dashed region so internal nets stay visible. */
+.bistable-rtl-container-body {
+    fill: color-mix(in srgb, var(--theia-editor-background) 35%, transparent);
+    stroke: color-mix(in srgb, var(--theia-focusBorder) 70%, var(--theia-panel-border));
+    stroke-width: 1.4;
+    stroke-dasharray: 7 4;
+    vector-effect: non-scaling-stroke;
+}
+
+/* ⊞/⊟ header toggle for Vivado-style selective inline expand/collapse. */
+.bistable-expand-toggle {
+    cursor: pointer;
+}
+
+.bistable-expand-toggle rect {
+    fill: var(--theia-editor-background);
+    stroke: var(--theia-descriptionForeground);
+    stroke-width: 1.1;
+}
+
+.bistable-expand-toggle line {
+    stroke: var(--theia-foreground);
+    stroke-width: 1.4;
+}
+
+.bistable-expand-toggle:hover rect {
+    stroke: var(--theia-focusBorder);
+    fill: color-mix(in srgb, var(--theia-focusBorder) 14%, var(--theia-editor-background));
+}
+
+/* Double-click affordance for descending into a module instance document. */
+.bistable-instance-open-hit {
+    fill: transparent;
+    cursor: pointer;
+}
+
+.bistable-instance-open-hit:hover {
+    stroke: var(--theia-focusBorder);
+    stroke-width: 1.6;
+    stroke-dasharray: 5 3;
+    vector-effect: non-scaling-stroke;
+}
+
+.bistable-interaction-hand .bistable-instance-open-hit {
+    cursor: grab;
 }
 
 /* Live value drawn along the wire it belongs to. */

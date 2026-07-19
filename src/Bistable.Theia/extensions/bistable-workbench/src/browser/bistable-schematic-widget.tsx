@@ -1,18 +1,33 @@
 import * as React from '@theia/core/shared/react';
+import { CommandService, Disposable } from '@theia/core';
 import { Message } from '@theia/core/lib/browser';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
-import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
+import { inject, injectable, optional, postConstruct } from '@theia/core/shared/inversify';
 import {
     BistableEngineService,
     EngineProjectPort,
     EngineProjectSummary,
+    EngineSchematicGraph,
     EngineSchematicLayout,
     EngineSchematicLayoutEdge,
     EngineSchematicLayoutNode,
     EngineSchematicPin
 } from '../common/bistable-engine-protocol';
+import { BistableOpenSchematicInstanceCommand } from './bistable-commands';
 import { BistableProjectState } from './bistable-project-state';
 import { renderRtlSymbol } from './rtl-symbol-renderer';
+import {
+    BistableSchematicWidgetOptions,
+    breadcrumbSegments,
+    childInstancePath,
+    collapseInstance,
+    expandInstance,
+    expansionKey,
+    instanceRelativePath,
+    SchematicDocumentFactoryId,
+    SchematicDocumentOptions,
+    schematicWidgetId
+} from './schematic-hierarchy';
 import {
     emptySimulationState,
     liveValue,
@@ -23,7 +38,8 @@ import {
     pokeAction,
     probePath,
     SelectedSignal,
-    SimulationState
+    SimulationState,
+    topLevelDrivePort
 } from './simulation-state';
 import {
     formatPokeValue,
@@ -38,7 +54,7 @@ type SchematicInteractionMode = 'hand' | 'select' | 'poke';
 
 @injectable()
 export class BistableSchematicWidget extends ReactWidget {
-    static readonly ID = 'bistable.schematic.document';
+    static readonly ID = SchematicDocumentFactoryId;
 
     @inject(BistableEngineService)
     protected readonly engine!: BistableEngineService;
@@ -46,6 +62,18 @@ export class BistableSchematicWidget extends ReactWidget {
     @inject(BistableProjectState)
     protected readonly projectState!: BistableProjectState;
 
+    @inject(CommandService)
+    protected readonly commands!: CommandService;
+
+    @inject(BistableSchematicWidgetOptions) @optional()
+    protected readonly options: SchematicDocumentOptions = {};
+
+    /** Module type shown for a hierarchical document (display metadata only). */
+    private moduleName = '';
+    /** Relative instance paths expanded inline in this document. */
+    private expandedPaths = new Set<string>();
+    /** Composed graphs per expansion state; cleared on every project reload. */
+    private readonly graphMemo = new Map<string, EngineSchematicGraph>();
     private schematicLayout: EngineSchematicLayout | undefined;
     private status: 'waiting' | 'layout' | 'ready' | 'error' = 'waiting';
     private errorMessage = '';
@@ -66,16 +94,40 @@ export class BistableSchematicWidget extends ReactWidget {
     private pan = { x: 0, y: 0 };
     private drag: { startX: number; startY: number; originX: number; originY: number } | undefined;
 
+    /** Root document = the top module; children carry a hierarchical path. */
+    private get isRoot(): boolean {
+        return !this.options.instancePath;
+    }
+
+    /**
+     * Hierarchical prefix of every probe path in this document — the top
+     * module for the root, the exact instance path (`top.u_core.u_alu`) for a
+     * child. Never derived from the module type name.
+     */
+    private get documentPath(): string {
+        return this.options.instancePath ?? this.projectState.project?.topModule ?? '';
+    }
+
     @postConstruct()
     protected init(): void {
-        this.id = BistableSchematicWidget.ID;
-        this.title.label = 'RTL Schematic';
-        this.title.caption = 'Bistable RTL schematic document';
+        this.id = schematicWidgetId(this.options.instancePath);
+        const segments = breadcrumbSegments(this.options.instancePath ?? '');
+        this.title.label = this.isRoot
+            ? 'RTL Schematic'
+            : segments.at(-1)?.label ?? 'Schematic';
+        this.title.caption = this.isRoot
+            ? 'Bistable RTL schematic document'
+            : `${this.options.instancePath} schematic`;
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-type-hierarchy-sub';
         this.addClass('bistable-schematic-document');
+        this.toDispose.push(Disposable.create(() => this.projectState.removeVisiblePaths(this.id)));
         this.simulation = this.projectState.simulationState;
-        this.toDispose.push(this.projectState.onDidChangeProject(project => void this.refresh(project)));
+        this.toDispose.push(this.projectState.onDidChangeProject(project => {
+            // A reload can change the design; composed graphs are stale.
+            this.graphMemo.clear();
+            void this.refresh(project);
+        }));
         this.toDispose.push(this.projectState.onDidChangeSimulation(state => {
             const becameReady = this.simulation.status !== 'ready' && state.status === 'ready';
             this.simulation = state;
@@ -104,7 +156,7 @@ export class BistableSchematicWidget extends ReactWidget {
         return <div className='bistable-schematic-document-content'>
             <div className='bistable-schematic-toolbar'>
                 <div>
-                    <strong>{this.projectState.project?.topModule ?? 'RTL Schematic'}</strong>
+                    {this.renderBreadcrumb()}
                     <span>{this.statusText()}</span>
                 </div>
                 <div className='bistable-schematic-tools'>
@@ -124,12 +176,14 @@ export class BistableSchematicWidget extends ReactWidget {
                         ><span className='codicon codicon-inspect' /></button>
                         <button
                             className={`theia-button bistable-poke-mode-button ${this.interactionMode === 'poke' ? 'main' : 'secondary'}`}
-                            title={this.simulation.status === 'ready'
-                                ? 'Poke/Drive — toggle scalar inputs or edit bus values (P)'
-                                : 'Build the simulation before entering Poke/Drive mode'}
+                            title={!this.isRoot
+                                ? 'Poke drives top-level inputs only — use the root schematic document'
+                                : this.simulation.status === 'ready'
+                                    ? 'Poke/Drive — toggle scalar inputs or edit bus values (P)'
+                                    : 'Build the simulation before entering Poke/Drive mode'}
                             aria-label='Poke/Drive mode'
                             aria-pressed={this.interactionMode === 'poke'}
-                            disabled={this.simulation.status !== 'ready' || this.busy}
+                            disabled={this.simulation.status !== 'ready' || this.busy || !this.isRoot}
                             onClick={() => this.setInteractionMode('poke')}
                         ><span className='codicon codicon-symbol-boolean' /> Poke</button>
                     </span>
@@ -147,6 +201,40 @@ export class BistableSchematicWidget extends ReactWidget {
             </div>}
             {this.schematicLayout && this.renderCanvas(this.schematicLayout)}
         </div>;
+    }
+
+    /**
+     * Vivado-style hierarchy breadcrumb: `top › u_core › u_alu`. Every parent
+     * segment activates (or opens) that document; the last segment is the
+     * current one. The root shows just the top module name.
+     */
+    private renderBreadcrumb(): React.ReactElement {
+        const documentPath = this.documentPath;
+        if (!documentPath) {
+            return <strong>RTL Schematic</strong>;
+        }
+        const segments = breadcrumbSegments(documentPath);
+        return <nav className='bistable-schematic-breadcrumb' aria-label='Schematic hierarchy'>
+            {segments.map((segment, index) => {
+                const isCurrent = index === segments.length - 1;
+                return <React.Fragment key={segment.instancePath}>
+                    {index > 0 && <span className='bistable-breadcrumb-separator codicon codicon-chevron-right' />}
+                    {isCurrent
+                        ? <strong className='bistable-breadcrumb-current' aria-current='page'>{segment.label}</strong>
+                        : <button
+                            className='bistable-breadcrumb-link'
+                            title={`Open ${segment.instancePath}`}
+                            onClick={() => void this.openInstanceDocument(segment.instancePath)}
+                        >{segment.label}</button>}
+                </React.Fragment>;
+            })}
+            {!this.isRoot && this.moduleName &&
+                <span className='bistable-breadcrumb-module'>({this.moduleName})</span>}
+        </nav>;
+    }
+
+    private async openInstanceDocument(instancePath: string): Promise<void> {
+        await this.commands.executeCommand(BistableOpenSchematicInstanceCommand.id, instancePath);
     }
 
     private renderSimulationBanner(): React.ReactElement | undefined {
@@ -185,9 +273,9 @@ export class BistableSchematicWidget extends ReactWidget {
                 title='Build/attach the native simulation worker'
                 onClick={() => void this.startSimulation()}
             >{buildLabel}</button>
-            <button className='theia-button' disabled={stepDisabled} onClick={() => void this.run(paths => this.projectState.evalDesign(paths))}>Eval</button>
-            <button className='theia-button' disabled={stepDisabled} onClick={() => void this.run(paths => this.projectState.tick(paths))}>Tick</button>
-            <button className='theia-button' disabled={stepDisabled} onClick={() => void this.run(paths => this.projectState.reset(paths))}>Reset</button>
+            <button className='theia-button' disabled={stepDisabled} onClick={() => void this.run(() => this.projectState.evalDesign())}>Eval</button>
+            <button className='theia-button' disabled={stepDisabled} onClick={() => void this.run(() => this.projectState.tick())}>Tick</button>
+            <button className='theia-button' disabled={stepDisabled} onClick={() => void this.run(() => this.projectState.reset())}>Reset</button>
         </span>;
     }
 
@@ -214,9 +302,12 @@ export class BistableSchematicWidget extends ReactWidget {
             return undefined;
         }
         const probe = this.simulation.probes.get(selected.path);
-        const current = liveValue(selected.signal, selected.path, this.simulation) ?? '—';
+        const current = liveValue(selected.signal, selected.path, this.simulation, this.isRoot) ?? '—';
         const direction = this.directionOf(selected);
-        const drivable = direction === 'input';
+        // Only an exact top-level input port on the root document is drivable.
+        // A child module's boundary port must stay read-only even when its
+        // module-local name matches a top-level input.
+        const drivable = this.portFor(selected)?.direction.toLowerCase() === 'input';
         const ready = this.simulation.status === 'ready';
         return <div className='bistable-sim-inspector'>
             <div className='bistable-sim-inspector-meta'>
@@ -244,7 +335,9 @@ export class BistableSchematicWidget extends ReactWidget {
                 >Apply</button>
             </div>}
             {!drivable && <div className='bistable-sim-inspector-hint'>
-                {direction === 'output' ? 'Output — read only. Drive top-level inputs (far left) to change it.'
+                {!this.isRoot && selected.nodeKind === 'Port'
+                    ? 'Module boundary port — read only here. Drive top-level inputs on the root schematic.'
+                    : direction === 'output' ? 'Output — read only. Drive top-level inputs (far left) to change it.'
                     : direction === 'constant' ? 'Constant — read only. Select its driven wire to follow the value.'
                     : 'Internal net — read only. Drive top-level inputs (far left).'}
             </div>}
@@ -256,7 +349,7 @@ export class BistableSchematicWidget extends ReactWidget {
     }
 
     private renderCanvas(layout: EngineSchematicLayout): React.ReactElement {
-        const topModule = this.projectState.project?.topModule ?? '';
+        const pathPrefix = this.documentPath;
         return <div
             className={`bistable-schematic-canvas bistable-interaction-${this.interactionMode}${this.drag ? ' bistable-panning' : ''}`}
             tabIndex={0}
@@ -270,7 +363,7 @@ export class BistableSchematicWidget extends ReactWidget {
             <svg
                 className={`bistable-schematic-svg ${this.zoom < 0.55 ? 'bistable-schematic-lod-overview' : 'bistable-schematic-lod-detail'}`}
                 role='img'
-                aria-label={`${topModule} schematic`}
+                aria-label={`${pathPrefix} schematic`}
             >
                 <g transform={`translate(${this.pan.x}, ${this.pan.y}) scale(${this.zoom})`}>
                     {/* Wide, invisible hit lines under each net make wires easy to click. */}
@@ -278,15 +371,15 @@ export class BistableSchematicWidget extends ReactWidget {
                         key={`hit:${edge.id}`}
                         className='bistable-rtl-edge-hit'
                         points={edge.points.map(point => `${point.x},${point.y}`).join(' ')}
-                        onClick={event => this.onEdgeClick(event, edge.signal, topModule)}
+                        onClick={event => this.onEdgeClick(event, edge.signal, pathPrefix)}
                     ><title>{edge.signal}</title></polyline>)}
                     {layout.edges.map(edge => <polyline
                         key={edge.id}
-                        className={this.edgeClass(edge.signal, topModule)}
+                        className={this.edgeClass(edge.signal, pathPrefix)}
                         points={edge.points.map(point => `${point.x},${point.y}`).join(' ')}
                     ><title>{edge.signal}</title></polyline>)}
                     {layout.nodes.map(renderRtlSymbol)}
-                    {layout.edges.map(edge => this.renderEdgeValue(edge, topModule))}
+                    {layout.edges.map(edge => this.renderEdgeValue(edge, pathPrefix))}
                     {layout.nodes.map(node => this.renderNodeOverlay(node))}
                 </g>
             </svg>
@@ -296,7 +389,8 @@ export class BistableSchematicWidget extends ReactWidget {
                 currentValue={liveValue(
                     this.pokeEditor.selected.signal,
                     this.pokeEditor.selected.path,
-                    this.simulation
+                    this.simulation,
+                    this.isRoot
                 ) ?? '—'}
                 busy={this.busy}
                 onClose={() => this.closePokeEditor()}
@@ -310,9 +404,9 @@ export class BistableSchematicWidget extends ReactWidget {
     }
 
     /** Draw the live value at the middle of a wire (multi-bit buses especially). */
-    private renderEdgeValue(edge: EngineSchematicLayoutEdge, topModule: string): React.ReactElement | undefined {
-        const path = probePath(topModule, edge.signal);
-        const value = liveValue(edge.signal, path, this.simulation);
+    private renderEdgeValue(edge: EngineSchematicLayoutEdge, pathPrefix: string): React.ReactElement | undefined {
+        const path = probePath(pathPrefix, edge.signal);
+        const value = liveValue(edge.signal, path, this.simulation, this.isRoot);
         if (value === undefined || edge.points.length < 2) {
             return undefined;
         }
@@ -344,8 +438,8 @@ export class BistableSchematicWidget extends ReactWidget {
         return best;
     }
 
-    private edgeClass(signal: string, topModule: string): string {
-        const path = probePath(topModule, signal);
+    private edgeClass(signal: string, pathPrefix: string): string {
+        const path = probePath(pathPrefix, signal);
         const classes = ['bistable-rtl-edge'];
         const probe = this.simulation.probes.get(path);
         // Bus (>1 bit) vs single-bit wires get distinct thickness/colour.
@@ -369,15 +463,15 @@ export class BistableSchematicWidget extends ReactWidget {
 
     /** Live logic level of a 1-bit net: '1', '0', or undefined when unknown. */
     private bitLevel(signal: string, path: string): '0' | '1' | undefined {
-        return logicBitValue(liveValue(signal, path, this.simulation));
+        return logicBitValue(liveValue(signal, path, this.simulation, this.isRoot));
     }
 
-    private onEdgeClick(event: React.MouseEvent, signal: string, topModule: string): void {
+    private onEdgeClick(event: React.MouseEvent, signal: string, pathPrefix: string): void {
         if (this.interactionMode === 'hand') {
             return;
         }
         event.stopPropagation();
-        this.select({ signal, path: probePath(topModule, signal), nodeKind: 'Net' });
+        this.select({ signal, path: probePath(pathPrefix, signal), nodeKind: 'Net' });
     }
 
     private onCanvasMouseDown(event: React.MouseEvent): void {
@@ -459,16 +553,79 @@ export class BistableSchematicWidget extends ReactWidget {
      * SVG over the existing geometry — value changes never re-run ELK.
      */
     private renderNodeOverlay(node: EngineSchematicLayoutNode): React.ReactElement {
-        const topModule = this.projectState.project?.topModule ?? '';
+        const pathPrefix = this.documentPath;
         return <g key={`overlay:${node.id}`} transform={`translate(${node.x}, ${node.y})`}>
-            {this.renderNodeBodyHit(node, topModule)}
-            {node.pins.map(pin => this.renderPinOverlay(node, pin, topModule))}
+            {this.renderNodeBodyHit(node, pathPrefix)}
+            {this.renderInstanceOpenHit(node)}
+            {this.renderExpandToggle(node)}
+            {node.pins.map(pin => this.renderPinOverlay(node, pin, pathPrefix))}
         </g>;
     }
 
+    /**
+     * Small ⊞/⊟ toggle in the header corner: expands a collapsed instance
+     * inline (Vivado-style) or collapses an expanded Container back to its
+     * symbol. Sits above the double-click hit so the two gestures coexist.
+     */
+    private renderExpandToggle(node: EngineSchematicLayoutNode): React.ReactElement | undefined {
+        if (node.kind !== 'Instance' && node.kind !== 'Container') {
+            return undefined;
+        }
+        const expanded = node.kind === 'Container';
+        const relativePath = instanceRelativePath(node.containerId, node.label);
+        const size = 14;
+        const x = node.width - size - 5;
+        const y = 5;
+        return <g
+            className='bistable-expand-toggle'
+            onMouseDown={event => { if (this.interactionMode !== 'hand') { event.stopPropagation(); } }}
+            onClick={event => {
+                event.stopPropagation();
+                this.toggleExpand(relativePath);
+            }}
+            onDoubleClick={event => event.stopPropagation()}
+        >
+            <rect x={x} y={y} width={size} height={size} rx='3' />
+            <line x1={x + 3.5} y1={y + size / 2} x2={x + size - 3.5} y2={y + size / 2} />
+            {!expanded && <line x1={x + size / 2} y1={y + 3.5} x2={x + size / 2} y2={y + size - 3.5} />}
+            <title>{expanded
+                ? `Collapse ${relativePath} back to its instance symbol`
+                : `Expand ${relativePath} inline (open as document: double-click)`}</title>
+        </g>;
+    }
+
+    /**
+     * Vivado-style hierarchy descent: double-clicking an instance body opens
+     * that instance's own schematic document (single click keeps selecting).
+     * The document identity is the hierarchical instance path, so a second
+     * double-click re-activates the existing tab instead of duplicating it.
+     */
+    private renderInstanceOpenHit(node: EngineSchematicLayoutNode): React.ReactElement | undefined {
+        if (node.kind !== 'Instance' && node.kind !== 'Container') {
+            return undefined;
+        }
+        const childPath = childInstancePath(
+            this.documentPath,
+            instanceRelativePath(node.containerId, node.label)
+        );
+        // A collapsed instance is one solid click target; an expanded
+        // container only offers its header band, so the wires and symbols
+        // inside stay clickable.
+        const hitHeight = node.kind === 'Container' ? node.headerHeight : node.height;
+        return <rect
+            className='bistable-instance-open-hit'
+            width={node.width}
+            height={hitHeight}
+            onDoubleClick={event => {
+                event.stopPropagation();
+                void this.openInstanceDocument(childPath);
+            }}
+        ><title>{`${node.label} : ${node.typeLabel ?? ''} — double-click to open ${childPath}`}</title></rect>;
+    }
+
     /** Make one-signal bodies (boundary ports and literals) exact click targets. */
-    private renderNodeBodyHit(node: EngineSchematicLayoutNode, topModule: string): React.ReactElement | undefined {
-        const target = nodeBodySelectionTarget(node, topModule);
+    private renderNodeBodyHit(node: EngineSchematicLayoutNode, pathPrefix: string): React.ReactElement | undefined {
+        const target = nodeBodySelectionTarget(node, pathPrefix);
         if (!target) {
             return undefined;
         }
@@ -492,16 +649,16 @@ export class BistableSchematicWidget extends ReactWidget {
     private renderPinOverlay(
         node: EngineSchematicLayoutNode,
         pin: EngineSchematicPin,
-        topModule: string
+        pathPrefix: string
     ): React.ReactElement {
-        const path = probePath(topModule, pin.signal);
+        const path = probePath(pathPrefix, pin.signal);
         const selected: SelectedSignal = { signal: pin.signal, path, nodeKind: node.kind };
         const action = this.pokeActionFor(selected);
         // The live value is drawn along the wire (renderEdgeValue); the pin
         // overlay is just the clickable/selectable hit ring.
         return <g
             key={`ov:${pin.id}`}
-            className={`${pinClasses(pin.signal, path, this.simulation)} ${this.interactionMode === 'poke' && action !== 'select' ? 'bistable-pin-poke' : ''}`}
+            className={`${pinClasses(pin.signal, path, this.simulation, this.isRoot)} ${this.interactionMode === 'poke' && action !== 'select' ? 'bistable-pin-poke' : ''}`}
             onMouseDown={event => { if (this.interactionMode !== 'hand') { event.stopPropagation(); } }}
             onClick={event => this.onSignalClick(event, selected)}
         >
@@ -529,7 +686,9 @@ export class BistableSchematicWidget extends ReactWidget {
     }
 
     private portFor(selected: SelectedSignal): EngineProjectPort | undefined {
-        return this.projectState.project?.ports.find(candidate => candidate.name === selected.signal);
+        // The poke-safety choke point: hierarchical documents never resolve a
+        // drive port, so simulation.setInput is unreachable from them.
+        return topLevelDrivePort(this.projectState.project?.ports, selected, this.isRoot);
     }
 
     private pokeActionFor(selected: SelectedSignal): ReturnType<typeof pokeAction> {
@@ -555,12 +714,12 @@ export class BistableSchematicWidget extends ReactWidget {
         this.inputError = '';
         this.update();
         try {
-            let current = liveValue(selected.signal, selected.path, this.simulation);
+            let current = liveValue(selected.signal, selected.path, this.simulation, this.isRoot);
             if (current === undefined) {
                 // The initial frame contains outputs. Resolve this exact input
                 // once if the automatic visible-probe read has not finished.
                 await this.projectState.readVisible([selected.path]);
-                current = liveValue(selected.signal, selected.path, this.simulation);
+                current = liveValue(selected.signal, selected.path, this.simulation, this.isRoot);
             }
 
             if (action === 'toggle') {
@@ -569,11 +728,7 @@ export class BistableSchematicWidget extends ReactWidget {
                     this.inputError = `Cannot toggle ${selected.signal}: current value is unavailable or not 0/1.`;
                     return;
                 }
-                this.inputError = await this.projectState.applyInput(
-                    selected.signal,
-                    next,
-                    this.visiblePaths
-                ) ?? '';
+                this.inputError = await this.projectState.applyInput(selected.signal, next) ?? '';
                 return;
             }
 
@@ -686,8 +841,7 @@ export class BistableSchematicWidget extends ReactWidget {
         try {
             const error = await this.projectState.applyInput(
                 editor.selected.signal,
-                parsed.value.toString(10),
-                this.visiblePaths
+                parsed.value.toString(10)
             );
             if (this.pokeEditor?.id !== editor.id) {
                 return;
@@ -741,7 +895,7 @@ export class BistableSchematicWidget extends ReactWidget {
         this.inputError = '';
         this.update();
         try {
-            const error = await this.projectState.applyInput(selected.signal, this.valueInput, this.visiblePaths);
+            const error = await this.projectState.applyInput(selected.signal, this.valueInput);
             this.inputError = error ?? '';
         } catch (error) {
             this.inputError = error instanceof Error ? error.message : String(error);
@@ -751,14 +905,14 @@ export class BistableSchematicWidget extends ReactWidget {
         }
     }
 
-    private async run(action: (paths: string[]) => Promise<void>): Promise<void> {
+    private async run(action: () => Promise<void>): Promise<void> {
         if (this.busy) {
             return;
         }
         this.busy = true;
         this.update();
         try {
-            await action(this.visiblePaths);
+            await action();
         } catch (error) {
             this.inputError = error instanceof Error ? error.message : String(error);
         } finally {
@@ -771,17 +925,26 @@ export class BistableSchematicWidget extends ReactWidget {
         const generation = ++this.layoutGeneration;
         this.status = 'layout';
         this.errorMessage = '';
-        this.title.label = `Schematic: ${project.topModule}`;
-        this.title.caption = `${project.topModule} RTL schematic`;
+        if (this.isRoot) {
+            this.title.label = `Schematic: ${project.topModule}`;
+            this.title.caption = `${project.topModule} RTL schematic`;
+        }
         this.update();
         try {
-            const layout = await this.engine.layoutSchematic(project.schematic);
+            const graph = await this.resolveGraph(project);
+            const layout = await this.engine.layoutSchematic(graph);
             if (generation !== this.layoutGeneration) {
                 return;
             }
             this.schematicLayout = layout;
-            this.visiblePaths = this.computeVisiblePaths(layout, project.topModule);
+            this.visiblePaths = this.computeVisiblePaths(layout, this.documentPath);
+            // Contribute this document's probe set to the shared union that the
+            // live loop refreshes in one batched read.
+            this.projectState.setVisiblePaths(this.id, this.visiblePaths);
             this.status = 'ready';
+            if (this.simulation.status === 'ready') {
+                void this.projectState.readVisible(this.visiblePaths);
+            }
             // Fit once after the canvas has been laid out by the browser.
             window.requestAnimationFrame(() => this.resetView());
         } catch (error) {
@@ -795,22 +958,73 @@ export class BistableSchematicWidget extends ReactWidget {
     }
 
     /**
+     * The root document without expansions reuses the graph the project
+     * summary already carries; every other state asks the engine host for the
+     * document's instance path (plus the inline-expanded children). The host
+     * serves it from the cached elaboration — no Verilator re-run and no
+     * schematic decoding in the frontend. Composed graphs are memoized per
+     * expansion state, so collapsing back is instant.
+     */
+    private async resolveGraph(project: EngineProjectSummary): Promise<EngineSchematicGraph> {
+        const expand = [...this.expandedPaths];
+        if (this.isRoot) {
+            this.moduleName = project.topModule;
+            if (expand.length === 0) {
+                return project.schematic;
+            }
+        }
+        const key = expansionKey(this.expandedPaths);
+        const memoized = this.graphMemo.get(key);
+        if (memoized) {
+            return memoized;
+        }
+        const moduleSchematic = await this.engine.loadModuleSchematic(
+            project.projectPath,
+            this.documentPath,
+            expand
+        );
+        this.moduleName = moduleSchematic.moduleName;
+        if (!this.isRoot) {
+            this.title.caption = `${this.documentPath} (${moduleSchematic.moduleName}) schematic`;
+        }
+        this.graphMemo.set(key, moduleSchematic.schematic);
+        return moduleSchematic.schematic;
+    }
+
+    /**
+     * Vivado-style selective expansion: toggles one instance's inline
+     * expansion and re-runs the backend layout. A newer toggle supersedes an
+     * in-flight one via the layout generation, so expansion is cancellable;
+     * collapsing prunes every nested expansion beneath the instance.
+     */
+    private toggleExpand(relativePath: string): void {
+        const project = this.projectState.project;
+        if (!project) {
+            return;
+        }
+        this.expandedPaths = this.expandedPaths.has(relativePath)
+            ? collapseInstance(this.expandedPaths, relativePath)
+            : expandInstance(this.expandedPaths, relativePath);
+        void this.refresh(project);
+    }
+
+    /**
      * Distinct probe paths for every signal on a laid-out pin. Computed once per
      * layout; the per-frame batched read reuses this list — no per-frame graph
      * traversal or allocation over the full RV32 graph.
      */
-    private computeVisiblePaths(layout: EngineSchematicLayout, topModule: string): string[] {
+    private computeVisiblePaths(layout: EngineSchematicLayout, pathPrefix: string): string[] {
         const paths = new Set<string>();
         for (const node of layout.nodes) {
             for (const pin of node.pins) {
-                paths.add(probePath(topModule, pin.signal));
+                paths.add(probePath(pathPrefix, pin.signal));
             }
         }
         return [...paths];
     }
 
     private directionOf(selected: SelectedSignal): string {
-        const port = this.projectState.project?.ports.find(p => p.name === selected.signal);
+        const port = topLevelDrivePort(this.projectState.project?.ports, selected, this.isRoot);
         return port ? port.direction.toLowerCase()
             : selected.nodeKind === 'Constant' ? 'constant'
             : selected.nodeKind === 'Port' ? 'port'
@@ -823,6 +1037,13 @@ export class BistableSchematicWidget extends ReactWidget {
     }
 
     private setInteractionMode(mode: SchematicInteractionMode): void {
+        if (mode === 'poke' && !this.isRoot) {
+            // Child boundary/internal signals are read-only: Poke only ever
+            // drives exact top-level inputs, which live on the root document.
+            this.inputError = 'Poke drives top-level inputs only — use the root schematic document.';
+            this.update();
+            return;
+        }
         if (mode === 'poke' && this.simulation.status !== 'ready') {
             this.inputError = 'Build the simulation before entering Poke/Drive mode.';
             this.update();

@@ -104,10 +104,19 @@ Full wire-format spec in `docs/PROTOCOL.md`.
   diagnostics.
 - `EngineSchematicProjectionService` — top-module decoder output to an exact
   signal-labelled, layout-agnostic node/edge transport graph.
-- `EngineRpcServer` — JSON-line methods `hello`, `loadProject`, `shutdown`, and
-  the protocol-v2 `simulation.*` family (`start`/`setInput`/`eval`/`tick`/
-  `reset`/`readSignals`/`stop`); stdout is protocol-only and elaboration/
-  validation failures carry structured diagnostics/`invalid_value` codes.
+- `EngineRpcServer` — JSON-line methods `hello`, `loadProject`,
+  `loadModuleSchematic`, `shutdown`, and the protocol-v2 `simulation.*` family
+  (`start`/`setInput`/`eval`/`tick`/`reset`/`readSignals`/`stop`); stdout is
+  protocol-only and elaboration/validation failures carry structured
+  diagnostics/`invalid_value`/`invalid_path` codes. The latest elaboration is
+  cached so opening a hierarchical module document never re-runs Verilator.
+- `EngineInstancePathResolver` — resolves a hierarchical instance path
+  (`top.u_core.u_alu`) to the instantiated `ModuleAst`; the instance path (not
+  the module type) is the identity of a hierarchical schematic document.
+- `EngineSchematicComposer` — selective inline expansion: composes chosen
+  child instances in place as nested `Container` nodes with
+  instance-namespaced exact nets (`u_alu.zero`) and pass-through boundary
+  ports; consumed by `loadModuleSchematic`'s optional `expand[]` parameter.
 - `SimulationSessionService` (`Bistable.Engine`) — owns the native Verilator
   worker for one loaded project via `SimulationWorkerBuilder`. Drives the live
   loop (validate → SetInput → Eval/Tick/Reset → one batched `ReadSignals`), and
@@ -132,15 +141,28 @@ Full wire-format spec in `docs/PROTOCOL.md`.
   shared `schematic-visual-contract.ts` computes bounded text-aware node sizes,
   protected input/output columns, middle elision and overview LOD before ELK
   runs. Instance headers separate instance name from module type. Hierarchical
-  module documents and Vivado-style selective expand/collapse remain the next
-  migration slice.
+  navigation is live: double-clicking an instance opens that instance path as
+  its own dockable document (`schematic-hierarchy.ts` owns the id/breadcrumb
+  helpers), each document shows a `top › u_core › u_alu` breadcrumb, and the
+  widget factory keys documents on the instance path so re-opening activates
+  the existing tab. Vivado-style selective inline expand/collapse is live: an
+  ⊞/⊟ header toggle expands an instance in place as an ELK-nested Container
+  (layout stays in the backend; elkjs container-relative edge coordinates are
+  flattened to absolute space), expansion state is a per-document set of
+  relative instance paths, composed graphs are memoized per expansion key, and
+  collapsing prunes nested expansions without touching parent selection.
 - `bistable-project-state.ts` is the single owner of the loaded-project and
-  live-simulation state; the schematic widget observes it and refreshes values
-  **without reopening** the document. Pin selection carries exact signal +
+  live-simulation state; the schematic widgets observe it and refresh values
+  **without reopening** documents. Pin selection carries exact signal +
   hierarchical path (never the display label). Live values overlay the existing
-  geometry as SVG text — value changes never re-run ELK — and the visible-probe
-  set is computed once per layout. `simulation-state.ts` holds the DOM-free
-  state helpers (snapshot/frame/read merge, `pinClasses`, `liveValue`).
+  geometry as SVG text — value changes never re-run ELK — and each document's
+  visible-probe set is computed once per layout and registered with the state,
+  which refreshes the deduplicated union of all open documents in **one**
+  batched `ReadSignals` per action. `simulation-state.ts` holds the DOM-free
+  state helpers (snapshot/frame/read merge, `pinClasses`, `liveValue`,
+  `mergeVisiblePaths`, and the `topLevelDrivePort` poke-safety choke point:
+  hierarchical documents can never resolve a drivable port, so child boundary
+  ports that share a top-level input's name remain read-only).
 - The backend `BistableEngineService` proxy owns the engine-host child process
   and forwards the `simulation.*` methods; it guards protocol v2 at handshake.
   No worker ownership lives in the renderer or the frontend.

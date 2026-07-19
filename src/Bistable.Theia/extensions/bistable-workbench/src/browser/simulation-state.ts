@@ -24,6 +24,24 @@ export interface SelectedSignal {
 export type PokeAction = 'toggle' | 'edit' | 'select';
 
 /**
+ * The single choke point deciding whether a selection may drive
+ * `simulation.setInput`. Only the root (top-module) schematic document may
+ * resolve a drive port: a child module's boundary port is *not* a top-level
+ * input even when its module-local name matches one, so hierarchical documents
+ * must always get `undefined` here (poke-safety regression contract).
+ */
+export function topLevelDrivePort(
+    ports: readonly EngineProjectPort[] | undefined,
+    selected: SelectedSignal,
+    documentIsRoot: boolean
+): EngineProjectPort | undefined {
+    if (!documentIsRoot || !ports) {
+        return undefined;
+    }
+    return ports.find(candidate => candidate.name === selected.signal);
+}
+
+/**
  * Only an exact top-level input Port is mutable in Poke mode. A scalar toggles,
  * a bus opens the value editor, and every other signal remains selection-only.
  */
@@ -86,7 +104,12 @@ export function nodeBodySelectionTarget(
         return undefined;
     }
 
-    const signal = node.outputs[0] ?? node.inputs[0];
+    // A pass-through boundary port of an inline-expanded instance carries a
+    // direction hint and both sides; its identity is the *inner* namespaced
+    // net (`u_alu.y`), never the parent net it connects to.
+    const signal = node.kind === 'Port' && node.typeLabel === 'output'
+        ? node.inputs[0] ?? node.outputs[0]
+        : node.outputs[0] ?? node.inputs[0];
     if (!signal) {
         return undefined;
     }
@@ -200,26 +223,56 @@ function seedFrame(values: Map<string, string>, topModule: string, frame: Engine
  * Compute the CSS classes for a schematic pin given the current selection,
  * driven set, and whether a live value is known. Pure and DOM-free so it can be
  * unit-tested directly (mandatory schematic-state test).
+ *
+ * `documentIsRoot` guards the module-local shortcuts: the driven set and the
+ * bare-name value map hold top-level names, so in a hierarchical document a
+ * same-named child signal must not light up as driven/live from them.
  */
 export function pinClasses(
     signal: string,
     path: string,
-    state: SimulationState
+    state: SimulationState,
+    documentIsRoot = true
 ): string {
     const classes = ['bistable-pin-overlay'];
     if (state.selected && state.selected.path === path) {
         classes.push('bistable-pin-selected');
     }
-    if (state.driven.has(signal)) {
+    if (documentIsRoot && state.driven.has(signal)) {
         classes.push('bistable-pin-driven');
     }
-    if (state.values.has(path) || state.values.has(signal)) {
+    if (state.values.has(path) || (documentIsRoot && state.values.has(signal))) {
         classes.push('bistable-pin-live');
     }
     return classes.join(' ');
 }
 
-/** Resolve the live value for a schematic signal, preferring the exact path. */
-export function liveValue(signal: string, path: string, state: SimulationState): string | undefined {
-    return state.values.get(path) ?? state.values.get(signal);
+/**
+ * Resolve the live value for a schematic signal, preferring the exact path.
+ * The module-local name fallback exists for top-level frame outputs only —
+ * hierarchical documents must pass `documentIsRoot = false` so a child net
+ * never borrows the value of a same-named top-level signal.
+ */
+export function liveValue(
+    signal: string,
+    path: string,
+    state: SimulationState,
+    documentIsRoot = true
+): string | undefined {
+    return state.values.get(path) ?? (documentIsRoot ? state.values.get(signal) : undefined);
+}
+
+/**
+ * Deduplicated union of every open document's visible probe paths. The live
+ * loop reads this union in one batched `ReadSignals`, so parent and child
+ * schematics refresh from a single worker round-trip per action.
+ */
+export function mergeVisiblePaths(registry: ReadonlyMap<string, readonly string[]>): string[] {
+    const union = new Set<string>();
+    for (const paths of registry.values()) {
+        for (const path of paths) {
+            union.add(path);
+        }
+    }
+    return [...union];
 }

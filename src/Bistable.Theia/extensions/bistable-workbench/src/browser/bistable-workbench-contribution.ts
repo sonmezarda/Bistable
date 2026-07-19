@@ -6,12 +6,14 @@ import {
 import { inject, injectable } from '@theia/core/shared/inversify';
 import {
     BistableOpenSchematicCommand,
+    BistableOpenSchematicInstanceCommand,
     BistableSchematicDockOptions,
     BistableWorkbenchCommand
 } from './bistable-commands';
 import { BistableProjectState } from './bistable-project-state';
 import { BistableSchematicWidget } from './bistable-schematic-widget';
 import { BistableWorkbenchWidget } from './bistable-workbench-widget';
+import { schematicDocumentOptions } from './schematic-hierarchy';
 
 @injectable()
 export class BistableWorkbenchContribution extends AbstractViewContribution<BistableWorkbenchWidget> {
@@ -38,15 +40,27 @@ export class BistableWorkbenchContribution extends AbstractViewContribution<Bist
             isEnabled: () => Boolean(this.projectState.project),
             execute: () => this.openSchematic()
         });
+        commands.registerCommand(BistableOpenSchematicInstanceCommand, {
+            isEnabled: () => Boolean(this.projectState.project),
+            execute: (instancePath: string) => this.openSchematic(instancePath)
+        });
     }
 
     registerMenus(menus: MenuModelRegistry): void {
         super.registerMenus(menus);
     }
 
-    private async openSchematic(): Promise<void> {
+    /**
+     * Opens the schematic document for an instance path (root when omitted).
+     * The widget manager keys widgets on the factory options, so re-opening
+     * the same hierarchical path re-activates the existing tab — never a
+     * duplicate.
+     */
+    private async openSchematic(instancePath?: string): Promise<void> {
+        const options = instancePath ? schematicDocumentOptions(instancePath) : {};
         const widget = await this.widgetManager.getOrCreateWidget<BistableSchematicWidget>(
-            BistableSchematicWidget.ID
+            BistableSchematicWidget.ID,
+            options
         );
         if (!widget.isAttached) {
             await this.shell.addWidget(widget, BistableSchematicDockOptions);

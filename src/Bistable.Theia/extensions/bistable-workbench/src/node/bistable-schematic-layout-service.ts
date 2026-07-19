@@ -20,12 +20,21 @@ import {
 
 const elk = new ELK();
 const PinSize = 8;
+const RootId = 'bistable-schematic-root';
+/** Vertical room reserved for a Container's two-line header. */
+const ContainerHeaderHeight = 40;
 
 export async function layoutSchematicWithElk(graph: EngineSchematicGraph): Promise<EngineSchematicLayout> {
     const sourceById = new Map(graph.nodes.map(node => [node.id, node]));
     const signalByEdgeId = new Map(graph.edges.map(edge => [edge.id, edge.signal]));
+    const childrenByContainer = new Map<string | undefined, EngineSchematicNode[]>();
+    for (const node of graph.nodes) {
+        const siblings = childrenByContainer.get(node.containerId) ?? [];
+        siblings.push(node);
+        childrenByContainer.set(node.containerId, siblings);
+    }
     const elkGraph: ElkNode = {
-        id: 'bistable-schematic-root',
+        id: RootId,
         layoutOptions: {
             'elk.algorithm': 'layered',
             'elk.direction': 'RIGHT',
@@ -38,7 +47,7 @@ export async function layoutSchematicWithElk(graph: EngineSchematicGraph): Promi
             'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
             'elk.padding': '[top=36,left=36,bottom=36,right=36]'
         },
-        children: graph.nodes.map(toElkNode),
+        children: (childrenByContainer.get(undefined) ?? []).map(node => toElkNode(node, childrenByContainer)),
         edges: graph.edges.map(edge => {
             const source = sourceById.get(edge.sourceNodeId);
             const target = sourceById.get(edge.targetNodeId);
@@ -54,8 +63,12 @@ export async function layoutSchematicWithElk(graph: EngineSchematicGraph): Promi
     };
 
     const result = await elk.layout(elkGraph);
-    const nodes = (result.children ?? []).map(child => toLayoutNode(child, sourceById));
-    const edges = (result.edges ?? []).map(edge => toLayoutEdge(edge, signalByEdgeId));
+    // Flatten the container hierarchy to absolute coordinates: ELK reports
+    // child positions relative to their parent container.
+    const nodes: EngineSchematicLayoutNode[] = [];
+    const originById = new Map<string, { x: number; y: number }>([[RootId, { x: 0, y: 0 }]]);
+    flattenInto(result.children ?? [], 0, 0, sourceById, nodes, originById);
+    const edges = (result.edges ?? []).map(edge => toLayoutEdge(edge, signalByEdgeId, originById));
     return {
         width: Math.max(1, result.width ?? 1),
         height: Math.max(1, result.height ?? 1),
@@ -64,7 +77,21 @@ export async function layoutSchematicWithElk(graph: EngineSchematicGraph): Promi
     };
 }
 
-function toElkNode(node: EngineSchematicNode): ElkNode {
+function toElkNode(
+    node: EngineSchematicNode,
+    childrenByContainer: Map<string | undefined, EngineSchematicNode[]>
+): ElkNode {
+    if (node.kind === 'Container') {
+        // A container is sized by ELK around its expanded children; the top
+        // padding reserves the header band for the instance/module captions.
+        return {
+            id: node.id,
+            layoutOptions: {
+                'elk.padding': `[top=${ContainerHeaderHeight + 8},left=18,bottom=18,right=18]`
+            },
+            children: (childrenByContainer.get(node.id) ?? []).map(child => toElkNode(child, childrenByContainer))
+        };
+    }
     const metrics = computeSymbolMetrics(node);
     const layoutOptions: Record<string, string> = {
         // Every pin receives an explicit position inside the body region. This
@@ -105,9 +132,14 @@ function fixedPort(id: string, x: number, y: number): ElkPort {
     };
 }
 
-/** FIRST for input boundary ports, LAST for output boundary ports, else none. */
+/**
+ * FIRST for input boundary ports, LAST for output boundary ports, else none.
+ * Only the document's own boundary applies: a Port inside an expanded
+ * Container must never be pinned to the whole graph's outer layers, and a
+ * pass-through boundary port (both sides connected) carries no constraint.
+ */
 function layerConstraint(node: EngineSchematicNode): 'FIRST' | 'LAST' | undefined {
-    if (node.kind !== 'Port') {
+    if (node.kind !== 'Port' || node.containerId) {
         return undefined;
     }
     // An input port drives a signal out (has outputs); an output port consumes one.
@@ -120,16 +152,50 @@ function layerConstraint(node: EngineSchematicNode): 'FIRST' | 'LAST' | undefine
     return undefined;
 }
 
+/** Depth-first flatten: parents precede children so containers paint below. */
+function flattenInto(
+    elkNodes: ElkNode[],
+    offsetX: number,
+    offsetY: number,
+    sourceById: Map<string, EngineSchematicNode>,
+    out: EngineSchematicLayoutNode[],
+    originById: Map<string, { x: number; y: number }>
+): void {
+    for (const elkNode of elkNodes) {
+        const absoluteX = offsetX + (elkNode.x ?? 0);
+        const absoluteY = offsetY + (elkNode.y ?? 0);
+        originById.set(elkNode.id, { x: absoluteX, y: absoluteY });
+        out.push(toLayoutNode(elkNode, absoluteX, absoluteY, sourceById));
+        if (elkNode.children && elkNode.children.length > 0) {
+            flattenInto(elkNode.children, absoluteX, absoluteY, sourceById, out, originById);
+        }
+    }
+}
+
 function toLayoutNode(
     node: ElkNode,
+    absoluteX: number,
+    absoluteY: number,
     sourceById: Map<string, EngineSchematicNode>
 ): EngineSchematicLayoutNode {
     const source = sourceById.get(node.id);
     if (!source) {
         throw new Error(`ELK returned unknown schematic node '${node.id}'.`);
     }
-    const ports = new Map((node.ports ?? []).map(port => [port.id, port]));
     const nodeWidth = node.width ?? 1;
+    if (source.kind === 'Container') {
+        return {
+            ...source,
+            x: absoluteX,
+            y: absoluteY,
+            width: nodeWidth,
+            height: node.height ?? 1,
+            pinLabelColumnWidth: 0,
+            headerHeight: ContainerHeaderHeight,
+            pins: []
+        };
+    }
+    const ports = new Map((node.ports ?? []).map(port => [port.id, port]));
     const metrics = computeSymbolMetrics(source);
     const pins: EngineSchematicPin[] = [
         ...source.inputs.map((signal, index) => toLayoutPin(
@@ -141,8 +207,8 @@ function toLayoutNode(
     ];
     return {
         ...source,
-        x: node.x ?? 0,
-        y: node.y ?? 0,
+        x: absoluteX,
+        y: absoluteY,
         width: nodeWidth,
         height: node.height ?? 1,
         pinLabelColumnWidth: metrics.pinLabelColumnWidth,
@@ -179,13 +245,18 @@ function toLayoutPin(
 
 function toLayoutEdge(
     edge: ElkExtendedEdge,
-    signalByEdgeId: Map<string, string>
+    signalByEdgeId: Map<string, string>,
+    originById: Map<string, { x: number; y: number }>
 ): EngineSchematicLayoutEdge {
+    // With INCLUDE_CHILDREN, elkjs reports each edge's coordinates relative to
+    // a reference container (`edge.container`). Shift them to absolute space.
+    const containerId = (edge as ElkExtendedEdge & { container?: string }).container;
+    const origin = (containerId && originById.get(containerId)) || { x: 0, y: 0 };
     const points = (edge.sections ?? []).flatMap(section => [
         section.startPoint,
         ...(section.bendPoints ?? []),
         section.endPoint
-    ]);
+    ]).map(point => ({ x: point.x + origin.x, y: point.y + origin.y }));
     return {
         id: edge.id,
         signal: signalByEdgeId.get(edge.id) ?? '',

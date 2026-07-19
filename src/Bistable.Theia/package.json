@@ -22,7 +22,7 @@
     "start": "npm run start --workspace @bistable/theia-electron",
     "start:browser": "npm run start --workspace @bistable/theia-browser",
     "start:debug": "npm run start:debug --workspace @bistable/theia-electron",
-    "test": "npm run build:extension && node scripts/check-shared-react.mjs && node scripts/check-live-reload.mjs && node scripts/check-problem-lifecycle.mjs && node scripts/check-rtl-schematic.mjs && node scripts/check-simulation-state.mjs",
+    "test": "npm run build:extension && node scripts/check-shared-react.mjs && node scripts/check-live-reload.mjs && node scripts/check-problem-lifecycle.mjs && node scripts/check-rtl-schematic.mjs && node scripts/check-simulation-state.mjs && node scripts/check-schematic-hierarchy.mjs",
     "watch": "npm run watch --workspace @bistable/theia-electron"
   }
 }

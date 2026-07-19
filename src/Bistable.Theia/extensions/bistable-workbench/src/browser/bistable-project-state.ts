@@ -10,6 +10,7 @@ import {
     applyReadResult,
     applySnapshot,
     emptySimulationState,
+    mergeVisiblePaths,
     SelectedSignal,
     SimulationState
 } from './simulation-state';
@@ -33,6 +34,13 @@ export class BistableProjectState {
     private currentProject: EngineProjectSummary | undefined;
     private simulation: SimulationState = emptySimulationState();
     private startToken = 0;
+    /**
+     * Visible probe paths per open schematic document (root and hierarchical
+     * children). Every simulation action refreshes the deduplicated union in
+     * one batched `ReadSignals`, so all open documents update together from a
+     * single worker round-trip.
+     */
+    private readonly visiblePathsByDocument = new Map<string, readonly string[]>();
 
     readonly onDidChangeProject: Event<EngineProjectSummary> = this.changeEmitter.event;
     readonly onDidChangeSimulation: Event<SimulationState> = this.simulationEmitter.event;
@@ -85,11 +93,25 @@ export class BistableProjectState {
     }
 
     /**
-     * Drive a top-level input, eval, and refresh the visible probe set in one
-     * batched read — the whole live-loop step. Validation failures are surfaced
-     * without a frame update. Returns the validation message on rejection.
+     * Register the probe paths a schematic document currently lays out. Called
+     * once per layout change (never per frame); the document must unregister on
+     * dispose so closed tabs stop contributing to the batched read.
      */
-    async applyInput(signal: string, value: string, visiblePaths: string[]): Promise<string | undefined> {
+    setVisiblePaths(documentId: string, paths: readonly string[]): void {
+        this.visiblePathsByDocument.set(documentId, paths);
+    }
+
+    removeVisiblePaths(documentId: string): void {
+        this.visiblePathsByDocument.delete(documentId);
+    }
+
+    /**
+     * Drive a top-level input, eval, and refresh every open document's visible
+     * probes in one batched read — the whole live-loop step. Validation
+     * failures are surfaced without a frame update. Returns the validation
+     * message on rejection.
+     */
+    async applyInput(signal: string, value: string): Promise<string | undefined> {
         const generation = this.simulation.generation;
         try {
             const frame = await this.engine.setInput(signal, value);
@@ -99,7 +121,7 @@ export class BistableProjectState {
             const driven = new Set(this.simulation.driven);
             driven.add(signal);
             this.updateSimulation({ ...applyFrame(this.simulation, frame), driven });
-            await this.refreshVisible(generation, visiblePaths);
+            await this.refreshVisible(generation);
             return undefined;
         } catch (error) {
             if (error instanceof EngineSimulationValidationError) {
@@ -109,53 +131,56 @@ export class BistableProjectState {
         }
     }
 
-    async evalDesign(visiblePaths: string[]): Promise<void> {
+    async evalDesign(): Promise<void> {
         const generation = this.simulation.generation;
         const frame = await this.engine.evalDesign();
         if (generation !== this.simulation.generation) {
             return;
         }
         this.updateSimulation(applyFrame(this.simulation, frame));
-        await this.refreshVisible(generation, visiblePaths);
+        await this.refreshVisible(generation);
     }
 
-    async tick(visiblePaths: string[], clock?: string): Promise<void> {
+    async tick(clock?: string): Promise<void> {
         const generation = this.simulation.generation;
         const frame = await this.engine.tick(clock);
         if (generation !== this.simulation.generation) {
             return;
         }
         this.updateSimulation(applyFrame(this.simulation, frame));
-        await this.refreshVisible(generation, visiblePaths);
+        await this.refreshVisible(generation);
     }
 
-    async reset(visiblePaths: string[]): Promise<void> {
+    async reset(): Promise<void> {
         const generation = this.simulation.generation;
         const frame = await this.engine.reset();
         if (generation !== this.simulation.generation) {
             return;
         }
         this.updateSimulation(applyFrame(this.simulation, frame));
-        await this.refreshVisible(generation, visiblePaths);
+        await this.refreshVisible(generation);
     }
 
     /**
-     * Public one-shot read of the visible paths — used to light up every
-     * readable signal as soon as the worker is ready, without stepping.
+     * Public one-shot read — used to light up every readable signal as soon as
+     * the worker is ready, or to resolve one exact path before a poke. Reads
+     * the given paths, or the union of every document's visible set when
+     * omitted.
      */
-    async readVisible(visiblePaths: string[]): Promise<void> {
+    async readVisible(paths?: readonly string[]): Promise<void> {
         if (this.simulation.status !== 'ready') {
             return;
         }
-        await this.refreshVisible(this.simulation.generation, visiblePaths);
+        await this.refreshVisible(this.simulation.generation, paths);
     }
 
     /** One batched read of the currently-visible probe paths. */
-    private async refreshVisible(generation: number, visiblePaths: string[]): Promise<void> {
+    private async refreshVisible(generation: number, paths?: readonly string[]): Promise<void> {
+        const visiblePaths = paths ?? mergeVisiblePaths(this.visiblePathsByDocument);
         if (visiblePaths.length === 0) {
             return;
         }
-        const result = await this.engine.readSignals(visiblePaths);
+        const result = await this.engine.readSignals([...visiblePaths]);
         if (generation !== this.simulation.generation) {
             return;
         }

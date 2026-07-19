@@ -13,7 +13,15 @@ public sealed class EngineSchematicProjectionService
 {
     public EngineSchematicGraph Project(ModuleAst module) => Project(SchematicDecoder.Decode(module));
 
-    public EngineSchematicGraph Project(SchematicPrimitiveList primitives)
+    public EngineSchematicGraph Project(SchematicPrimitiveList primitives) =>
+        FinishGraph(primitives.ModuleName, ProjectNodes(primitives));
+
+    /// <summary>
+    /// Node projection without edge synthesis. The hierarchical composer merges
+    /// several modules' node lists (with namespaced signals) before edges are
+    /// derived once over the merged endpoint set.
+    /// </summary>
+    internal static List<EngineSchematicNode> ProjectNodes(SchematicPrimitiveList primitives)
     {
         List<EngineSchematicNode> nodes = [];
         foreach (PortPrimitive port in primitives.Ports)
@@ -28,7 +36,15 @@ public sealed class EngineSchematicProjectionService
         }
         nodes.AddRange(primitives.Instances.Select(ProjectInstance));
         nodes.AddRange(primitives.Logic.Select(ProjectLogic));
+        return nodes;
+    }
 
+    /// <summary>
+    /// Synthesizes bare Net nodes for consumed-but-unproduced signals and
+    /// derives one edge per producer/consumer signal pair.
+    /// </summary>
+    internal static EngineSchematicGraph FinishGraph(string moduleName, List<EngineSchematicNode> nodes)
+    {
         Dictionary<string, List<string>> producers = BuildEndpointIndex(nodes, static node => node.Outputs);
         Dictionary<string, List<string>> consumers = BuildEndpointIndex(nodes, static node => node.Inputs);
         foreach (string signal in consumers.Keys.Except(producers.Keys, StringComparer.OrdinalIgnoreCase).ToArray())
@@ -55,7 +71,7 @@ public sealed class EngineSchematicProjectionService
                 }
             }
         }
-        return new EngineSchematicGraph(primitives.ModuleName, nodes, edges);
+        return new EngineSchematicGraph(moduleName, nodes, edges);
     }
 
     private static EngineSchematicNode ProjectInstance(InstancePrimitive instance)
@@ -227,6 +243,11 @@ public sealed record EngineSchematicGraph(
     IReadOnlyList<EngineSchematicNode> Nodes,
     IReadOnlyList<EngineSchematicEdge> Edges);
 
+/// <param name="ContainerId">
+/// Inline hierarchy expansion: id of the Container node this node is laid out
+/// inside (null at the document root). Layout nests containers in ELK; net
+/// identity is unaffected.
+/// </param>
 public sealed record EngineSchematicNode(
     string Id,
     string Kind,
@@ -235,7 +256,8 @@ public sealed record EngineSchematicNode(
     IReadOnlyList<string> Outputs,
     IReadOnlyList<string>? InputLabels = null,
     IReadOnlyList<string>? OutputLabels = null,
-    string? TypeLabel = null);
+    string? TypeLabel = null,
+    string? ContainerId = null);
 
 public sealed record EngineSchematicEdge(
     string Id,

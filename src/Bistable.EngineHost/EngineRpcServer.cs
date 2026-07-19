@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using Bistable.Core.Design;
+using Bistable.Core.Design.Ast;
 using Bistable.Engine;
 using Bistable.Verilator;
 
@@ -10,7 +11,11 @@ namespace Bistable.EngineHost;
 public sealed class EngineRpcServer(DesignElaborationService elaborationService)
 {
     private readonly EngineSchematicProjectionService _schematicProjection = new();
+    private readonly EngineSchematicComposer _schematicComposer = new();
     private readonly SimulationSessionService _simulation = new();
+    // Latest elaboration result, so opening a hierarchical module document does
+    // not re-run Verilator. Refreshed by every loadProject/simulation.start.
+    private (string ProjectPath, EngineDesignLoadResult Result)? _designCache;
     public async Task RunAsync(
         TextReader input,
         TextWriter output,
@@ -53,6 +58,7 @@ public sealed class EngineRpcServer(DesignElaborationService elaborationService)
             {
                 "hello" => (Success(request.Id, CreateHello()), false),
                 "loadProject" => (Success(request.Id, await LoadProjectAsync(request.Params, cancellationToken)), false),
+                "loadModuleSchematic" => (Success(request.Id, await LoadModuleSchematicAsync(request.Params, cancellationToken)), false),
                 "simulation.start" => (Success(request.Id, await SimulationStartAsync(request.Params, cancellationToken)), false),
                 "simulation.setInput" => (Success(request.Id, await SimulationSetInputAsync(request.Params, cancellationToken)), false),
                 "simulation.eval" => (Success(request.Id, ToFrame(await _simulation.EvalAsync(cancellationToken))), false),
@@ -67,6 +73,10 @@ public sealed class EngineRpcServer(DesignElaborationService elaborationService)
         catch (SimulationValidationException ex)
         {
             return (Error(request.Id, "invalid_value", ex.Message), false);
+        }
+        catch (InvalidInstancePathException ex)
+        {
+            return (Error(request.Id, "invalid_path", ex.Message), false);
         }
         catch (VerilatorInvocationException ex)
         {
@@ -101,7 +111,8 @@ public sealed class EngineRpcServer(DesignElaborationService elaborationService)
         EngineRpcProtocol.Version,
         Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0",
         [
-            "project.load", "diagnostics.stderr", "schematic.top", "shutdown",
+            "project.load", "diagnostics.stderr", "schematic.top", "schematic.module",
+            "schematic.expand", "shutdown",
             "simulation.start", "simulation.step", "simulation.readSignals"
         ]);
 
@@ -120,6 +131,7 @@ public sealed class EngineRpcServer(DesignElaborationService elaborationService)
         Stopwatch stopwatch = Stopwatch.StartNew();
         EngineDesignLoadResult result = await elaborationService.LoadAsync(projectPath, cancellationToken);
         stopwatch.Stop();
+        _designCache = (projectPath, result);
         EngineProjectPort[] ports = result.Metadata.Ports
             .OrderBy(static port => port.PinIndex)
             .Select(static port => new EngineProjectPort(
@@ -140,12 +152,45 @@ public sealed class EngineRpcServer(DesignElaborationService elaborationService)
                 ?? throw new InvalidDataException("Elaborated AST has no top module.")));
     }
 
+    /// <summary>
+    /// Layout-agnostic schematic graph for one hierarchical instance path. The
+    /// path — not the module type — is the document identity, so distinct
+    /// instances of the same module resolve independently. Optional
+    /// `expand` relative instance paths compose selected children inline as
+    /// Container nodes. Served from the cached elaboration whenever possible;
+    /// a value refresh never re-runs Verilator here.
+    /// </summary>
+    private async Task<EngineModuleSchematicResult> LoadModuleSchematicAsync(
+        JsonElement parameters,
+        CancellationToken cancellationToken)
+    {
+        string projectPath = RequireProjectPath(parameters);
+        string instancePath = GetOptionalString(parameters, "instancePath")
+            ?? throw new InvalidInstancePathException("loadModuleSchematic requires params.instancePath.");
+        string[] expand = GetOptionalStringArray(parameters, "expand");
+        EngineDesignLoadResult design;
+        if (_designCache is { } cache && string.Equals(cache.ProjectPath, projectPath, StringComparison.Ordinal))
+        {
+            design = cache.Result;
+        }
+        else
+        {
+            design = await elaborationService.LoadAsync(projectPath, cancellationToken);
+            _designCache = (projectPath, design);
+        }
+        EngineSchematicGraph schematic = expand.Length == 0
+            ? _schematicProjection.Project(EngineInstancePathResolver.Resolve(design.Ast, instancePath))
+            : _schematicComposer.Compose(design.Ast, instancePath, expand);
+        return new EngineModuleSchematicResult(instancePath, schematic.ModuleName, schematic);
+    }
+
     private async Task<EngineSimulationSnapshot> SimulationStartAsync(
         JsonElement parameters,
         CancellationToken cancellationToken)
     {
         string projectPath = RequireProjectPath(parameters);
         EngineDesignLoadResult design = await elaborationService.LoadAsync(projectPath, cancellationToken);
+        _designCache = (projectPath, design);
         SimulationSessionSnapshot snapshot = await _simulation.StartAsync(design, cancellationToken);
         return new EngineSimulationSnapshot(
             snapshot.TopModule,
@@ -209,6 +254,17 @@ public sealed class EngineRpcServer(DesignElaborationService elaborationService)
         }
         return Path.GetFullPath(path);
     }
+
+    private static string[] GetOptionalStringArray(JsonElement parameters, string property) =>
+        parameters.ValueKind == JsonValueKind.Object
+        && parameters.TryGetProperty(property, out JsonElement element)
+        && element.ValueKind == JsonValueKind.Array
+            ? element.EnumerateArray()
+                .Where(static item => item.ValueKind == JsonValueKind.String)
+                .Select(static item => item.GetString()!)
+                .Where(static value => !string.IsNullOrWhiteSpace(value))
+                .ToArray()
+            : [];
 
     private static string? GetOptionalString(JsonElement parameters, string property) =>
         parameters.ValueKind == JsonValueKind.Object

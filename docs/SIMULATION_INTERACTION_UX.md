@@ -65,6 +65,16 @@ Kaynaklar: [InputShape](https://github.com/hneemann/Digital/blob/master/src/main
 - Seçili hat ve canlı değer aynı ELK geometrisi üzerinde vurgulanır; değer
   değişimi layout çalıştırmaz.
 
+### 1.5 Hiyerarşik document'larda okuma-yalnız sözleşme (P9.5-10)
+
+- Child module document'ındaki boundary port, internal net ve output'lar
+  yalnız seçilebilir/izlenebilir. Bir child sinyalinin adı bir top-level input
+  ile çakışsa bile `simulation.setInput` child document'tan erişilemez;
+  sürülebilir port çözümü tek noktadan (`topLevelDrivePort`) yapılır ve root
+  olmayan document'larda daima boş döner (`check-schematic-hierarchy.mjs`
+  regresyonu).
+- Poke/Drive modu yalnız root (top-module) document'ında etkinleşir.
+
 ### 2. Ayrı Poke/Drive modu
 
 - Araç çubuğunda Hand ve Select'in yanında açık durum göstergeli Poke/Drive

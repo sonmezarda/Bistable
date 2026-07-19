@@ -72,7 +72,7 @@ kapanana kadar Avalonia karşılaştırma ve geri dönüş yüzeyi olarak korunu
 | P9.5-7 | Otomatik testler, performans ölçümü ve ADR go/no-go sonucu | Aktif |
 | P9.5-8 | Canlı döngü ilk kapısı: Engine session servisi + EngineHost RPC v2 + şematik sür/izle | **Otomatik testler yeşil; sahibin görsel/etkileşim kabulü bekleniyor** |
 | P9.5-9 | Vivado-tarzı şematik okunabilirlik sözleşmesi: semantik pinler, ölçülü kolonlar, elision/LOD | **Uygulandı; sahibi görsel kabulü bekleniyor** |
-| P9.5-10 | Hiyerarşik aç/kapa: instance içine girme, modül document kimliği, breadcrumb ve cone navigation | **P9.5-11 owner-directed diliminden sonra sıradaki** |
+| P9.5-10 | Hiyerarşik aç/kapa: instance içine girme, modül document kimliği, breadcrumb ve cone navigation | **Uygulandı: instance document + breadcrumb + poke güvenliği + seçici inline expand/collapse; sahibin görsel kabulü açık** |
 | P9.5-11 | Logisim/Digital-tarzı manuel sürme: Poke modu, 1-bit toggle, çok-bit non-modal popover | **Uygulandı; sahibin manuel kabulü bekleniyor** |
 
 ## İlk dilim sonucu — 2026-07-17
@@ -197,6 +197,80 @@ ve Digital'dır. Bağlayıcı ayrıntılar
   tıklanan noktada BIN/HEX/UDEC/SDEC, bit düğmeleri, Apply/OK/Escape taşıyan
   non-modal popover açar. Select salt-okunur kalır. Bu dar öncelik değişikliği
   sonrasında P9.5-10 yine sıradaki bağlayıcı iştir.
+
+## Hiyerarşik gezinme ilk dilimi — P9.5-10, 2026-07-18
+
+Vivado-tarzı hiyerarşi keşfinin ilk bağlayıcı dilimi uygulandı: instance
+document navigation + breadcrumb. Seçici inline expand/collapse sonraki dilime
+bırakıldı.
+
+- **Engine/EngineHost:** `EngineInstancePathResolver` bir hiyerarşik instance
+  path'ini (`top.u_core.u_alu`) AST üzerinde segment segment çözer; kimlik
+  module type değil instance path'tir ve aynı tipin iki instance'ı bağımsız
+  çözülür. EngineHost protokol v2'ye additive `schematic.module` capability ve
+  `loadModuleSchematic(projectPath, instancePath)` metodu eklendi
+  (`docs/ENGINE_HOST_PROTOCOL.md`); çözümsüz path yapılandırılmış
+  `invalid_path` döner. Host son elaborasyonu cache'ler: instance açmak
+  Verilator'ı yeniden çalıştırmaz.
+- **Document kimliği:** Şematik widget factory artık `instancePath` options'ı
+  taşır. Root document eski `bistable.schematic.document` kimliğini korur;
+  child'lar `bistable.schematic.document:<instance path>` olur. Theia
+  WidgetManager options'a göre anahtarladığı için aynı path ikinci kez
+  açıldığında mevcut sekme aktive edilir — duplicate tab oluşmaz. Her child
+  ayrı kapatılabilir/taşınabilir main-dock document'ıdır.
+- **Gezinme:** Instance gövdesine double-click o instance'ın document'ını açar
+  (tek tık seçim olarak kalır). Her document toolbar'ında `top › u_core ›
+  u_alu` breadcrumb'ı vardır; üst segmente tıklamak o document'ı açar/aktive
+  eder (parent navigation).
+- **Canlı değerler:** Child probe yolu document path öneki ile üretilir
+  (`top.u_alu.result`). Her document görünür probe kümesini yalnız layout
+  değişiminde hesaplayıp `BistableProjectState`'e kaydeder; SetInput/Eval/
+  Tick/Reset tüm açık document'ların birleşimini **tek** batched `ReadSignals`
+  ile yeniler. Değer değişimi hiçbir document'ta ELK'yi yeniden çalıştırmaz;
+  layout backend sürecinde kalır.
+- **Poke güvenliği (zorunlu regresyon):** Sürülebilir port çözümü tek noktaya
+  (`topLevelDrivePort`) indirildi; hierarchical document'lar hiçbir zaman drive
+  port çözemez — adı bir top-level input ile çakışan child boundary portu dahil.
+  Child document'ta Poke modu kapalıdır; bare-name value/driven fallback'leri
+  yalnız root'ta çalışır. `check-schematic-hierarchy.mjs` bu sözleşmeyi kilitler.
+- **Testler:** `EngineInstancePathResolverTests` (9), EngineRpcServer
+  capability + `loadModuleSchematic` entegrasyonu (`invalid_path` dahil),
+  `check-schematic-hierarchy.mjs` (kimlik, breadcrumb, probe prefix, poke
+  güvenliği, tek-batch birleşimi).
+
+## Seçici inline expand/collapse — P9.5-10 ikinci dilim, 2026-07-19
+
+Vivado-benzeri seçici hiyerarşi açma artık document içinde de çalışır; tüm
+hiyerarşi asla tek seferde açılmaz.
+
+- **Engine:** `EngineSchematicComposer`, seçilen relative instance path'lerini
+  (`u_core`, `u_core.u_alu`) yerinde **Container** düğümü olarak compose eder.
+  İç netler instance adıyla namespace'lenir (`u_alu.zero`) — exact per-bit
+  kimlik korunur, alias yapılmaz. Child boundary portları parent net ↔
+  namespaced iç net arasında pass-through Port sembolü olur (`typeLabel`
+  yön ipucu). Bilinmeyen instance `invalid_path` döner.
+- **Protokol:** `loadModuleSchematic` opsiyonel `expand[]` parametresi ve
+  `schematic.expand` capability'si aldı; node DTO'suna `containerId` eklendi
+  (additive, v2 korunur).
+- **Layout:** ELK `INCLUDE_CHILDREN` ile container'lar iç içe düzenlenir;
+  layout Theia backend'inde kalır. elkjs'in container-göreli kenar
+  koordinatları flatten sırasında mutlak uzaya taşınır; child düğümler mutlak
+  koordinatla tek düz listede döner (renderer'da özel iç içe çizim yok).
+- **Widget:** Instance/Container başlığındaki ⊞/⊟ düğmesi expand/collapse
+  yapar; double-click davranışı (ayrı document) korunur. Expansion durumu
+  document başına relative path kümesidir; collapse, altındaki iç
+  expansion'ları da budar ve parent seçim semantiği değişmez. Compose edilen
+  graph'lar expansion-key ile memoize edilir (collapse geri dönüşü anlık),
+  reload memo'yu temizler; yarım kalan expand layout generation guard'ıyla
+  iptal edilir. Namespaced boundary netleri top-level input adlarıyla
+  çakışamayacağı için Poke güvenliği yapısal olarak korunur.
+- **Testler:** `EngineSchematicComposerTests` (5: düz eşdeğerlik, boundary
+  pass-through, nested container zinciri, bilinmeyen instance, child-document
+  expansion), RPC `expand` entegrasyonu, `check-schematic-hierarchy.mjs`
+  (relative path/toggle/collapse-prune, pass-through iç net kimliği, nested
+  container mutlak-koordinat layout doğrulaması).
+
+Kalan iş: sahibin Poke + hiyerarşi görsel/etkileşim kabulü.
 
 ## Hedef mimari
 

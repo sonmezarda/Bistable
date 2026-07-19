@@ -60,6 +60,7 @@ function renderBody(node: EngineSchematicLayoutNode): React.ReactElement {
         case 'FlipFlop': return renderSequential(node, 'DFF');
         case 'Latch': return renderSequential(node, 'LATCH');
         case 'Instance': return renderInstance(node);
+        case 'Container': return renderContainer(node);
         case 'Constant': return renderConstant(node);
         case 'Splitter':
         case 'Joiner':
@@ -72,7 +73,9 @@ function renderBody(node: EngineSchematicLayoutNode): React.ReactElement {
 
 function renderPort(node: EngineSchematicLayoutNode): React.ReactElement {
     const { width: w, height: h } = node;
-    const isInput = node.outputs.length > 0;
+    // A pass-through boundary port of an expanded instance has both sides
+    // connected, so its direction comes from the composer's typeLabel hint.
+    const isInput = node.typeLabel ? node.typeLabel === 'input' : node.outputs.length > 0;
     const points = isInput
         ? `0,0 ${w - 14},0 ${w},${h / 2} ${w - 14},${h} 0,${h}`
         : `14,0 ${w},0 ${w},${h} 14,${h} 0,${h / 2}`;
@@ -152,6 +155,22 @@ function renderInstance(node: EngineSchematicLayoutNode): React.ReactElement {
     const separatorY = node.headerHeight - 4;
     return <g>
         <rect className='bistable-rtl-body bistable-rtl-instance-body' width={node.width} height={node.height} rx='3' />
+        <text className='bistable-rtl-caption bistable-rtl-instance-name' x={node.width / 2} y='18' textAnchor='middle'>
+            {displayNodeTitle(node.label)}<title>{node.label}</title>
+        </text>
+        {node.typeLabel && <text className='bistable-rtl-instance-type' x={node.width / 2} y='33' textAnchor='middle'>
+            {displayNodeTitle(node.typeLabel)}<title>{node.typeLabel}</title>
+        </text>}
+        <line className='bistable-rtl-detail' x1='0' y1={separatorY} x2={node.width} y2={separatorY} />
+    </g>;
+}
+
+function renderContainer(node: EngineSchematicLayoutNode): React.ReactElement {
+    // An expanded instance: a transparent dashed region so the internal nets
+    // stay visible, with the same two-line instance/type header as a symbol.
+    const separatorY = node.headerHeight - 4;
+    return <g>
+        <rect className='bistable-rtl-container-body' width={node.width} height={node.height} rx='6' />
         <text className='bistable-rtl-caption bistable-rtl-instance-name' x={node.width / 2} y='18' textAnchor='middle'>
             {displayNodeTitle(node.label)}<title>{node.label}</title>
         </text>

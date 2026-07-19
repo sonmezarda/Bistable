@@ -54,6 +54,16 @@ public sealed record EngineProjectSummary(
     double ElapsedMs,
     EngineSchematicGraph Schematic);
 
+/// <summary>
+/// Result of <c>loadModuleSchematic</c>: the exact instance path echoed back as
+/// the document identity, the resolved module type for display, and its
+/// layout-agnostic schematic graph.
+/// </summary>
+public sealed record EngineModuleSchematicResult(
+    string InstancePath,
+    string ModuleName,
+    EngineSchematicGraph Schematic);
+
 // ── simulation.* (protocol v2) ───────────────────────────────────────────
 
 public sealed record EngineSimulationSignal(string Signal, string Value);

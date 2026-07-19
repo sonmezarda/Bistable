@@ -42,6 +42,12 @@ export interface EngineSchematicNode {
     outputLabels?: string[];
     /** Module type for instance symbols; `label` remains the instance name. */
     typeLabel?: string;
+    /**
+     * Inline hierarchy expansion: id of the Container node this node is laid
+     * out inside (absent at the document root). Expanded internals carry
+     * instance-namespaced signals (`u_alu.zero`), so probe identity survives.
+     */
+    containerId?: string;
 }
 
 export interface EngineSchematicEdge {
@@ -89,6 +95,17 @@ export interface EngineSchematicLayoutEdge {
 export interface EngineSchematicPoint {
     x: number;
     y: number;
+}
+
+/**
+ * Result of `loadModuleSchematic`: the hierarchical instance path is the
+ * document identity (two instances of the same module type stay distinct);
+ * `moduleName` is display metadata only.
+ */
+export interface EngineModuleSchematic {
+    instancePath: string;
+    moduleName: string;
+    schematic: EngineSchematicGraph;
 }
 
 export interface EngineDiagnostic {
@@ -155,6 +172,7 @@ export class EngineSimulationValidationError extends Error {
 export interface BistableEngineService {
     hello(): Promise<EngineHelloResult>;
     loadProject(projectPath: string): Promise<EngineProjectLoadResult>;
+    loadModuleSchematic(projectPath: string, instancePath: string, expand?: string[]): Promise<EngineModuleSchematic>;
     layoutSchematic(graph: EngineSchematicGraph): Promise<EngineSchematicLayout>;
     startSimulation(projectPath: string): Promise<EngineSimulationSnapshot>;
     setInput(signal: string, value: string): Promise<EngineSimulationFrame>;
