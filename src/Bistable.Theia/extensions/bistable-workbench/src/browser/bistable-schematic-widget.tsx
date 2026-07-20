@@ -399,6 +399,8 @@ export class BistableSchematicWidget extends ReactWidget {
                 onToggleBit={bit => this.toggleEditorBit(bit)}
                 onApply={closeAfterApply => void this.applyPokeEditor(closeAfterApply)}
                 onKeyDown={event => this.onPokeEditorKeyDown(event)}
+                onDragMove={(deltaX, deltaY) => this.dragPokeEditor(deltaX, deltaY)}
+                onResize={(width, height) => this.resizePokeEditor(width, height)}
             />}
         </div>;
     }
@@ -885,6 +887,42 @@ export class BistableSchematicWidget extends ReactWidget {
     private closePokeEditor(): void {
         this.pokeEditor = undefined;
         this.update();
+    }
+
+    /** Drag-move by the popover's own header; clamped to stay inside the canvas. */
+    private dragPokeEditor(deltaX: number, deltaY: number): void {
+        const editor = this.pokeEditor;
+        if (!editor) {
+            return;
+        }
+        const bounds = this.canvasSize();
+        const width = editor.width ?? 380;
+        const height = editor.height ?? 440;
+        const maxX = bounds ? Math.max(0, bounds.width - width) : Number.POSITIVE_INFINITY;
+        const maxY = bounds ? Math.max(0, bounds.height - height) : Number.POSITIVE_INFINITY;
+        this.pokeEditor = {
+            ...editor,
+            x: Math.min(maxX, Math.max(0, editor.x + deltaX)),
+            y: Math.min(maxY, Math.max(0, editor.y + deltaY))
+        };
+        this.update();
+    }
+
+    /** User dragged the native resize handle; remembers the explicit box size. */
+    private resizePokeEditor(width: number, height: number): void {
+        const editor = this.pokeEditor;
+        if (!editor || (editor.width === width && editor.height === height)) {
+            return;
+        }
+        this.pokeEditor = { ...editor, width, height };
+        // No this.update() here: this callback only fires from a ResizeObserver
+        // reacting to a DOM size the browser already committed, so re-rendering
+        // would just restate the same style the element already has.
+    }
+
+    private canvasSize(): { width: number; height: number } | undefined {
+        const canvas = this.node.querySelector('.bistable-schematic-canvas') as HTMLElement | null;
+        return canvas ? { width: canvas.clientWidth, height: canvas.clientHeight } : undefined;
     }
 
     private async applyValue(selected: SelectedSignal): Promise<void> {

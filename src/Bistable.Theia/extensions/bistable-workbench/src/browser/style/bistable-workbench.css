@@ -605,7 +605,10 @@
     vector-effect: non-scaling-stroke;
 }
 
-/* Logisim/Digital-style non-modal editor anchored at the clicked input. */
+/* Logisim/Digital-style non-modal editor anchored at the clicked input. It is
+   both draggable (by its header, in JS — the parent owns position state so
+   drags survive re-renders) and resizable (native CSS `resize`, observed via
+   ResizeObserver so the chosen size is remembered across value changes). */
 .bistable-poke-editor {
     position: absolute;
     z-index: 20;
@@ -613,7 +616,11 @@
     flex-direction: column;
     gap: 9px;
     width: min(380px, calc(100% - 16px));
-    max-height: min(440px, calc(100% - 16px));
+    height: min(440px, calc(100% - 16px));
+    min-width: 220px;
+    min-height: 260px;
+    max-width: calc(100% - 16px);
+    max-height: calc(100% - 16px);
     box-sizing: border-box;
     padding: 11px;
     overflow: auto;
@@ -624,6 +631,7 @@
     box-shadow: 0 8px 28px rgb(0 0 0 / 42%);
     cursor: default;
     user-select: text;
+    resize: both;
 }
 
 .bistable-poke-editor-header,
@@ -636,6 +644,18 @@
 .bistable-poke-editor-header {
     justify-content: space-between;
     gap: 12px;
+}
+
+.bistable-poke-editor-drag-handle {
+    flex: none;
+    margin: -11px -11px 0;
+    padding: 8px 11px;
+    cursor: grab;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.bistable-poke-editor-drag-handle:active {
+    cursor: grabbing;
 }
 
 .bistable-poke-editor-header > div {
