@@ -193,7 +193,20 @@ abstraction removes proven duplication:
   additive `expand[]` param (`schematic.expand` capability), ELK lays out the
   nested containers in the backend, and the widget's ⊞/⊟ header toggle
   expands/collapses with per-expansion-state memoization and generation-guard
-  cancellation. Remaining: owner visual acceptance (Poke + hierarchy).
+  cancellation. **Owner accepted the hierarchy slice manually on 2026-07-19 —
+  P9.5-10 is closed.** The P9.5-11 Poke slice still lacks its own formal
+  acceptance record.
+- **P9.5-7 measurements + go/no-go draft (2026-07-19):** recorded in
+  `docs/PHASES/PHASE-9.5.md`. Highlights: engine-host hello 86 ms, riscv
+  elaboration 254 ms (≤2 s gate), cached module schematic 4 ms, inline-expand
+  compose 6 ms, 108-probe batched read 1–6 ms, host RSS 59–65 MB, backend ELK
+  layout 49–211 ms, Theia browser cold start 982 ms (backend RSS 163 MB). The
+  **Electron gate closed on this machine**: after `node
+  node_modules/electron/install.js` and `npm rebuild @theia/ffmpeg`,
+  `npm run build:electron` is clean and the app starts (window + backend in
+  ~0.9 s; note `ELECTRON_RUN_AS_NODE` must not be set). Draft recommendation:
+  **GO**; final decision + Electron workbench manual check remain with the
+  owner.
 
 ## 7. Guardrails (do not break these)
 

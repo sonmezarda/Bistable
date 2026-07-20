@@ -63,16 +63,16 @@ kapanana kadar Avalonia karşılaştırma ve geri dönüş yüzeyi olarak korunu
 
 | ID | Görev | Durum |
 |---|---|---|
-| P9.5-1 | Theia 1.73.x workspace; sürümler sabitlenmiş lockfile ve tekrar üretilebilir komutlar | **Browser tamam; Electron yerel paketleri bekliyor** |
+| P9.5-1 | Theia 1.73.x workspace; sürümler sabitlenmiş lockfile ve tekrar üretilebilir komutlar | **Browser tamam; Electron bundle build + start smoke 2026-07-19'da kapandı (aşağıda); masaüstü workbench manuel kontrolü sahibinde** |
 | P9.5-2 | `Bistable.Engine` servis sınırı: UI bağımsız elaboration/project DTO'ları | **Tamamlandı** |
 | P9.5-3 | `Bistable.Engine.Host`: sürümlü JSON-line RPC, süreç yaşam döngüsü, diagnostics | **Tamamlandı** |
 | P9.5-4 | Theia backend extension: engine host süreç sahipliği ve frontend proxy | **Tamamlandı** |
 | P9.5-5 | Bistable workbench widget + Explorer/Monaco/Problems entegrasyonu | **Tamamlandı; sahibi yön kabulü verdi** |
 | P9.5-6 | Live reload ve şematik veri/render köprüsü | **Dockable top RTL + ELK sembolleri tamam; canlı simülasyon döngüsü (sür/izle) tamam; hiyerarşi bir sonraki dilim** |
-| P9.5-7 | Otomatik testler, performans ölçümü ve ADR go/no-go sonucu | Aktif |
+| P9.5-7 | Otomatik testler, performans ölçümü ve ADR go/no-go sonucu | **Ölçümler kaydedildi + GO önerisi yazıldı (2026-07-19); sahibin nihai onayı bekleniyor** |
 | P9.5-8 | Canlı döngü ilk kapısı: Engine session servisi + EngineHost RPC v2 + şematik sür/izle | **Otomatik testler yeşil; sahibin görsel/etkileşim kabulü bekleniyor** |
 | P9.5-9 | Vivado-tarzı şematik okunabilirlik sözleşmesi: semantik pinler, ölçülü kolonlar, elision/LOD | **Uygulandı; sahibi görsel kabulü bekleniyor** |
-| P9.5-10 | Hiyerarşik aç/kapa: instance içine girme, modül document kimliği, breadcrumb ve cone navigation | **Uygulandı: instance document + breadcrumb + poke güvenliği + seçici inline expand/collapse; sahibin görsel kabulü açık** |
+| P9.5-10 | Hiyerarşik aç/kapa: instance içine girme, modül document kimliği, breadcrumb ve cone navigation | **Tamamlandı — sahibin görsel/etkileşim kabulü 2026-07-19** |
 | P9.5-11 | Logisim/Digital-tarzı manuel sürme: Poke modu, 1-bit toggle, çok-bit non-modal popover | **Uygulandı; sahibin manuel kabulü bekleniyor** |
 
 ## İlk dilim sonucu — 2026-07-17
@@ -270,7 +270,57 @@ hiyerarşi asla tek seferde açılmaz.
   (relative path/toggle/collapse-prune, pass-through iç net kimliği, nested
   container mutlak-koordinat layout doğrulaması).
 
-Kalan iş: sahibin Poke + hiyerarşi görsel/etkileşim kabulü.
+**Kabul kaydı — 2026-07-19:** Ürün sahibi hiyerarşik gezinme + seçici inline
+expand/collapse dilimini `samples/riscv_single_cycle` üzerinde manuel denedi ve
+görsel/etkileşim kabulü verdi ("gayet iyi görünüyor"). P9.5-10 kapandı.
+P9.5-11 Poke diliminin ayrı resmî kabul kaydı henüz açık.
+
+## P9.5-7 — Ölçümler ve go/no-go taslağı, 2026-07-19
+
+Ortam: sahibin dev makinesi (Linux 6.8, Node 22, .NET 10). Ölçümler gerçek
+`Bistable.EngineHost`'a stdio JSON-line üzerinden ve compile edilmiş Theia lib
+çıktısına karşı alındı; scriptler Theia'nın backend proxy'siyle aynı yolu izler.
+
+| Ölçüm | Değer |
+|---|---|
+| EngineHost soğuk başlatma → `hello` | 86 ms (süreç spawn dahil ~90 ms) |
+| `loadProject` riscv_single_cycle (duvar saati) | 254 ms (engine elaborasyon ölçümü 206 ms) — **≤2 sn kapısının ~8× altında** |
+| Top-modül graph | 57 node / 97 edge |
+| `loadModuleSchematic` u_alu (cache'li elaborasyon) | 4.0 ms |
+| `loadModuleSchematic` + `expand:[u_alu]` compose | 6.2 ms (99 node / 165 edge) |
+| `simulation.start` (warm worker cache) | 4.68 s |
+| `simulation.eval` / `tick` | 1.3 ms / 0.8 ms |
+| `readSignals` 108 probe (1. / 2. çağrı) | 5.5 ms / 1.1 ms — tek IPC turu |
+| EngineHost RSS (elaborasyon sonrası / canlı worker ile) | 59.1 MB / 64.6 MB |
+| ELK layout (backend süreç): top 57n/97e | median 211 ms |
+| ELK layout: u_alu child document 42n/68e | median 49 ms |
+| ELK layout: inline-expanded 99n/165e | median 205 ms |
+| Theia **browser** cold start (spawn → HTTP 200) | 982 ms |
+| Theia backend (`main.js`) RSS | 163 MB |
+| **Electron** bundle build (`npm run build:electron`) | 0 hata |
+| Electron start → ana pencere + backend listening | ~0.9 s |
+
+Pan/zoom notu: değer değişimi relayout üretmez; pan/zoom tek bir SVG grup
+transform güncellemesidir ve frame başına graph taraması yoktur. Akıcılık
+sahibin 2026-07-19 manuel kabulünde onaylandı; formal fps ölçümü headless
+alınamadı, gerekirse tarayıcı profiliyle ayrıca kaydedilir.
+
+**Electron kapısının kapanışı (bu makine):** `libxkbfile-dev` ve
+`libsecret-1-dev` kurulu. Eksik olan iki node_modules adımı tamamlandı:
+`node node_modules/electron/install.js` (Electron 39.8.7 dist indirimi) ve
+`npm rebuild @theia/ffmpeg` (native `ffmpeg.node` addon'u). Sonrasında
+`npm run build:electron` 0 hata; `electron-app` içinden `npx theia start
+<workspace>` ana pencereyi açıp backend'i başlatıyor. Dikkat: ortamda
+`ELECTRON_RUN_AS_NODE=1` set ise Electron düz Node gibi davranır ve
+`requestSingleInstanceLock` hatasıyla düşer — normal kullanıcı kabuğunda bu
+değişken yoktur.
+
+**Go/no-go taslak önerisi: GO.** Gerekçe: vizyonun kalbi (canlı döngü + Poke +
+hiyerarşik gezinme/expand) Theia üzerinde çalışıyor ve sahibi kabul etti;
+elaborasyon, frame refresh ve compose ölçümleri kapı hedeflerinin çok altında;
+RSS makul; Electron build/start artık çalışıyor. Nihai go kararı ve Electron
+workbench'in (kapı 1–2: dock/panel yaşam döngüsü) manuel kontrolü ürün
+sahibinindir; P9.5-11 Poke resmi kabul kaydı da açıktır.
 
 ## Hedef mimari
 
